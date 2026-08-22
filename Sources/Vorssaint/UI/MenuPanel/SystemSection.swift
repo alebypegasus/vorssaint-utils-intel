@@ -14,9 +14,11 @@ enum BreakdownKind {
 struct SystemSection: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = SystemMonitor.shared
+    @ObservedObject private var powerModeService = ProcessorPowerModeService.shared
     @Environment(\.colorScheme) private var colorScheme
     var collapsible = true
     @State private var expanded: BreakdownKind?
+    @State private var showDeepMetrics = false
     @State private var alertsExpanded = false
     @State private var breakdownRows: [ProcessUsage] = []
     @State private var breakdownIsLoading = false
@@ -76,8 +78,17 @@ struct SystemSection: View {
                         }
                     }
                 }
+                if !editing {
+                    Divider()
+                    processorPowerModeControl
+                    Divider()
+                    deepMetricsButton
+                }
             }
             .panelCard()
+        }
+        .sheet(isPresented: $showDeepMetrics) {
+            DeepMetricsView()
         }
         .onReceive(monitor.$snapshot) { _ in
             // The breakdown forks `ps` (and walks IORegistry for GPU), so refresh it
@@ -229,6 +240,60 @@ struct SystemSection: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var processorPowerModeControl: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label("Desempenho do Processador", systemImage: "speedometer")
+                    .font(.system(size: 11, weight: .semibold))
+                Spacer()
+                if powerModeService.isWorking {
+                    ProgressView().controlSize(.mini)
+                }
+            }
+
+            Picker("", selection: Binding<CPUPowerMode>(
+                get: { powerModeService.currentMode },
+                set: { newMode in powerModeService.setMode(newMode) }
+            )) {
+                ForEach(CPUPowerMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .controlSize(.small)
+            .disabled(powerModeService.isWorking)
+
+            Text(powerModeService.currentMode.description)
+                .font(.system(size: 9.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private var deepMetricsButton: some View {
+        Button(action: {
+            showDeepMetrics = true
+        }) {
+            HStack(spacing: 8) {
+                Image(systemName: "cpu.fill")
+                    .font(.system(size: 11))
+                Text("Relatório Profundo (Hardware & Energia)")
+                    .font(.system(size: 11, weight: .semibold))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .foregroundStyle(.primary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 2)
     }
 
     @ViewBuilder

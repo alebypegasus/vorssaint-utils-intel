@@ -9208,14 +9208,14 @@ struct MetricsTests {
 
         // MARK: Features hub catalog
 
-        expect(AppFeature.allCases.count == 53, "feature catalog has 53 features")
+        expect(AppFeature.allCases.count == 54, "feature catalog has 54 features")
         expect(Set(AppFeature.allCases.map(\.rawValue)).count == AppFeature.allCases.count,
                "feature ids are unique")
         expect(AppFeature.allCases.map(\.rawValue) == [
             "switcher", "dockPreview", "dockClick", "windowMaximizer", "windowLayout", "autoQuit",
             "scrollInverter", "focusFollowsMouse", "smoothScroll", "mouseNavigation", "mouseButtonShortcuts", "middleClick",
             "keyboardDebounce", "textSnippets", "superKey",
-            "clipboardHistory", "pastePlain", "finderCutPaste", "finderRename", "shelf", "urlCleaner",
+            "clipboardHistory", "pastePlain", "finderCutPaste", "finderRename", "finderDeleteShortcuts", "shelf", "urlCleaner",
             "diskImageInstaller",
             "mixer", "soundOutputSwitcher", "micMute", "musicBlock",
             "keepAwake", "brightness", "extraBrightness",
@@ -10185,8 +10185,9 @@ struct MetricsTests {
                "single-feature pages follow their feature")
         expect(pageVisible(.cutPaste, available: [.finderRename])
                 && pageVisible(.cutPaste, available: [.finderCutPaste])
+                && pageVisible(.cutPaste, available: [.finderDeleteShortcuts])
                 && !pageVisible(.cutPaste, available: []),
-               "either Finder shortcut keeps their shared page visible")
+               "any Finder shortcut keeps their shared page visible")
         expect(!pageVisible(.cleaner,
                             available: allFeatures.subtracting([.cleaner])),
                "cleaner settings, including WhatsApp downloads, follow the cleaner module")
