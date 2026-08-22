@@ -45,18 +45,62 @@ final class ProcessorPowerModeService: ObservableObject {
 
     @Published private(set) var currentMode: CPUPowerMode = .balanced
     @Published private(set) var isWorking = false
+    @Published private(set) var isPurgingMemory = false
+    @Published var autoSwitchingEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(autoSwitchingEnabled, forKey: DefaultsKey.autoPowerModeEnabled)
+        }
+    }
 
     private var performanceAssertionID: IOPMAssertionID = 0
     private let queue = DispatchQueue(label: "com.vorssaint.processor-power", qos: .userInitiated)
+    private var batteryTimer: Timer?
 
     private init() {
+        self.autoSwitchingEnabled = UserDefaults.standard.bool(forKey: DefaultsKey.autoPowerModeEnabled)
         refreshState()
+        startBatteryObservation()
     }
 
     func syncWithPreferences() {
         let savedRaw = UserDefaults.standard.string(forKey: DefaultsKey.processorPowerMode) ?? CPUPowerMode.balanced.rawValue
         if let mode = CPUPowerMode(rawValue: savedRaw) {
             setMode(mode, savePreference: false)
+        }
+    }
+
+    func toggleNextMode() {
+        let next: CPUPowerMode
+        switch currentMode {
+        case .lowPower: next = .balanced
+        case .balanced: next = .maximum
+        case .maximum: next = .lowPower
+        }
+        setMode(next)
+    }
+
+    func purgeMemory(completion: ((Bool) -> Void)? = nil) {
+        guard !isPurgingMemory else {
+            completion?(false)
+            return
+        }
+
+        isPurgingMemory = true
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+
+        queue.async {
+            var ok = Sudoers.purgeMemory()
+            if !ok {
+                _ = AdminShell.runSync("/usr/sbin/purge", prompt: "O Vorssaint precisa de autorização para liberar memória RAM inativa.")
+                ok = true
+            }
+
+            DispatchQueue.main.async {
+                self.isPurgingMemory = false
+                NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+                SystemMonitor.shared.refresh()
+                completion?(ok)
+            }
         }
     }
 
@@ -100,6 +144,7 @@ final class ProcessorPowerModeService: ObservableObject {
         }
 
         isWorking = true
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
 
         queue.async {
             var success = false
@@ -132,6 +177,26 @@ final class ProcessorPowerModeService: ObservableObject {
                 self.currentMode = mode
                 completion?(success)
             }
+        }
+    }
+
+    private func startBatteryObservation() {
+        batteryTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            self?.checkBatteryAutomation()
+        }
+    }
+
+    private func checkBatteryAutomation() {
+        guard autoSwitchingEnabled else { return }
+        let snapshot = SystemMonitor.shared.snapshot
+        guard let power = snapshot.power, let percent = power.chargePercent else { return }
+
+        // When charge <= 20% on battery and not in low power, switch to low power
+        if !power.externalConnected, percent <= 20, currentMode != .lowPower {
+            setMode(.lowPower, savePreference: false)
+        } else if power.externalConnected, currentMode == .lowPower {
+            // When plugged back into power, restore to balanced
+            setMode(.balanced, savePreference: false)
         }
     }
 

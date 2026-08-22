@@ -36,3 +36,4 @@ test_*
 test
 *.o
 .o
+*.zip

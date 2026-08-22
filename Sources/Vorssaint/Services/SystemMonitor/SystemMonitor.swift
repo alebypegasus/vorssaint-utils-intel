@@ -563,7 +563,7 @@ final class SystemMonitor: ObservableObject {
 
     // MARK: - Refresh
 
-    private func refresh(suppressImmediateGPU: Bool = false) {
+    func refresh(suppressImmediateGPU: Bool = false) {
         if !Thread.isMainThread {
             DispatchQueue.main.async { [weak self] in self?.refresh(suppressImmediateGPU: suppressImmediateGPU) }
             return

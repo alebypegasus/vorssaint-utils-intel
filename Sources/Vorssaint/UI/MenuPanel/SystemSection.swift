@@ -266,10 +266,33 @@ struct SystemSection: View {
             .controlSize(.small)
             .disabled(powerModeService.isWorking)
 
-            Text(powerModeService.currentMode.description)
-                .font(.system(size: 9.5))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .top) {
+                Text(powerModeService.currentMode.description)
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button(action: {
+                    powerModeService.purgeMemory()
+                }) {
+                    HStack(spacing: 4) {
+                        if powerModeService.isPurgingMemory {
+                            ProgressView().controlSize(.mini)
+                        } else {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 9))
+                        }
+                        Text("Liberar RAM")
+                            .font(.system(size: 9.5, weight: .semibold))
+                    }
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.primary.opacity(0.08))
+                    .cornerRadius(4)
+                }
+                .buttonStyle(.plain)
+                .disabled(powerModeService.isPurgingMemory)
+            }
         }
         .padding(.vertical, 2)
     }
