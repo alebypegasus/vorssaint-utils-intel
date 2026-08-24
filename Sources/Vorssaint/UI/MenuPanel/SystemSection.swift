@@ -268,44 +268,80 @@ struct SystemSection: View {
     @ViewBuilder
     private func temperatureGrid(editing: Bool) -> some View {
         if !sysTemps {
-            PanelHiddenItemRow(title: l10n.s.temperatures,
-                               systemImage: "thermometer.medium",
-                               isVisible: $sysTemps)
+            PanelHiddenItemRow(
+                title: l10n.s.temperatures,
+                systemImage: "thermometer.medium",
+                isVisible: $sysTemps
+            )
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
                     subsectionLabel(l10n.s.temperatures)
                     Spacer(minLength: 0)
+
                     if editing {
                         PanelInlineHideButton(isVisible: $sysTemps)
                     }
                 }
-                
-                let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
+
+                let columns = Array(
+                    repeating: GridItem(.flexible(), spacing: 8),
+                    count: 3
+                )
+
                 LazyVGrid(columns: columns, spacing: 8) {
-                    if cpuAvailable, let value = monitor.snapshot.cpuTemperature {
-                        temperatureCell(icon: "cpu", label: l10n.s.cpuLabel, value: value)
+                    if cpuAvailable,
+                       let value = monitor.snapshot.cpuTemperature {
+                        temperatureCell(
+                            icon: "cpu",
+                            label: l10n.s.cpuLabel,
+                            value: value
+                        )
                     }
-                    if gpuAvailable, let value = monitor.snapshot.gpuTemperature {
-                        temperatureCell(icon: "memorychip", label: l10n.s.gpuLabel, value: value)
+
+                    if gpuAvailable,
+                       let value = monitor.snapshot.gpuTemperature {
+                        temperatureCell(
+                            icon: "memorychip",
+                            label: l10n.s.gpuLabel,
+                            value: value
+                        )
                     }
-                    if powerAvailable, let value = monitor.snapshot.batteryTemperature {
-                        temperatureCell(icon: "battery.100", label: l10n.s.batteryLabel, value: value)
+
+                    if powerAvailable,
+                       let value = monitor.snapshot.batteryTemperature {
+                        temperatureCell(
+                            icon: "battery.100",
+                            label: l10n.s.batteryLabel,
+                            value: value
+                        )
                     }
+
                     if let value = monitor.snapshot.ssdTemperature {
-                        temperatureCell(icon: "internaldrive", label: "SSD", value: value)
+                        temperatureCell(
+                            icon: "internaldrive",
+                            label: "SSD",
+                            value: value
+                        )
                     }
+
                     if let value = monitor.snapshot.memoryTemperature {
-                        temperatureCell(icon: "memorychip.fill", label: "RAM", value: value)
+                        temperatureCell(
+                            icon: "memorychip.fill",
+                            label: "RAM",
+                            value: value
+                        )
                     }
+
                     if let value = monitor.snapshot.fanSpeed {
-                        fanCell(icon: "fanblades", label: "Fan", value: value)
-                    if batteryAvailable {
-                        temperatureCell(icon: "battery.100", label: l10n.s.batteryLabel,
-                                        value: monitor.snapshot.batteryTemperature)
+                        fanCell(
+                            icon: "fanblades",
+                            label: "Fan",
+                            value: value
+                        )
                     }
                 }
-                
+
                 if monitor.snapshot.cpuTemperature == nil,
                    monitor.snapshot.gpuTemperature == nil,
                    monitor.snapshot.batteryTemperature == nil,

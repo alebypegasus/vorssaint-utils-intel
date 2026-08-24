@@ -13,7 +13,7 @@ struct FanStatus: Identifiable {
     var isManual: Bool
 }
 
-final class FanControlService: ObservableObject {
+final class SMCFanControlService: ObservableObject {
     @Published var fans: [FanStatus] = []
     
     private let smc: SMCClient?

@@ -406,34 +406,55 @@ struct MetricDetailView: View {
             ]
         case .battery:
             let power = snapshot.power
-            var rows = [
-                row(l10n.s.batteryCharge, power?.chargePercent.map { "\($0)%" } ?? l10n.s.networkMeasuring),
-                row(l10n.s.powerBattery, batteryFlowText(power)),
-            ]
-            if let temp = snapshot.batteryTemperature {
-                rows.append(row(l10n.s.temperatures, formatTemperature(temp)))
-            }
-            rows.append(row(l10n.s.powerHealth, power?.healthPercent.map { "\(Int($0.rounded()))%" } ?? "-"))
-            rows.append(row(l10n.s.powerCycles, power?.cycleCount.map(String.init) ?? "-"))
             var rows: [MetricDetailRow] = []
+
             if PowerSampler.hasInternalBattery {
                 rows.append(contentsOf: [
-                    row(l10n.s.batteryCharge, power?.chargePercent.map { "\($0)%" } ?? l10n.s.networkMeasuring),
-                    row(l10n.s.powerBattery, batteryFlowText(power)),
-                    row(l10n.s.temperatures, snapshot.batteryTemperature.map(formatTemperature) ?? l10n.s.monitorUnavailable),
-                    row(l10n.s.powerHealth, power?.healthPercent.map { "\(Int($0.rounded()))%" } ?? "-"),
-                    row(l10n.s.powerCycles, power?.cycleCount.map(String.init) ?? "-"),
+                    row(
+                        l10n.s.batteryCharge,
+                        power?.chargePercent.map { "\($0)%" } ?? l10n.s.networkMeasuring
+                    ),
+                    row(
+                        l10n.s.powerBattery,
+                        batteryFlowText(power)
+                    ),
+                    row(
+                        l10n.s.temperatures,
+                        snapshot.batteryTemperature.map(formatTemperature)
+                            ?? l10n.s.monitorUnavailable
+                    ),
+                    row(
+                        l10n.s.powerHealth,
+                        power?.healthPercent.map { "\(Int($0.rounded()))%" } ?? "-"
+                    ),
+                    row(
+                        l10n.s.powerCycles,
+                        power?.cycleCount.map(String.init) ?? "-"
+                    ),
                 ])
             }
+
             if snapshot.peripheralBatteries.isEmpty {
-                rows.append(row(l10n.s.monitorShowPeripheralBattery,
-                                l10n.s.peripheralBatteryNoDevices,
-                                wrapsValue: true))
+                rows.append(
+                    row(
+                        l10n.s.monitorShowPeripheralBattery,
+                        l10n.s.peripheralBatteryNoDevices,
+                        wrapsValue: true
+                    )
+                )
             } else {
-                for device in PeripheralBatterySupport.sorted(snapshot.peripheralBatteries).prefix(5) {
-                    rows.append(row(device.name, "\(device.percent)%"))
+                for device in PeripheralBatterySupport.sorted(
+                    snapshot.peripheralBatteries
+                ).prefix(5) {
+                    rows.append(
+                        row(
+                            device.name,
+                            "\(device.percent)%"
+                        )
+                    )
                 }
             }
+
             return rows
         case .power:
             let power = snapshot.power

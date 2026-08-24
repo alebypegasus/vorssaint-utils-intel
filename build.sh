@@ -242,25 +242,46 @@ fi
 echo "▸ Compiling (release) against $(basename "$SDK")…"
 rm -rf build
 mkdir -p build
-swiftc -O -target "$TARGET_ARM64" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" \
-swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
+
+swiftc -O -target "$TARGET_ARM64" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
     Sources/Vorssaint/**/*.swift \
     -o "build/${EXECUTABLE}_arm64"
 
-swiftc -O -target "$TARGET_X86_64" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" \
+swiftc -O -target "$TARGET_X86_64" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
     Sources/Vorssaint/**/*.swift \
     -o "build/${EXECUTABLE}_x86_64"
 
-lipo -create -output "build/$EXECUTABLE" "build/${EXECUTABLE}_arm64" "build/${EXECUTABLE}_x86_64"
+lipo -create -output "build/$EXECUTABLE" \
+    "build/${EXECUTABLE}_arm64" \
+    "build/${EXECUTABLE}_x86_64"
 
 echo "▸ Compiling protected fan helper…"
-swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
+
+swiftc -O -target "$TARGET_ARM64" -sdk "$SDK" \
+    "${SDK_COMPAT_FLAGS[@]}" \
+    "${BUILD_VARIANT_FLAGS[@]}" \
     Sources/Vorssaint/Services/FanControl/FanControlSupport.swift \
     Sources/Vorssaint/Services/FanControl/FanControlXPC.swift \
     Sources/Vorssaint/Services/SystemMonitor/SMCClient.swift \
     Sources/Vorssaint/Services/FanControl/FanControlHardware.swift \
     Sources/FanControlHelper/main.swift \
-    -o "build/$FAN_HELPER_ID"
+    -o "build/${FAN_HELPER_ID}_arm64"
+
+swiftc -O -target "$TARGET_X86_64" -sdk "$SDK" \
+    "${SDK_COMPAT_FLAGS[@]}" \
+    "${BUILD_VARIANT_FLAGS[@]}" \
+    Sources/Vorssaint/Services/FanControl/FanControlSupport.swift \
+    Sources/Vorssaint/Services/FanControl/FanControlXPC.swift \
+    Sources/Vorssaint/Services/SystemMonitor/SMCClient.swift \
+    Sources/Vorssaint/Services/FanControl/FanControlHardware.swift \
+    Sources/FanControlHelper/main.swift \
+    -o "build/${FAN_HELPER_ID}_x86_64"
+
+lipo -create \
+    -output "build/$FAN_HELPER_ID" \
+    "build/${FAN_HELPER_ID}_arm64" \
+    "build/${FAN_HELPER_ID}_x86_64"
+
 "build/$FAN_HELPER_ID" --selftest
 
 echo "▸ Generating app icon…"
@@ -337,9 +358,13 @@ codesign_app() {
         codesign --force --strip-disallowed-xattrs --options runtime --timestamp \
             --entitlements "$ENTITLEMENTS" --sign "$DEVID" "$target"
     elif security find-identity -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
-        codesign --force --strip-disallowed-xattrs --sign "$LEGACY_IDENTITY" "$target"
+        codesign --force --strip-disallowed-xattrs \
+            --entitlements "$ENTITLEMENTS" \
+            --sign "$LEGACY_IDENTITY" "$target"
     else
-        codesign --force --strip-disallowed-xattrs --sign - "$target"
+        codesign --force --strip-disallowed-xattrs \
+            --entitlements "$ENTITLEMENTS" \
+            --sign - "$target"
     fi
 }
 

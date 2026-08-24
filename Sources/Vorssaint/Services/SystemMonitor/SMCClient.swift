@@ -88,32 +88,16 @@ final class SMCClient {
     /// Writes only a value encoded in the key's own reported type and size.
     /// Callers cannot change the key metadata or overrun the fixed SMC payload.
     func writeValue(_ value: Double, to key: Key) throws {
-        guard let bytes = SMCValueCodec.encode(value, type: key.dataType,
-                                               size: Int(key.dataSize)) else {
+        guard let bytes = SMCValueCodec.encode(
+            value,
+            type: key.dataType,
+            size: Int(key.dataSize)
+        ) else {
             throw WriteError.unsupportedType
         }
         try writeBytes(bytes, to: key)
     }
 
-        let bytes = withUnsafeBytes(of: out.bytes) { Array($0.prefix(Int(key.dataSize))) }
-        switch key.dataType {
-        case "flt " where bytes.count == 4:
-            return Double(bytes.withUnsafeBytes { $0.load(as: Float32.self) })
-        case "ioft" where bytes.count == 8:
-            return Double(bytes.withUnsafeBytes { $0.load(as: UInt64.self) }) / 65536.0
-        default:
-            if bytes.count == 2, (key.dataType.hasPrefix("sp") || key.dataType.hasPrefix("fp")) {
-                let typeChars = Array(key.dataType)
-                if typeChars.count == 4, let fracBits = Int(String(typeChars[3]), radix: 16) {
-                    let raw = UInt16(bytes[0]) << 8 | UInt16(bytes[1])
-                    if typeChars[0] == "s" {
-                        return Double(Int16(bitPattern: raw)) / Double(1 << fracBits)
-                    } else {
-                        return Double(raw) / Double(1 << fracBits)
-                    }
-                }
-            }
-            return nil
     func writeBytes(_ bytes: [UInt8], to key: Key) throws {
         guard key.dataSize > 0, key.dataSize <= 32,
               bytes.count == Int(key.dataSize) else {
