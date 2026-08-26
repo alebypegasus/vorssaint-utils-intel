@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [3.4.0-intel] - Intel & Hackintosh Edition
+## [3.4.0] - 2026-08-26
 
 ### Summary
 Vorssaint Intel 3.4.0 introduces dedicated architecture support for Intel Macs and Hackintoshes, enhanced SMC sensor telemetry, CPU metadata resolution, and unlocked Extra Brightness / XDR boost support for external HDR displays.
