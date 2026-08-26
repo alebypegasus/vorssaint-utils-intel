@@ -48,9 +48,9 @@ final class PowerSampler {
     private var batteryService: io_service_t = 0
 
     /// `PSTR` = System Total Power. `PDTR` = DC-In (adapter) Total Power.
-    /// They stay separate because adapter input can include connected devices.
-    private static let systemPowerKey = "PSTR"
-    private static let adapterPowerKey = "PDTR"
+    /// `PCPC`/`PCPG`/`PCPT` = Intel CPU Package / System Power.
+    private static let systemPowerKeys = ["PSTR", "PCPC", "PCPG", "PCPT", "PCPR"]
+    private static let adapterPowerKeys = ["PDTR", "ACIN", "PDIN"]
 
     init(smc: SMCClient?) {
         self.smc = smc
@@ -68,8 +68,18 @@ final class PowerSampler {
         if let smc {
             if !resolvedKeys {
                 resolvedKeys = true
-                systemKey = smc.key(named: Self.systemPowerKey)
-                adapterKey = smc.key(named: Self.adapterPowerKey)
+                for name in Self.systemPowerKeys {
+                    if let key = smc.key(named: name) {
+                        systemKey = key
+                        break
+                    }
+                }
+                for name in Self.adapterPowerKeys {
+                    if let key = smc.key(named: name) {
+                        adapterKey = key
+                        break
+                    }
+                }
             }
             reading.systemWatts = plausibleWatts(systemKey)
             reading.adapterWatts = plausibleWatts(adapterKey)

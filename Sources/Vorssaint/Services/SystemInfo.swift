@@ -79,4 +79,30 @@ enum SystemInfo {
             : nil
         return (used, appUsed, total, swapUsed)
     }
+
+    static func cpuBrandString() -> String {
+        var size = 0
+        guard sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0) == 0, size > 0 else {
+            return "Mac Processor"
+        }
+        var buffer = [CChar](repeating: 0, count: size)
+        guard sysctlbyname("machdep.cpu.brand_string", &buffer, &size, nil, 0) == 0 else {
+            return "Mac Processor"
+        }
+        return String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func cpuFrequencyHz() -> UInt64? {
+        var freq: UInt64 = 0
+        var size = MemoryLayout<UInt64>.size
+        if sysctlbyname("hw.cpufrequency", &freq, &size, nil, 0) == 0, freq > 0 {
+            return freq
+        }
+        var freq32: UInt32 = 0
+        var size32 = MemoryLayout<UInt32>.size
+        if sysctlbyname("hw.cpufrequency", &freq32, &size32, nil, 0) == 0, freq32 > 0 {
+            return UInt64(freq32)
+        }
+        return nil
+    }
 }

@@ -4,6 +4,18 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [3.4.0-intel] - Intel & Hackintosh Edition
+
+### Summary
+Vorssaint Intel 3.4.0 introduces dedicated architecture support for Intel Macs and Hackintoshes, enhanced SMC sensor telemetry, CPU metadata resolution, and unlocked Extra Brightness / XDR boost support for external HDR displays.
+
+### Added
+- **Intel SMC Temperature Sensors**: Comprehensive mapping for Intel CPU core and die sensors (`TC0C`–`TCFC`, `TC0D`–`TC3D`, `TC0P`, `TC0E`, `TC0F`, `TCXC`, `TCSA`) with automatic `.intelFamily` platform detection.
+- **Intel Power Telemetry**: Support for Intel package and system power draw reading via SMC power keys (`PCPC`, `PCPG`, `PCPT`, `PCPR`).
+- **CPU Telemetry & Frequency**: Added live processor brand string identification and clock frequency retrieval via `sysctl`.
+- **Hackintosh & External HDR Display Support**: Unlocked Extra Brightness (Metal EDR headroom multiplier) for external HDR displays and Hackintosh desktops/laptops.
+- **Fork Rebranding**: Complete project rebranding to `Vorssaint Intel` (`com.vorssaint.utils.intel`).
+
 ## [3.3.3]
 
 ### Summary

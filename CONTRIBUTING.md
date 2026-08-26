@@ -10,14 +10,14 @@ under GPL-3.0-or-later.
 ## Getting started
 
 ```sh
-git clone https://github.com/vorssaint/vorssaint-utils.git
-cd vorssaint-utils
+git clone https://github.com/alebypegasus/vorssaint-utils-intel.git
+cd vorssaint-utils-intel
 ./build.sh                         # build and assemble the bundle
 ./build/Vorssaint --selftest       # quick health check (SELFTEST OK)
 ./build.sh --install               # install into /Applications and launch
 ```
 
-You need macOS 14 or newer, Apple Silicon and the Xcode Command Line Tools. The
+You need macOS 14 or newer, an Intel or Apple Silicon Mac, and the Xcode Command Line Tools. The
 build is a plain `swiftc` invocation, see `build.sh`, with no Xcode project and
 no external dependencies, reproducible by design. `Package.swift` is there so
 SwiftPM aware editors can index the code.

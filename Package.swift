@@ -5,7 +5,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "Vorssaint",
+    name: "VorssaintIntel",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(

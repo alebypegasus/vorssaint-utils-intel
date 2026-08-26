@@ -5,28 +5,24 @@
   </picture>
 </p>
 
-<h1 align="center">Vorssaint</h1>
+<h1 align="center">Vorssaint Intel</h1>
 
 <p align="center">
   One menu bar icon doing the job of a dozen paid Mac apps.<br>
-  Free, open source, and everything runs on your Mac.
+  <strong>Enhanced Intel & Apple Silicon Edition</strong> · Free, open source, and everything runs on your Mac.
 </p>
 
 <p align="center">
-  <a href="https://vorssaint.com">Website</a> ·
   <a href="#install">Install</a> ·
   <a href="#everything-it-does">Features</a> ·
   <a href="#private-by-default">Privacy</a> ·
-  <a href="CHANGELOG.md">Changelog</a> ·
-  <a href="mailto:hello@vorssaint.com">Contact</a> ·
-  <a href="https://buymeacoffee.com/vorssaint">Buy Me a Coffee</a>
+  <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/vorssaint/vorssaint-utils/releases"><img src="https://img.shields.io/github/v/release/vorssaint/vorssaint-utils?label=release&color=4c8dff" alt="Latest release"></a>
-  <a href="https://github.com/vorssaint/vorssaint-utils/releases"><img src="https://img.shields.io/github/downloads/vorssaint/vorssaint-utils/total?color=4c8dff" alt="Downloads"></a>
-  <a href="https://github.com/vorssaint/vorssaint-utils/actions/workflows/ci.yml"><img src="https://github.com/vorssaint/vorssaint-utils/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
-  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%2B%20Apple%20Silicon-black" alt="macOS 14 and newer, Apple Silicon"></a>
+  <a href="https://github.com/alebypegasus/vorssaint-utils-intel/releases"><img src="https://img.shields.io/github/v/release/alebypegasus/vorssaint-utils-intel?label=release&color=4c8dff" alt="Latest release"></a>
+  <a href="https://github.com/alebypegasus/vorssaint-utils-intel/releases"><img src="https://img.shields.io/github/downloads/alebypegasus/vorssaint-utils-intel/total?color=4c8dff" alt="Downloads"></a>
+  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%2B%20Intel%20%26%20Apple%20Silicon-black" alt="macOS 14 and newer, Intel & Apple Silicon"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License GPL 3.0 or later"></a>
 </p>
 
@@ -202,14 +198,14 @@ The shelf and almost every quick toggle need no permission at all. Finder cut an
 
 ## What you need
 
-- A Mac with Apple Silicon
+- A Mac with Intel or Apple Silicon
 - macOS 14 Sonoma or newer
 
 ### Build it yourself
 
 ```sh
-git clone https://github.com/vorssaint/vorssaint-utils.git
-cd vorssaint-utils
+git clone https://github.com/alebypegasus/vorssaint-utils-intel.git
+cd vorssaint-utils-intel
 ./build.sh            # compile, generate the icon, assemble the signed bundle
 ./build.sh --install  # the same, then install into Applications and launch
 ```

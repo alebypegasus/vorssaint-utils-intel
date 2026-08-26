@@ -101,7 +101,7 @@ final class ExtraBrightnessService: ObservableObject {
     private static let panelReference = ExtraBrightnessSupport.panelReference(model: modelIdentifier)
 
     private static func builtInXDRScreen() -> NSScreen? {
-        NSScreen.screens.first { screen in
+        if let builtin = NSScreen.screens.first(where: { screen in
             guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
             else { return false }
             return CGDisplayIsBuiltin(number.uint32Value) != 0
@@ -109,6 +109,14 @@ final class ExtraBrightnessService: ObservableObject {
                     model: modelIdentifier,
                     localizedName: screen.localizedName,
                     potentialEDR: Double(screen.maximumPotentialExtendedDynamicRangeColorComponentValue))
+        }) {
+            return builtin
+        }
+        return NSScreen.screens.first { screen in
+            ExtraBrightnessSupport.isSupportedPanel(
+                model: modelIdentifier,
+                localizedName: screen.localizedName,
+                potentialEDR: Double(screen.maximumPotentialExtendedDynamicRangeColorComponentValue))
         }
     }
 
