@@ -15,6 +15,6 @@ enum SudoersSupport {
     /// addresses (#915) — while a uid interpolates as bare digits, which
     /// neither interpreter can read as anything else.
     static func clamshellRule(uid: uid_t) -> String {
-        "#\(uid) ALL=(root) NOPASSWD: /usr/bin/pmset disablesleep 1, /usr/bin/pmset disablesleep 0"
+        "#\(uid) ALL=(root) NOPASSWD: /usr/bin/pmset disablesleep 1, /usr/bin/pmset disablesleep 0, /usr/bin/pmset -a lowpowermode 1, /usr/bin/pmset -a lowpowermode 0, /usr/bin/pmset lowpowermode 1, /usr/bin/pmset lowpowermode 0, /usr/sbin/purge"
     }
 }

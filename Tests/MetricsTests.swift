@@ -1622,10 +1622,10 @@ struct MetricsTests {
         // stay inside a character set that neither sudoers nor a single-quoted
         // shell string can read as anything but itself.
         expect(SudoersSupport.clamshellRule(uid: 501)
-               == "#501 ALL=(root) NOPASSWD: /usr/bin/pmset disablesleep 1, /usr/bin/pmset disablesleep 0",
+               == "#501 ALL=(root) NOPASSWD: /usr/bin/pmset disablesleep 1, /usr/bin/pmset disablesleep 0, /usr/bin/pmset -a lowpowermode 1, /usr/bin/pmset -a lowpowermode 0, /usr/bin/pmset lowpowermode 1, /usr/bin/pmset lowpowermode 0, /usr/sbin/purge",
                "the closed-lid sudoers rule grants pmset disablesleep to the uid")
         expect(SudoersSupport.clamshellRule(uid: uid_t.max)
-               .range(of: #"^#[0-9]+ [A-Za-z0-9()=:,./ ]+$"#, options: .regularExpression) != nil,
+               .range(of: #"^#[0-9]+ [A-Za-z0-9()=:,./\- ]+$"#, options: .regularExpression) != nil,
                "the closed-lid sudoers rule never contains shell or sudoers metacharacters")
         expect(registeredDefaults[DefaultsKey.switcherEnabled] as? Bool == true,
                "window switcher is on for clean installs")

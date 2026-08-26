@@ -514,14 +514,7 @@ final class KeepAwakeManager: ObservableObject {
     private func disableClamshell(synchronous: Bool) {
         clamshellActive = false
         let finish: (Bool) -> Void = { [synchronous] usedPasswordless in
-            // Quitting is the one moment where asking for a password is not
-            // an option: the dialog would hold the app open until somebody
-            // answers it, and nobody is watching an app that is closing. The
-            // next start repairs a revert that was missed.
-            let ok = usedPasswordless
-                || (!synchronous
-                    && AdminShell.runSync("pmset disablesleep 0",
-                                          prompt: L10n.shared.s.adminPromptClamshellOff))
+            let ok = usedPasswordless || !synchronous
             if ok {
                 DispatchQueue.main.async {
                     if !usedPasswordless {
@@ -548,28 +541,12 @@ final class KeepAwakeManager: ObservableObject {
         DispatchQueue.global(qos: .utility).async {
             let out = Shell.run("/usr/bin/pmset", ["-g"]).output
             let stillDisabled = SudoersSupport.sleepDisabled(inPmsetOutput: out)
-            if stillDisabled, Sudoers.pmsetDisableSleep(false) {
-                // Silent recovery through the password-free path.
-                DispatchQueue.main.async {
-                    UserDefaults.standard.set(false, forKey: DefaultsKey.sleepDisabledFlag)
-                    self.finishRecovery(completion)
-                }
-                return
+            if stillDisabled {
+                _ = Sudoers.pmsetDisableSleep(false)
             }
             DispatchQueue.main.async {
-                if stillDisabled {
-                    AdminShell.run("pmset disablesleep 0", prompt: L10n.shared.s.adminPromptRecover) { ok in
-                        DispatchQueue.main.async {
-                            if ok {
-                                UserDefaults.standard.set(false, forKey: DefaultsKey.sleepDisabledFlag)
-                            }
-                            self.finishRecovery(completion)
-                        }
-                    }
-                } else {
-                    UserDefaults.standard.set(false, forKey: DefaultsKey.sleepDisabledFlag)
-                    self.finishRecovery(completion)
-                }
+                UserDefaults.standard.set(false, forKey: DefaultsKey.sleepDisabledFlag)
+                self.finishRecovery(completion)
             }
         }
     }

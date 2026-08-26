@@ -5,26 +5,34 @@
   </picture>
 </p>
 
-<h1 align="center">Vorssaint Intel</h1>
+<h1 align="center">Vorssaint Intel &amp; Hackintosh Edition</h1>
 
 <p align="center">
   One menu bar icon doing the job of a dozen paid Mac apps.<br>
-  <strong>Enhanced Intel & Apple Silicon Edition</strong> · Free, open source, and everything runs on your Mac.
+  <strong>Enhanced Intel &amp; Apple Silicon Edition</strong> · Maintained by <a href="https://github.com/alebypegasus">@alebypegasus</a>.<br>
+  Free, open source, and everything runs locally on your Mac.
 </p>
 
 <p align="center">
   <a href="#install">Install</a> ·
+  <a href="#intel--hackintosh-enhancements">Intel Features</a> ·
   <a href="#everything-it-does">Features</a> ·
   <a href="#private-by-default">Privacy</a> ·
   <a href="CHANGELOG.md">Changelog</a>
 </p>
 
+<p align="center">
   <a href="https://github.com/alebypegasus/vorssaint-utils-intel/releases"><img src="https://img.shields.io/github/v/release/alebypegasus/vorssaint-utils-intel?label=release&color=4c8dff" alt="Latest release"></a>
   <a href="https://github.com/alebypegasus/vorssaint-utils-intel/releases"><img src="https://img.shields.io/github/downloads/alebypegasus/vorssaint-utils-intel/total?color=4c8dff" alt="Downloads"></a>
   <a href="https://github.com/alebypegasus/vorssaint-utils-intel/actions/workflows/ci.yml"><img src="https://github.com/alebypegasus/vorssaint-utils-intel/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
   <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%2B%20Intel%20%26%20Apple%20Silicon-black" alt="macOS 14 and newer, Intel & Apple Silicon"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License GPL 3.0 or later"></a>
 </p>
+
+> [!NOTE]
+> **Vorssaint Intel & Hackintosh Edition** is an independent, dedicated edition maintained by [@alebypegasus](https://github.com/alebypegasus/vorssaint-utils-intel). It adds full telemetry for Intel Mac architectures and Hackintoshes (SMC core/die temperature keys, CPU package power in Watts, clock speed discovery, dynamic Metal EDR / BrightIntosh display brightness boost, and streamlined passwordless background execution).
+>
+> 💖 **Special Thanks & Credit**: Massive appreciation to the original [Vorssaint](https://github.com/vorssaintapp/vorssaint-utils) team (@vorssaintapp / @vorssaint) for creating the wonderful foundation and core macOS utilities.
 
 <p align="center">
   <a href="https://discord.gg/M6BwWH4BJp">

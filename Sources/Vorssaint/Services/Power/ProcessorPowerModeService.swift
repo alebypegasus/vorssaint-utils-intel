@@ -89,11 +89,7 @@ final class ProcessorPowerModeService: ObservableObject {
         NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
 
         queue.async {
-            var ok = Sudoers.purgeMemory()
-            if !ok {
-                _ = AdminShell.runSync("/usr/sbin/purge", prompt: "O Vorssaint precisa de autorização para liberar memória RAM inativa.")
-                ok = true
-            }
+            let ok = Sudoers.purgeMemory()
 
             DispatchQueue.main.async {
                 self.isPurgingMemory = false
@@ -153,18 +149,10 @@ final class ProcessorPowerModeService: ObservableObject {
             case .lowPower:
                 self.releasePerformanceAssertion()
                 success = Sudoers.pmsetLowPowerMode(true)
-                if !success {
-                    _ = AdminShell.runSync("pmset -a lowpowermode 1", prompt: "O Vorssaint precisa de autorização para ativar o Modo de Economia de Energia.")
-                    success = true
-                }
 
             case .balanced:
                 self.releasePerformanceAssertion()
                 success = Sudoers.pmsetLowPowerMode(false)
-                if !success {
-                    _ = AdminShell.runSync("pmset -a lowpowermode 0", prompt: "O Vorssaint precisa de autorização para desativar o Modo de Economia de Energia.")
-                    success = true
-                }
 
             case .maximum:
                 _ = Sudoers.pmsetLowPowerMode(false)
