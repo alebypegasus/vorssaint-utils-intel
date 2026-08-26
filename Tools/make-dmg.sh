@@ -8,7 +8,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-APP_NAME="Vorssaint"
+if [[ -d "build/stage/Vorssaint Intel.app" ]]; then
+    APP_NAME="Vorssaint Intel"
+elif [[ -d "build/stage/Vorssaint.app" ]]; then
+    APP_NAME="Vorssaint"
+else
+    APP_NAME="Vorssaint Intel"
+fi
 APP="build/stage/$APP_NAME.app"
 VOLUME="$APP_NAME"
 STAGING=""
@@ -34,10 +40,10 @@ xattr -cr "$APP"
 codesign --verify --deep --strict "$APP"
 
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/Contents/Info.plist")"
-OUT="dist/Vorssaint-$VERSION.dmg"
+OUT="dist/${APP_NAME// /-}-$VERSION.dmg"
 
 echo "▸ Rendering installer background…"
-swift Tools/MakeDMGBackground.swift build/dmg-background.png
+swift Tools/MakeDMGBackground.swift build/dmg-background.png "$APP_NAME"
 
 echo "▸ Staging DMG contents…"
 STAGING="$(mktemp -d)"

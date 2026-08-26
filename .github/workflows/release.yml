@@ -50,7 +50,7 @@ jobs:
           NOTARY_API_KEY_P8: ${{ secrets.NOTARY_API_KEY_P8 }}
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
-        run: ./Tools/notarize.sh build/stage/Vorssaint.app
+        run: ./Tools/notarize.sh build/stage/*.app
 
       - name: Package DMG
         run: ./Tools/make-dmg.sh
@@ -100,9 +100,9 @@ jobs:
           }
           trap cleanup EXIT
           hdiutil attach -nobrowse -readonly -mountpoint "$MP" "$DMG"
-          spctl -a -t exec -vv "$MP/Vorssaint.app" 2>&1 | tee /tmp/spctl.txt
+          spctl -a -t exec -vv "$MP"/*.app 2>&1 | tee /tmp/spctl.txt
           grep -q "source=Notarized Developer ID" /tmp/spctl.txt
-          xcrun stapler validate "$MP/Vorssaint.app"
+          xcrun stapler validate "$MP"/*.app
 
       - name: Release notes from CHANGELOG
         id: notes
