@@ -90,7 +90,13 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Verify notarization
+        env:
+          NOTARY_KEY: ${{ secrets.NOTARY_API_KEY_P8 }}
         run: |
+          if [[ -z "$NOTARY_KEY" ]]; then
+            echo "Notarization credentials not configured; skipping stapler verification."
+            exit 0
+          fi
           DMG=$(ls dist/*.dmg | head -1)
           xcrun stapler validate "$DMG"
           MP=$(mktemp -d)
