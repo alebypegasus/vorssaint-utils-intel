@@ -6,6 +6,7 @@
 # (dist/Vorssaint-<version>.dmg): a window with the app icon, an arrow and
 # the Applications folder for drag-and-drop install. Run ./build.sh first.
 set -euo pipefail
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 cd "$(dirname "$0")/.."
 
 if [[ -d "build/stage/Vorssaint Intel.app" ]]; then
@@ -43,7 +44,23 @@ VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/C
 OUT="dist/${APP_NAME// /-}-$VERSION.dmg"
 
 echo "▸ Rendering installer background…"
-swift Tools/MakeDMGBackground.swift build/dmg-background.png "$APP_NAME"
+PINNED_SDK="/Library/Developer/CommandLineTools/SDKs/MacOSX26.sdk"
+if [[ -n "${DEVELOPER_DIR:-}" ]]; then
+    SDK="$(xcrun --show-sdk-path)"
+elif [[ -d "$PINNED_SDK" ]]; then
+    SDK="$PINNED_SDK"
+else
+    SDK="$(xcrun --show-sdk-path)"
+fi
+SDK_COMPAT_FLAGS=()
+if [[ "$SDK" == "$PINNED_SDK" ]]; then
+    if swiftc -Xfrontend -interface-compiler-version -Xfrontend 6.3.2 -c - </dev/null >/dev/null 2>&1; then
+        SDK_COMPAT_FLAGS=(-Xfrontend -interface-compiler-version -Xfrontend 6.3.2)
+    fi
+fi
+TARGET="$(uname -m)-apple-macosx14.0"
+swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" Tools/MakeDMGBackground.swift -o build/MakeDMGBackground
+./build/MakeDMGBackground build/dmg-background.png "$APP_NAME"
 
 echo "▸ Staging DMG contents…"
 STAGING="$(mktemp -d)"
