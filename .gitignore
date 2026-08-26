@@ -29,6 +29,8 @@ xcuserdata/
 # IDEs / Editor
 .vscode/
 .idea/
+.cursor/
+.gemini/
 *.swp
 *~
 test.swift

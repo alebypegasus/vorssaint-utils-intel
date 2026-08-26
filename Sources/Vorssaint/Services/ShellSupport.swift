@@ -133,12 +133,6 @@ enum Sudoers {
         "/etc/sudoers.d/vorss-clamshell",
     ]
 
-    private static var safeUser: String? {
-        let user = NSUserName()
-        let valid = user.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) != nil
-        return valid ? user : nil
-    }
-
     /// Serializes every touch of the SleepDisabled state. The probe below
     /// re-applies the value it just read; racing it against a concurrent
     /// disable (launch recovery, a session ending) could resurrect a stale
@@ -167,11 +161,10 @@ enum Sudoers {
     }
 
     static func install(completion: @escaping (Bool) -> Void) {
-        guard let user = safeUser else {
-            completion(false)
-            return
-        }
-        let rule = "\(user) ALL=(root) NOPASSWD: /usr/bin/pmset disablesleep 1, /usr/bin/pmset disablesleep 0, /usr/bin/pmset -a lowpowermode 1, /usr/bin/pmset -a lowpowermode 0, /usr/bin/pmset lowpowermode 1, /usr/bin/pmset lowpowermode 0, /usr/sbin/purge"
+        // Granted by uid, not username: a short name is free-form text on
+        // SSO-enrolled Macs (name@company.com, #915) and the old validation
+        // rejected it before the password prompt could even appear.
+        let rule = SudoersSupport.clamshellRule(uid: getuid())
         // Clear any earlier-named rule first, then write and validate the new one
         // (a failed check rolls back). Same password prompt either way.
         let legacy = legacyRulePaths.joined(separator: " ")
@@ -195,6 +188,14 @@ enum Sudoers {
     @discardableResult
     static func pmsetDisableSleep(_ on: Bool) -> Bool {
         sleepStateQueue.sync { pmsetDisableSleepOnQueue(on) }
+    }
+
+    /// Queues asynchronous writes directly and runs completion there so
+    /// fallback work stays serialized in request order.
+    static func pmsetDisableSleep(_ on: Bool, completion: @escaping (Bool) -> Void) {
+        sleepStateQueue.async {
+            completion(pmsetDisableSleepOnQueue(on))
+        }
     }
 
     private static func pmsetDisableSleepOnQueue(_ on: Bool) -> Bool {
