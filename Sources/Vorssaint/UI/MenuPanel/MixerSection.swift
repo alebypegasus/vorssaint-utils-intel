@@ -88,11 +88,18 @@ struct MixerSection: View {
     private var equalizerQuickBar: some View {
         HStack(spacing: 8) {
             Button {
-                equalizer.isEnabled.toggle()
+                withAnimation(.liquidBouncy) {
+                    equalizer.isEnabled.toggle()
+                }
             } label: {
                 Image(systemName: "slider.vertical.3")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(equalizer.isEnabled && !equalizer.isBypassed ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(equalizer.isEnabled && !equalizer.isBypassed ? Theme.LiquidGlass.cyanGlow : Color.secondary.opacity(0.6))
+                    .frame(width: 22, height: 22)
+                    .background(
+                        Circle()
+                            .fill(equalizer.isEnabled && !equalizer.isBypassed ? Theme.LiquidGlass.cyanGlow.opacity(0.18) : Color.white.opacity(0.04))
+                    )
             }
             .buttonStyle(.plain)
             .help(equalizer.isEnabled ? "Disable Equalizer" : "Enable Equalizer")
@@ -101,17 +108,21 @@ struct MixerSection: View {
                 Text(l10n.s.equalizerTitle)
                     .font(.system(size: 11.5, weight: .semibold))
                 Text(equalizer.activeProfile.name)
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(Theme.LiquidGlass.violetGlow.opacity(0.9))
                     .lineLimit(1)
             }
 
             Spacer()
 
+            if equalizer.isEnabled && !equalizer.isBypassed {
+                EqualizerStereoVUMeter()
+            }
+
             Button {
                 (NSApp.delegate as? AppDelegate)?.openEqualizerStudioWindow()
             } label: {
-                Text("Studio EQ")
+                Text("Studio")
                     .font(.system(size: 10, weight: .semibold))
             }
             .buttonStyle(.bordered)
@@ -120,8 +131,12 @@ struct MixerSection: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Theme.LiquidGlass.borderGradient(for: .dark), lineWidth: 0.6)
+                )
         )
     }
 

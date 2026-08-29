@@ -142,8 +142,20 @@ struct CommandBarView: View {
             }
         }
         .frame(width: 560)
-        .background(HUDBackdrop(cornerRadius: 22, contrast: .high))
+        .background(
+            ZStack {
+                HUDBackdrop(cornerRadius: 22, contrast: .high)
+                RoundedRectangle(cornerRadius: 22, style: .continuous)
+                    .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.4))
+            }
+        )
         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme, glow: Theme.LiquidGlass.cyanGlow.opacity(0.35)), lineWidth: 0.85)
+        )
+        .shadow(color: Color.black.opacity(0.38), radius: 20, x: 0, y: 8)
+        .shadow(color: Theme.LiquidGlass.cyanGlow.opacity(0.14), radius: 16, x: 0, y: 0)
         .onAppear { focusSearch() }
         .onChange(of: service.presentationID) { _, _ in focusSearch() }
         .onChange(of: service.mode) { _, _ in focusSearch() }

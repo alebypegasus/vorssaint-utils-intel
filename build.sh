@@ -243,6 +243,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Audio/Equalizer/EqualizerModels.swift \
         Sources/Vorssaint/Services/Audio/Equalizer/AudioEqualizerDSP.swift \
         Sources/Vorssaint/Services/Audio/Equalizer/EqualizerPresetManager.swift \
+        Sources/Vorssaint/Services/Audio/Equalizer/AudioToneGenerator.swift \
         Sources/Vorssaint/Services/Bluetooth/BluetoothSleepSupport.swift \
         Sources/Vorssaint/UI/MenuPanel/MixerPercentNativeTextField.swift \
         Sources/Vorssaint/Services/Audio/BoostLimiter.swift \

@@ -343,11 +343,17 @@ final class SpectrumAnalyzerDSP: ObservableObject {
     static let binCount = 32
 
     @Published private(set) var spectrumMagnitudes: [Float] = Array(repeating: 0.0, count: binCount)
+    @Published private(set) var peakLevelL: Float = 0.0
+    @Published private(set) var peakLevelR: Float = 0.0
+    @Published private(set) var isClipping: Bool = false
 
     private var fftSetup: vDSP_DFT_Setup?
     private var window: [Float]
     private var inputBuffer: [Float]
     private var smoothedMagnitudes: [Float]
+    private var currentPeakL: Float = 0.0
+    private var currentPeakR: Float = 0.0
+    private var clipHoldUntil: CFAbsoluteTime = 0
     private let sampleQueue = DispatchQueue(label: "com.vorssaint.utils.equalizer.spectrum", qos: .userInteractive)
     private var pendingFrames: [Float] = []
     private var lastPublishTime: CFAbsoluteTime = 0
@@ -366,24 +372,49 @@ final class SpectrumAnalyzerDSP: ObservableObject {
         }
     }
 
-    /// Feeds output samples from the audio render callback to compute the real-time spectrum.
+    /// Feeds output samples from the audio render callback to compute the real-time spectrum and stereo peak levels.
     func feedSamples(_ samples: UnsafePointer<Float>, frameCount: Int, channels: Int) {
         guard frameCount > 0, channels > 0 else { return }
 
-        // Downmix to mono and copy into lightweight array
-        var mono = [Float](repeating: 0, count: min(frameCount, 512))
+        // Compute peak levels
+        var maxL: Float = 0.0
+        var maxR: Float = 0.0
         let stride = channels
-        for i in 0..<mono.count {
-            mono[i] = samples[i * stride]
+        let checkCount = min(frameCount, 512)
+
+        for i in 0..<checkCount {
+            let sL = abs(samples[i * stride])
+            if sL > maxL { maxL = sL }
+            if channels > 1 {
+                let sR = abs(samples[i * stride + 1])
+                if sR > maxR { maxR = sR }
+            } else {
+                maxR = maxL
+            }
+        }
+
+        // Downmix to mono and copy into lightweight array
+        var mono = [Float](repeating: 0, count: checkCount)
+        for i in 0..<checkCount {
+            mono[i] = channels > 1 ? (samples[i * stride] + samples[i * stride + 1]) * 0.5 : samples[i * stride]
         }
 
         sampleQueue.async { [weak self] in
-            self?.processMonoSamples(mono)
+            self?.processAudioMetrics(mono: mono, peakL: maxL, peakR: maxR)
         }
     }
 
-    private func processMonoSamples(_ samples: [Float]) {
-        pendingFrames.append(contentsOf: samples)
+    private func processAudioMetrics(mono: [Float], peakL: Float, peakR: Float) {
+        // Smooth peak decay
+        currentPeakL = max(peakL, currentPeakL * 0.82)
+        currentPeakR = max(peakR, currentPeakR * 0.82)
+
+        let now = CFAbsoluteTimeGetCurrent()
+        if peakL >= 0.99 || peakR >= 0.99 {
+            clipHoldUntil = now + 1.2 // Hold clip indicator for 1.2s
+        }
+
+        pendingFrames.append(contentsOf: mono)
         guard pendingFrames.count >= Self.fftSize else { return }
 
         let activeWindow = Array(pendingFrames.suffix(Self.fftSize))
@@ -449,12 +480,17 @@ final class SpectrumAnalyzerDSP: ObservableObject {
             }
         }
 
-        let now = CFAbsoluteTimeGetCurrent()
         if now - lastPublishTime >= 0.033 { // ~30 fps UI refresh limit
             lastPublishTime = now
             let result = smoothedMagnitudes
+            let pL = min(1.0, currentPeakL)
+            let pR = min(1.0, currentPeakR)
+            let clipping = now < clipHoldUntil
             DispatchQueue.main.async {
                 self.spectrumMagnitudes = result
+                self.peakLevelL = pL
+                self.peakLevelR = pR
+                self.isClipping = clipping
             }
         }
     }
