@@ -140,6 +140,7 @@ struct SettingsView: View {
         case .screenshot: ScreenCaptureSettings()
         case .windowLayout: WindowLayoutSettings()
         case .shelf: ShelfSettings()
+        case .equalizer: EqualizerSettings()
         case .shortcuts: ShortcutsSettings()
         case .advanced: AdvancedSettings()
         case .about: AboutSettings()
@@ -1641,30 +1642,60 @@ struct PermissionRow: View {
 private struct SidebarSearchField: View {
     @ObservedObject private var l10n = L10n.shared
     @Binding var query: String
+    @FocusState private var isFocused: Bool
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11.5))
+                .foregroundStyle(isFocused ? Theme.LiquidGlass.cyanGlow : Color.secondary)
             TextField(l10n.s.settingsSearchPlaceholder, text: $query)
                 .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .focused($isFocused)
                 .onExitCommand { query = "" }
             if !query.isEmpty {
                 Button {
-                    query = ""
+                    withAnimation(.liquidSpring) {
+                        query = ""
+                    }
                 } label: {
                     Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(l10n.s.urlCleanerClearButton)
             }
         }
-        .padding(.vertical, 5)
-        .padding(.horizontal, 7)
-        .background(.quaternary.opacity(0.5), in: Capsule())
+        .padding(.vertical, 6)
+        .padding(.horizontal, 9)
+        .background(
+            ZStack {
+                Capsule()
+                    .fill(Color.primary.opacity(0.05))
+                if isFocused {
+                    Capsule()
+                        .fill(Theme.LiquidGlass.cyanGlow.opacity(0.06))
+                    Capsule()
+                        .fill(Theme.LiquidGlass.specularGradient(for: .dark).opacity(0.4))
+                }
+            }
+        )
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .strokeBorder(
+                    isFocused
+                        ? Theme.LiquidGlass.cyanGlow.opacity(0.7)
+                        : Color.primary.opacity(0.1),
+                    lineWidth: isFocused ? 1.0 : 0.65
+                )
+        )
+        .shadow(color: isFocused ? Theme.LiquidGlass.cyanGlow.opacity(0.2) : Color.clear, radius: 6)
         .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 4)
+        .animation(.liquidSpring, value: isFocused)
     }
 }

@@ -92,6 +92,11 @@ enum DefaultsKey {
     static let mixerHiddenApps = "mixerHiddenApps"        // [persistence id: display name] kept out of the mixer list (issue #300)
     static let mixerLowerVolumeOnHeadphonesDisconnect = "mixerLowerVolumeOnHeadphonesDisconnect"
     static let mixerHeadphonesDisconnectVolumePercent = "mixerHeadphonesDisconnectVolumePercent"
+    static let equalizerEnabled = "equalizerEnabled"
+    static let equalizerBypassed = "equalizerBypassed"
+    static let equalizerActiveProfileData = "equalizerActiveProfileData"
+    static let equalizerCustomProfilesData = "equalizerCustomProfilesData"
+    static let equalizerAppMappings = "equalizerAppMappings"
     static let preciseVolumeRollerEnabled = "preciseVolumeRollerEnabled"
     static let soundOutputSwitcherEnabled = "soundOutputSwitcherEnabled"
     static let soundOutputSwitcherShortcut = "soundOutputSwitcherShortcut"

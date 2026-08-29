@@ -22,7 +22,7 @@ enum AppFeature: String, CaseIterable {
     case clipboardHistory, pastePlain, finderCutPaste, finderRename, finderDeleteShortcuts, shelf, urlCleaner,
          diskImageInstaller
     // Sound
-    case mixer, soundOutputSwitcher, micMute, musicBlock
+    case mixer, soundOutputSwitcher, equalizer, micMute, musicBlock
     // Energy and display
     case keepAwake, brightness, extraBrightness, bluetoothSleep
     // Tools
@@ -94,7 +94,7 @@ extension AppFeature {
         case .clipboardHistory, .pastePlain, .finderCutPaste, .finderRename, .finderDeleteShortcuts, .shelf, .urlCleaner,
              .diskImageInstaller:
             return .clipboardFiles
-        case .mixer, .soundOutputSwitcher, .micMute, .musicBlock:
+        case .mixer, .soundOutputSwitcher, .equalizer, .micMute, .musicBlock:
             return .sound
         case .keepAwake, .brightness, .extraBrightness, .bluetoothSleep:
             return .energyDisplay
@@ -134,6 +134,7 @@ extension AppFeature {
         case .urlCleaner: return "link"
         case .diskImageInstaller: return "externaldrive.badge.plus"
         case .mixer: return "slider.horizontal.3"
+        case .equalizer: return "slider.vertical.3"
         case .soundOutputSwitcher: return "hifispeaker"
         case .micMute: return "mic.slash"
         case .musicBlock: return "music.note"
@@ -211,6 +212,7 @@ extension AppFeature {
         case .shelf: return [DefaultsKey.shelfEnabled]
         case .urlCleaner: return [DefaultsKey.urlCleanerEnabled]
         case .soundOutputSwitcher: return [DefaultsKey.soundOutputSwitcherEnabled]
+        case .equalizer: return [DefaultsKey.equalizerEnabled]
         case .musicBlock: return [DefaultsKey.musicBlockEnabled]
         case .brightness: return [DefaultsKey.brightnessControlEnabled]
         case .extraBrightness: return [DefaultsKey.extraBrightnessEnabled]
@@ -258,7 +260,7 @@ extension AppFeature {
         case .homebrew: return [.automationTerminal, .appManagement]
         case .appUpdates: return [.notifications, .appManagement]
         case .diskImageInstaller: return [.appManagement]
-        case .mixer: return [.audioCapture, .accessibility]
+        case .mixer, .equalizer: return [.audioCapture, .accessibility]
         case .monitorCPU, .monitorMemory, .monitorDisk, .monitorPower: return [.notifications]
         case .clipboardHistory, .shelf, .urlCleaner,
              .soundOutputSwitcher, .musicBlock,
@@ -274,7 +276,7 @@ extension AppFeature {
     var onboardingPermissions: [AppPermission] {
         switch self {
         case .keepAwake, .brightness, .radialMenu, .quickToggles, .cleaner,
-             .uninstaller, .homebrew, .appUpdates, .mixer, .cameraPreview,
+             .uninstaller, .homebrew, .appUpdates, .mixer, .equalizer, .cameraPreview,
              .micMute:
             return []
         default:

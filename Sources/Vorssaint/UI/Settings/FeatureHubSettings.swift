@@ -641,6 +641,7 @@ extension AppFeature {
         case .diskImageInstaller:
             return FeatureStrings.diskImageInstaller(L10n.shared.language).title
         case .mixer: return s.mixerSection
+        case .equalizer: return s.equalizerTitle
         case .soundOutputSwitcher: return s.soundOutputSwitcherTitle
         case .micMute: return s.micMuteName
         case .musicBlock: return hub.titleMusicBlock
@@ -702,6 +703,7 @@ extension AppFeature {
         case .diskImageInstaller:
             return FeatureStrings.diskImageInstaller(L10n.shared.language).hubDescription
         case .mixer: return hub.descMixer
+        case .equalizer: return L10n.shared.s.equalizerEnableCaption
         case .soundOutputSwitcher: return hub.descSoundOutputSwitcher
         case .micMute: return hub.descMicMute
         case .musicBlock: return hub.descMusicBlock

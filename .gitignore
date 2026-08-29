@@ -3,6 +3,13 @@ build/
 dist/
 .build/
 *.dmg
+*.d
+*.dia
+*.swiftdeps
+*.swiftmodule
+*.swiftinterface
+*.abi.json
+*-2.*
 
 # Signing material: never commit private keys or notary credentials
 *.p12

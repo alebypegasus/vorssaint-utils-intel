@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var supportIntroCanClose = false
     private var updateShowcaseWindow: NSWindow?
     private var updatePreviewWindow: NSWindow?
+    private var equalizerStudioWindow: NSWindow?
     private let popoverOpenDuration: TimeInterval = 0.18
     private let popoverCloseDuration: TimeInterval = 0.14
 
@@ -1378,6 +1379,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         feedbackWindow?.title = FeatureStrings.feedback(L10n.shared.language).windowTitle
         NSApp.activate(ignoringOtherApps: true)
         feedbackWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    func openEqualizerStudioWindow() {
+        if equalizerStudioWindow == nil {
+            let host = NSHostingController(rootView: EqualizerStudioView())
+            host.sizingOptions = []
+            let window = NSWindow(contentViewController: host)
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            window.title = "Equalizer Studio"
+            window.contentMinSize = NSSize(width: 760, height: 520)
+            window.setContentSize(NSSize(width: 860, height: 620))
+            window.isReleasedWhenClosed = false
+            window.isRestorable = false
+            window.hidesOnDeactivate = false
+            window.canHide = false
+            window.delegate = self
+            window.center()
+            equalizerStudioWindow = window
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        equalizerStudioWindow?.makeKeyAndOrderFront(nil)
     }
 
     private func positionSettingsWindow(_ window: NSWindow, force: Bool) {

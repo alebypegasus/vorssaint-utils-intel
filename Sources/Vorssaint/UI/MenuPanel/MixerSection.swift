@@ -15,6 +15,7 @@ struct MixerSection: View {
     @ObservedObject private var outputSwitcher = SoundOutputSwitcher.shared
     @ObservedObject private var preciseVolumeRoller = PreciseVolumeRollerService.shared
     @ObservedObject private var permissions = Permissions.shared
+    @ObservedObject private var equalizer = AudioEqualizerService.shared
     @AppStorage(DefaultsKey.mixerHideInactiveApps)
     private var hideInactiveApps = false
     @AppStorage(DefaultsKey.mixerLowerVolumeOnHeadphonesDisconnect)
@@ -74,11 +75,54 @@ struct MixerSection: View {
             universalOutputPicker
             systemSoundOutputPicker
             microphonePicker
+            if AppFeature.equalizer.isAvailable {
+                equalizerQuickBar
+            }
             if let outputSwitchError = mixer.outputSwitchError {
                 inputMessage(String(format: l10n.s.mixerSystemOutputErrorFormat, outputSwitchError),
                              systemImage: "exclamationmark.triangle")
             }
         }
+    }
+
+    private var equalizerQuickBar: some View {
+        HStack(spacing: 8) {
+            Button {
+                equalizer.isEnabled.toggle()
+            } label: {
+                Image(systemName: "slider.vertical.3")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(equalizer.isEnabled && !equalizer.isBypassed ? Color.accentColor : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(equalizer.isEnabled ? "Disable Equalizer" : "Enable Equalizer")
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(l10n.s.equalizerTitle)
+                    .font(.system(size: 11.5, weight: .semibold))
+                Text(equalizer.activeProfile.name)
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            Button {
+                (NSApp.delegate as? AppDelegate)?.openEqualizerStudioWindow()
+            } label: {
+                Text("Studio EQ")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.mini)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.35))
+        )
     }
 
     private var optionsDisclosure: some View {

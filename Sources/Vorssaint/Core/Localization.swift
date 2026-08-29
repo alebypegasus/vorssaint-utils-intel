@@ -3044,3 +3044,89 @@ extension Strings {
         switcherShowFullscreenWindows: "Show fullscreen windows"
     )
 }
+
+extension Strings {
+    var equalizerTitle: String {
+        switch L10n.shared.language {
+        case .ptBR: return "Equalizador"
+        default: return "Equalizer"
+        }
+    }
+
+    var equalizerEnable: String {
+        switch L10n.shared.language {
+        case .ptBR: return "Ativar equalizador de áudio"
+        default: return "Enable audio equalizer"
+        }
+    }
+
+    var equalizerEnableCaption: String {
+        switch L10n.shared.language {
+        case .ptBR: return "Equalizador paramétrico e gráfico profissional com processamento em tempo real de latência zero estilo Equalizer APO."
+        default: return "Professional parametric and graphic equalizer with zero-latency real-time processing inspired by Equalizer APO."
+        }
+    }
+
+    var equalizerOpenStudio: String {
+        switch L10n.shared.language {
+        case .ptBR: return "Abrir Equalizer Studio"
+        default: return "Open Equalizer Studio"
+        }
+    }
+
+    var equalizerManagePresets: String {
+        switch L10n.shared.language {
+        case .ptBR: return "Gerenciar e Importar Perfis…"
+        default: return "Manage & Import Profiles…"
+        }
+    }
+
+    var equalizerCurrentProfileHeader: String {
+        switch L10n.shared.language {
+        case .ptBR: return "Perfil Ativo"
+        default: return "Active Profile"
+        }
+    }
+
+    var equalizerActiveProfileLabel: String {
+        switch L10n.shared.language {
+        case .ptBR: return "Perfil:"
+        default: return "Profile:"
+        }
+    }
+
+    var equalizerModeLabel: String {
+        switch L10n.shared.language {
+        case .ptBR: return "Modo:"
+        default: return "Mode:"
+        }
+    }
+
+    var equalizerPreampLabel: String {
+        switch L10n.shared.language {
+        case .ptBR: return "Pré-amplificação:"
+        default: return "Preamplification:"
+        }
+    }
+
+    var equalizerAutoEqHeader: String {
+        switch L10n.shared.language {
+        case .ptBR: return "Compatibilidade AutoEq & Equalizer APO"
+        default: return "AutoEq & Equalizer APO Compatibility"
+        }
+    }
+
+    var equalizerAutoEqDescription: String {
+        switch L10n.shared.language {
+        case .ptBR: return "Importe arquivos de configuração paramétricos do Equalizer APO (.txt / .eqapo) ou curvas de calibração de fones de ouvido do banco de dados AutoEq."
+        default: return "Import Equalizer APO parametric configuration files (.txt / .eqapo) or headphone calibration profiles from the AutoEq database."
+        }
+    }
+
+    var equalizerImportAutoEqButton: String {
+        switch L10n.shared.language {
+        case .ptBR: return "Importar Perfil de Fone (AutoEq / APO)…"
+        default: return "Import Headphone Profile (AutoEq / APO)…"
+        }
+    }
+}

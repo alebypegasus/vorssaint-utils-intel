@@ -622,9 +622,11 @@ final class AppVolumeMixer: ObservableObject {
         guard #available(macOS 14.4, *), let token = builds.begin(app.id) else { return }
 
         buildQueue.async { [weak self] in
+            let appKey = app.persistenceID ?? app.id
             let engine = TapGainEngine(objects: app.audioObjects,
                                        gain: Float(app.volume),
-                                       outputDeviceUID: targetOutputDeviceUID)
+                                       outputDeviceUID: targetOutputDeviceUID,
+                                       appID: appKey)
             DispatchQueue.main.async {
                 guard let self else {
                     engine?.stop()
@@ -1846,7 +1848,7 @@ private final class TapGainEngine: GainEngine {
     /// the listener goes away.
     private var rateListenerClient: UnsafeMutableRawPointer?
 
-    init?(objects: [AudioObjectID], gain: Float, outputDeviceUID: String) {
+    init?(objects: [AudioObjectID], gain: Float, outputDeviceUID: String, appID: String = "") {
         tappedObjects = objects
         gainBox.value = min(max(gain, 0), Float(AppVolumeMixer.maxVolume))
         self.outputDeviceUID = outputDeviceUID
@@ -1883,7 +1885,11 @@ private final class TapGainEngine: GainEngine {
         // would not fit, so a boosted app gets louder without distorting.
         let limiterBox = LimiterBox(
             channelCapacity: Self.outputChannelCapacity(of: aggregateID))
-        releaseBox.value = BoostLimiter.release(sampleRate: Self.nominalSampleRate(of: aggregateID))
+        let nominalRate = Self.nominalSampleRate(of: aggregateID)
+        releaseBox.value = BoostLimiter.release(sampleRate: nominalRate)
+        AudioEqualizerService.shared.setSampleRate(nominalRate)
+        let equalizerDSP = AudioEqualizerService.shared.dspForApp(id: appID)
+
         let release = releaseBox
         let cycles = cycleBox
         let tapChannels = Self.tapChannels(of: tapID)
@@ -1901,6 +1907,16 @@ private final class TapGainEngine: GainEngine {
             // fresh block of silence into audio that is already playing.
             guard frames > 0 else { return }
             cycles.increment()
+
+            // Equalizer APO realtime DSP filter processing
+            equalizerDSP.processAudioBufferList(outputBuffers, frames: frames)
+
+            // Feed samples to real-time FFT spectrum visualizer
+            if let firstBuf = outputBuffers.first(where: { $0.mData != nil && $0.mNumberChannels > 0 }),
+               let samples = firstBuf.mData?.assumingMemoryBound(to: Float.self) {
+                SpectrumAnalyzerDSP.shared.feedSamples(samples, frameCount: min(frames, 256), channels: Int(firstBuf.mNumberChannels))
+            }
+
             let releaseCoefficient = release.value
             if !limiterBox.lookahead.process(outputBuffers, frames: frames,
                                              release: releaseCoefficient) {

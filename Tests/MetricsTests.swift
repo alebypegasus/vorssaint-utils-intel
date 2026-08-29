@@ -10430,7 +10430,7 @@ struct MetricsTests {
 
         // MARK: Features hub catalog
 
-        expect(AppFeature.allCases.count == 55, "feature catalog has 55 features")
+        expect(AppFeature.allCases.count == 56, "feature catalog has 56 features")
         expect(Set(AppFeature.allCases.map(\.rawValue)).count == AppFeature.allCases.count,
                "feature ids are unique")
         expect(AppFeature.allCases.map(\.rawValue) == [
@@ -10439,7 +10439,7 @@ struct MetricsTests {
             "keyboardDebounce", "textSnippets", "superKey",
             "clipboardHistory", "pastePlain", "finderCutPaste", "finderRename", "finderDeleteShortcuts", "shelf", "urlCleaner",
             "diskImageInstaller",
-            "mixer", "soundOutputSwitcher", "micMute", "musicBlock",
+            "mixer", "soundOutputSwitcher", "equalizer", "micMute", "musicBlock",
             "keepAwake", "brightness", "extraBrightness", "bluetoothSleep",
             "quickLauncher", "quickToggles", "colorPicker", "screenOCR", "cleaningMode", "mediaTools",
             "cleaner", "uninstaller", "homebrew", "appUpdates", "screenshot", "cameraPreview",
@@ -18118,6 +18118,69 @@ struct MetricsTests {
         }
         expect(uninstallScriptSource.contains("Library/Preferences/ByHost"),
                "script uninstall sweeps ByHost preferences")
+
+        // MARK: Equalizer DSP & Equalizer APO Format Tests
+
+        // 1. RBJ Peaking Filter Calculation
+        let peakingCoeffs = BiquadCoefficients.compute(
+            type: .peaking,
+            frequency: 1000.0,
+            gainDB: 6.0,
+            q: 1.41,
+            sampleRate: 48000.0
+        )
+        let responseAtPeak = peakingCoeffs.responseGainDB(at: 1000.0, sampleRate: 48000.0)
+        expectClose(responseAtPeak, 6.0, "Peaking filter response at center frequency matches +6 dB target", tol: 0.1)
+
+        // 2. RBJ Low Shelf Filter Calculation
+        let lowShelfCoeffs = BiquadCoefficients.compute(
+            type: .lowShelf,
+            frequency: 100.0,
+            gainDB: 4.0,
+            q: 0.71,
+            sampleRate: 48000.0
+        )
+        let responseAtLow = lowShelfCoeffs.responseGainDB(at: 30.0, sampleRate: 48000.0)
+        expectClose(responseAtLow, 4.0, "Low shelf filter response at 30 Hz matches +4 dB target", tol: 0.2)
+
+        // 3. RBJ High Shelf Filter Calculation
+        let highShelfCoeffs = BiquadCoefficients.compute(
+            type: .highShelf,
+            frequency: 8000.0,
+            gainDB: -3.0,
+            q: 0.71,
+            sampleRate: 48000.0
+        )
+        let responseAtHigh = highShelfCoeffs.responseGainDB(at: 16000.0, sampleRate: 48000.0)
+        expectClose(responseAtHigh, -3.0, "High shelf filter response at 16 kHz matches -3 dB target", tol: 0.2)
+
+        // 4. Equalizer APO Syntax Parsing
+        let testAPOConfig = """
+        # Test Config
+        Preamp: -4.5 dB
+        Filter 1: ON PK Fc 80.0 Hz Gain 5.0 dB Q 1.41
+        Filter 2: ON LS Fc 120.0 Hz Gain 3.0 dB Q 0.71
+        Filter 3: OFF HS Fc 9000.0 Hz Gain -2.0 dB Q 0.71
+        """
+        let parsedProfile = EqualizerPresetManager.shared.parseEqualizerAPO(text: testAPOConfig, name: "Test APO")
+        expectClose(parsedProfile.preamp, -4.5, "Equalizer APO preamp parses correctly")
+        expect(parsedProfile.bands.count == 3, "Parsed 3 filter bands from Equalizer APO text")
+        expect(parsedProfile.bands[0].type == .peaking && parsedProfile.bands[0].frequency == 80.0 && parsedProfile.bands[0].gain == 5.0, "Band 1 PK parsed correctly")
+        expect(parsedProfile.bands[1].type == .lowShelf && parsedProfile.bands[1].frequency == 120.0 && parsedProfile.bands[1].gain == 3.0, "Band 2 LS parsed correctly")
+        expect(!parsedProfile.bands[2].isEnabled && parsedProfile.bands[2].type == .highShelf, "Band 3 HS (disabled) parsed correctly")
+
+        // 5. Equalizer APO Export Roundtrip
+        let exportedText = EqualizerPresetManager.shared.exportEqualizerAPO(profile: parsedProfile)
+        let roundtripProfile = EqualizerPresetManager.shared.parseEqualizerAPO(text: exportedText, name: "Roundtrip")
+        expectClose(roundtripProfile.preamp, parsedProfile.preamp, "Equalizer APO roundtrip preserves preamp")
+        expect(roundtripProfile.bands.count == parsedProfile.bands.count, "Equalizer APO roundtrip preserves band count")
+        expect(roundtripProfile.bands[0].frequency == parsedProfile.bands[0].frequency, "Equalizer APO roundtrip preserves band parameters")
+
+        // 6. Factory Presets Availability
+        let factoryPresets = EqualizerPresetManager.shared.builtInPresets
+        expect(factoryPresets.count >= 10, "Preset manager supplies curated built-in presets")
+        expect(factoryPresets.contains { $0.name.contains("Bass Boost") }, "Factory includes Bass Boost preset")
+        expect(factoryPresets.contains { $0.name.contains("Vocal") }, "Factory includes Vocal Clarity preset")
 
         if failures.isEmpty {
             print("TESTS OK (\(checks) checks)")

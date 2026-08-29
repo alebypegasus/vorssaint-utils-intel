@@ -55,6 +55,8 @@ enum SettingsDirectory {
                                       keywords: [s.menuBarSpacingLabel, s.menuBarHideIconToggle,
                                                  s.monitorMemoryPressureDot,
                                                  FeatureStrings.fanControl(language).menuBarTitle]),
+                SettingsDirectoryItem(page: .equalizer, title: s.equalizerTitle, icon: "slider.vertical.3",
+                                      keywords: ["Equalizer", "EQ", "APO", "AutoEq", "Bass", "Treble", "Parametric", "Graphic", "Audio", "Sound", s.equalizerTitle]),
             ]),
             (categories.windowsControls, [
                 SettingsDirectoryItem(page: .mouse, title: s.tabMouse, icon: "computermouse",
