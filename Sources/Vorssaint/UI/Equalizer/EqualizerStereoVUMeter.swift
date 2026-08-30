@@ -3,9 +3,10 @@
 
 import SwiftUI
 
-/// Pro studio stereo VU & peak level meter with Liquid Glass styling.
+/// Pro studio stereo VU & peak level meter with Liquid Glass styling (supports Light & Dark mode).
 struct EqualizerStereoVUMeter: View {
     @ObservedObject var spectrum = SpectrumAnalyzerDSP.shared
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 5) {
@@ -13,7 +14,7 @@ struct EqualizerStereoVUMeter: View {
             HStack(spacing: 2) {
                 Text("L")
                     .font(.system(size: 8.5, weight: .heavy, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.6))
+                    .foregroundStyle(Color.secondary)
                 vuChannelBar(level: spectrum.peakLevelL)
             }
 
@@ -21,7 +22,7 @@ struct EqualizerStereoVUMeter: View {
             HStack(spacing: 2) {
                 Text("R")
                     .font(.system(size: 8.5, weight: .heavy, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.6))
+                    .foregroundStyle(Color.secondary)
                 vuChannelBar(level: spectrum.peakLevelR)
             }
 
@@ -31,7 +32,7 @@ struct EqualizerStereoVUMeter: View {
                 .frame(width: 7, height: 7)
                 .overlay(
                     Circle()
-                        .strokeBorder(spectrum.isClipping ? Color.red : Color.white.opacity(0.1), lineWidth: 0.8)
+                        .strokeBorder(spectrum.isClipping ? Color.red : Color.primary.opacity(0.1), lineWidth: 0.8)
                 )
                 .shadow(color: spectrum.isClipping ? Color.red.opacity(0.9) : Color.clear, radius: 5)
                 .help(spectrum.isClipping ? "Audio is clipping (> 0 dBFS)" : "Signal level OK")
@@ -40,10 +41,10 @@ struct EqualizerStereoVUMeter: View {
         .padding(.vertical, 5)
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.black.opacity(0.45))
+                .fill(colorScheme == .light ? Color.white.opacity(0.7) : Color.black.opacity(0.45))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .strokeBorder(Theme.LiquidGlass.borderGradient(for: .dark), lineWidth: 0.7)
+                        .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme), lineWidth: 0.7)
                 )
         )
     }
@@ -52,7 +53,7 @@ struct EqualizerStereoVUMeter: View {
         ZStack(alignment: .bottom) {
             // Trough
             Capsule()
-                .fill(Color.white.opacity(0.08))
+                .fill(colorScheme == .light ? Color.black.opacity(0.08) : Color.white.opacity(0.08))
                 .frame(width: 5, height: 24)
 
             // Dynamic Fill

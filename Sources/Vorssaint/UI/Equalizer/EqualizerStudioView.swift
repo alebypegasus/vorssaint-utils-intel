@@ -4,10 +4,11 @@
 import AppKit
 import SwiftUI
 
-/// Professional Equalizer Studio window inspired by Equalizer APO and top-tier DAW equalizer plugins.
+/// Professional Equalizer Studio window supporting dynamic Light and Dark mode.
 struct EqualizerStudioView: View {
     @ObservedObject private var equalizer = AudioEqualizerService.shared
     @ObservedObject private var mixer = AppVolumeMixer.shared
+    @Environment(\.colorScheme) private var colorScheme
     @State private var selectedBandID: UUID?
     @State private var showPresetSheet = false
     @State private var showToneGenerator = false
@@ -46,15 +47,23 @@ struct EqualizerStudioView: View {
                minHeight: 560, idealHeight: 640, maxHeight: .infinity)
         .background(
             ZStack {
-                Color(red: 0.06, green: 0.07, blue: 0.10)
-                    .ignoresSafeArea()
-                HUDBackdrop(cornerRadius: 16)
-                    .opacity(0.85)
-                // Subtle radial studio ambience
+                if colorScheme == .light {
+                    Color(red: 0.96, green: 0.97, blue: 0.98)
+                        .ignoresSafeArea()
+                    HUDBackdrop(cornerRadius: 16, contrast: .standard)
+                        .opacity(0.85)
+                } else {
+                    Color(red: 0.06, green: 0.07, blue: 0.10)
+                        .ignoresSafeArea()
+                    HUDBackdrop(cornerRadius: 16, contrast: .high)
+                        .opacity(0.85)
+                }
+
+                // Ambient studio lighting
                 RadialGradient(
                     colors: [
-                        Theme.LiquidGlass.cyanGlow.opacity(0.06),
-                        Theme.LiquidGlass.violetGlow.opacity(0.03),
+                        Theme.LiquidGlass.cyanGlow.opacity(colorScheme == .light ? 0.05 : 0.08),
+                        Theme.LiquidGlass.violetGlow.opacity(colorScheme == .light ? 0.03 : 0.04),
                         Color.clear
                     ],
                     center: .topLeading,
@@ -64,7 +73,6 @@ struct EqualizerStudioView: View {
                 .ignoresSafeArea()
             }
         )
-        .preferredColorScheme(.dark)
         .sheet(isPresented: $showPresetSheet) {
             EqualizerPresetSheet(equalizer: equalizer)
         }
@@ -73,7 +81,7 @@ struct EqualizerStudioView: View {
         }
     }
 
-    // MARK: - Header Bar (Clean, Unified, Never Overlapping)
+    // MARK: - Header Bar
 
     private var headerBar: some View {
         HStack(spacing: 10) {
@@ -85,15 +93,15 @@ struct EqualizerStudioView: View {
             } label: {
                 Image(systemName: "power")
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(equalizer.isEnabled ? Color.white : Color.white.opacity(0.35))
+                    .foregroundStyle(equalizer.isEnabled ? Color.white : Color.primary.opacity(0.35))
                     .frame(width: 30, height: 30)
                     .background(
                         ZStack {
                             Circle()
-                                .fill(equalizer.isEnabled ? Theme.LiquidGlass.cyanGlow.opacity(0.35) : Color.white.opacity(0.05))
+                                .fill(equalizer.isEnabled ? Theme.LiquidGlass.cyanGlow.opacity(0.85) : Color.primary.opacity(0.06))
                             if equalizer.isEnabled {
                                 Circle()
-                                    .fill(Theme.LiquidGlass.specularGradient(for: .dark).opacity(0.7))
+                                    .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.6))
                             }
                         }
                     )
@@ -102,7 +110,7 @@ struct EqualizerStudioView: View {
                             .strokeBorder(
                                 equalizer.isEnabled
                                     ? Theme.LiquidGlass.cyanGlow.opacity(0.9)
-                                    : Color.white.opacity(0.12),
+                                    : Color.primary.opacity(0.12),
                                 lineWidth: 1.2
                             )
                     )
@@ -127,7 +135,7 @@ struct EqualizerStudioView: View {
                 .padding(.vertical, 5)
                 .background(
                     Capsule()
-                        .fill(equalizer.isBypassed ? Color.orange.opacity(0.22) : Theme.LiquidGlass.cyanGlow.opacity(0.16))
+                        .fill(equalizer.isBypassed ? Color.orange.opacity(0.2) : Theme.LiquidGlass.cyanGlow.opacity(0.16))
                 )
                 .overlay(
                     Capsule()
@@ -142,7 +150,7 @@ struct EqualizerStudioView: View {
             .buttonStyle(.plain)
             .help("Instant A/B comparison (Bypass all filter processing)")
 
-            // Custom Liquid Mode Switcher (Pills that never clip text)
+            // Custom Liquid Mode Switcher
             customModeSwitcher
 
             Spacer(minLength: 4)
@@ -165,11 +173,11 @@ struct EqualizerStudioView: View {
                 }
                 .padding(.horizontal, 7)
                 .padding(.vertical, 5)
-                .background(Color.white.opacity(0.06))
+                .background(Color.primary.opacity(0.06))
                 .clipShape(Capsule())
                 .overlay(
                     Capsule()
-                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.7)
+                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.7)
                 )
             }
             .buttonStyle(.plain)
@@ -182,11 +190,11 @@ struct EqualizerStudioView: View {
             HStack(spacing: 5) {
                 Text("Preamp")
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.6))
+                    .foregroundStyle(Color.secondary)
 
                 Text(String(format: "%+.1f dB", equalizer.activeProfile.preamp))
                     .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                    .foregroundStyle(equalizer.activeProfile.preamp > 0.01 ? Theme.LiquidGlass.amberGlow : (equalizer.activeProfile.preamp < -0.01 ? Theme.LiquidGlass.cyanGlow : Color.white))
+                    .foregroundStyle(equalizer.activeProfile.preamp > 0.01 ? Theme.LiquidGlass.amberGlow : (equalizer.activeProfile.preamp < -0.01 ? Theme.LiquidGlass.cyanGlow : Color.primary))
                     .frame(width: 48, alignment: .trailing)
 
                 Slider(
@@ -205,10 +213,10 @@ struct EqualizerStudioView: View {
             .padding(.vertical, 4.5)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.black.opacity(0.4))
+                    .fill(colorScheme == .light ? Color.white.opacity(0.7) : Color.black.opacity(0.4))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(Theme.LiquidGlass.borderGradient(for: .dark), lineWidth: 0.65)
+                            .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme), lineWidth: 0.65)
                     )
             )
         }
@@ -216,10 +224,10 @@ struct EqualizerStudioView: View {
         .padding(.vertical, 7)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.black.opacity(0.35))
+                .fill(colorScheme == .light ? Color.white.opacity(0.75) : Color.black.opacity(0.35))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Theme.LiquidGlass.borderGradient(for: .dark), lineWidth: 0.75)
+                        .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme), lineWidth: 0.75)
                 )
         )
     }
@@ -244,12 +252,12 @@ struct EqualizerStudioView: View {
                             ZStack {
                                 if isSelected {
                                     Capsule()
-                                        .fill(Theme.LiquidGlass.cyanGlow.opacity(0.22))
+                                        .fill(Theme.LiquidGlass.cyanGlow.opacity(colorScheme == .light ? 0.25 : 0.22))
                                     Capsule()
-                                        .fill(Theme.LiquidGlass.specularGradient(for: .dark).opacity(0.4))
+                                        .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.4))
                                 } else {
                                     Capsule()
-                                        .fill(Color.white.opacity(0.03))
+                                        .fill(Color.clear)
                                 }
                             }
                         )
@@ -261,8 +269,8 @@ struct EqualizerStudioView: View {
                                     lineWidth: 0.85
                                 )
                         )
-                        .foregroundStyle(isSelected ? Color.white : Color.white.opacity(0.6))
-                        .shadow(color: isSelected ? Theme.LiquidGlass.cyanGlow.opacity(0.35) : Color.clear, radius: 4)
+                        .foregroundStyle(isSelected ? (colorScheme == .light ? Color.primary : Color.white) : Color.secondary)
+                        .shadow(color: isSelected ? Theme.LiquidGlass.cyanGlow.opacity(0.3) : Color.clear, radius: 4)
                 }
                 .buttonStyle(.plain)
             }
@@ -270,10 +278,10 @@ struct EqualizerStudioView: View {
         .padding(3)
         .background(
             Capsule()
-                .fill(Color.black.opacity(0.45))
+                .fill(colorScheme == .light ? Color.black.opacity(0.06) : Color.black.opacity(0.45))
                 .overlay(
                     Capsule()
-                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.6)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.6)
                 )
         )
     }
@@ -311,7 +319,7 @@ struct EqualizerStudioView: View {
                 }
                 .padding(.horizontal, 7)
                 .padding(.vertical, 4.5)
-                .background(Color.white.opacity(0.06))
+                .background(Color.primary.opacity(0.06))
                 .clipShape(Capsule())
             }
             .menuStyle(.borderlessButton)
@@ -351,7 +359,7 @@ struct EqualizerStudioView: View {
                 }
                 .padding(.horizontal, 7)
                 .padding(.vertical, 4.5)
-                .background(Color.white.opacity(0.06))
+                .background(Color.primary.opacity(0.06))
                 .clipShape(Capsule())
             }
             .menuStyle(.borderlessButton)
@@ -376,7 +384,7 @@ struct EqualizerStudioView: View {
                     .font(.system(size: 10))
                 Text("Equalizer APO Engine • 64-bit Direct Form II Biquads • Zero Latency")
                     .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.5))
+                    .foregroundStyle(Color.secondary)
             }
 
             Spacer()
@@ -392,9 +400,9 @@ struct EqualizerStudioView: View {
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(Color.white.opacity(0.06))
+                .background(Color.primary.opacity(0.06))
                 .clipShape(Capsule())
-                .foregroundStyle(Color.white.opacity(0.8))
+                .foregroundStyle(Color.primary.opacity(0.8))
             }
             .buttonStyle(.plain)
         }

@@ -1392,7 +1392,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             window.titleVisibility = .visible
             window.backgroundColor = .clear
             window.isOpaque = false
-            window.appearance = NSAppearance(named: .darkAqua)
             window.contentMinSize = NSSize(width: 760, height: 540)
             window.setContentSize(NSSize(width: 880, height: 620))
             window.isReleasedWhenClosed = false

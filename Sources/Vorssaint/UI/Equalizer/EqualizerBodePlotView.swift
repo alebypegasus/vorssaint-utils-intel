@@ -4,11 +4,12 @@
 import AppKit
 import SwiftUI
 
-/// Pro studio interactive Bode plot with real-time FFT spectrum analyzer and draggable filter nodes.
+/// Pro studio interactive Bode plot with real-time FFT spectrum analyzer and draggable filter nodes (supports Light & Dark mode).
 struct EqualizerBodePlotView: View {
     @ObservedObject var equalizer: AudioEqualizerService
     @ObservedObject var spectrum: SpectrumAnalyzerDSP = .shared
     @Binding var selectedBandID: UUID?
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var hoveredBandID: UUID?
     @State private var isDragging = false
@@ -30,11 +31,14 @@ struct EqualizerBodePlotView: View {
         GeometryReader { geometry in
             let size = geometry.size
             ZStack {
-                // Dark Obsidian Glass Canvas Background
+                // Glass Canvas Background
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(
                         LinearGradient(
-                            colors: [
+                            colors: colorScheme == .light ? [
+                                Color(red: 0.94, green: 0.96, blue: 0.98),
+                                Color(red: 0.91, green: 0.94, blue: 0.97)
+                            ] : [
                                 Color(red: 0.05, green: 0.07, blue: 0.11),
                                 Color(red: 0.07, green: 0.09, blue: 0.15)
                             ],
@@ -44,15 +48,15 @@ struct EqualizerBodePlotView: View {
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Theme.LiquidGlass.specularGradient(for: .dark).opacity(0.35))
+                            .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.35))
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Theme.LiquidGlass.borderGradient(for: .dark), lineWidth: 0.85)
+                            .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme), lineWidth: 0.85)
                     )
-                    .shadow(color: Color.black.opacity(0.5), radius: 14, x: 0, y: 6)
+                    .shadow(color: Color.black.opacity(colorScheme == .light ? 0.12 : 0.45), radius: 12, x: 0, y: 5)
 
-                // High-Contrast Grid lines & labels
+                // Grid lines & labels
                 gridBackground(size: size)
                 gridLabels(size: size)
 
@@ -89,6 +93,10 @@ struct EqualizerBodePlotView: View {
             let contentW = w - padL - padR
             let contentH = h - padT - padB
 
+            let isLight = colorScheme == .light
+            let gridColor = isLight ? Color.black.opacity(0.08) : Color.white.opacity(0.08)
+            let zeroLineColor = isLight ? Theme.LiquidGlass.cyanGlow.opacity(0.8) : Color.white.opacity(0.35)
+
             // Horizontal dB grid lines
             for db in gridDecibels {
                 let y = padT + CGFloat((maxDB - db) / (maxDB - minDB)) * contentH
@@ -98,9 +106,9 @@ struct EqualizerBodePlotView: View {
 
                 if abs(db) < 0.01 {
                     // 0 dB center reference line
-                    context.stroke(path, with: .color(Color.white.opacity(0.35)), lineWidth: 1.2)
+                    context.stroke(path, with: .color(zeroLineColor), lineWidth: isLight ? 1.4 : 1.2)
                 } else {
-                    context.stroke(path, with: .color(Color.white.opacity(0.08)), style: StrokeStyle(lineWidth: 0.65, dash: [4, 4]))
+                    context.stroke(path, with: .color(gridColor), style: StrokeStyle(lineWidth: 0.65, dash: [4, 4]))
                 }
             }
 
@@ -115,7 +123,7 @@ struct EqualizerBodePlotView: View {
                 path.move(to: CGPoint(x: x, y: padT))
                 path.addLine(to: CGPoint(x: x, y: h - padB))
 
-                context.stroke(path, with: .color(Color.white.opacity(0.08)), style: StrokeStyle(lineWidth: 0.65, dash: [3, 4]))
+                context.stroke(path, with: .color(gridColor), style: StrokeStyle(lineWidth: 0.65, dash: [3, 4]))
             }
         }
     }
@@ -130,13 +138,16 @@ struct EqualizerBodePlotView: View {
         let contentW = size.width - padL - padR
         let contentH = size.height - padT - padB
 
+        let isLight = colorScheme == .light
+        let defaultLabelColor = isLight ? Color(red: 0.3, green: 0.38, blue: 0.48) : Color.white.opacity(0.55)
+
         return ZStack(alignment: .topLeading) {
             // Decibel labels on left edge
             ForEach(gridDecibels, id: \.self) { db in
                 let y = padT + CGFloat((maxDB - db) / (maxDB - minDB)) * contentH
                 Text(String(format: "%+.0f", db))
                     .font(.system(size: 9, weight: abs(db) < 0.01 ? .bold : .medium, design: .monospaced))
-                    .foregroundStyle(abs(db) < 0.01 ? Theme.LiquidGlass.cyanGlow : Color.white.opacity(0.45))
+                    .foregroundStyle(abs(db) < 0.01 ? Theme.LiquidGlass.cyanGlow : defaultLabelColor)
                     .frame(width: 28, alignment: .trailing)
                     .position(x: 16, y: y)
             }
@@ -149,7 +160,7 @@ struct EqualizerBodePlotView: View {
                 let x = padL + fraction * contentW
                 Text(label)
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.55))
+                    .foregroundStyle(defaultLabelColor)
                     .position(x: x, y: size.height - 10)
             }
         }
@@ -178,7 +189,6 @@ struct EqualizerBodePlotView: View {
                     let fraction = CGFloat(b) / CGFloat(binCount - 1)
                     let x = padL + fraction * contentW
                     let mag = CGFloat(bins[b]) // 0.0 ... 1.0
-                    // Map magnitude to dB range: 0.0 = -60dB, 1.0 = +12dB
                     let dbValue = Double(mag * 40.0 - 24.0)
                     let y = padT + CGFloat((maxDB - dbValue) / (maxDB - minDB)) * contentH
                     let clampedY = max(padT, min(size.height - padB, y))
@@ -198,9 +208,9 @@ struct EqualizerBodePlotView: View {
                 fillPath.closeSubpath()
 
                 let spectrumGradient = Gradient(colors: [
-                    Theme.LiquidGlass.cyanGlow.opacity(0.22),
-                    Theme.LiquidGlass.violetGlow.opacity(0.18),
-                    Theme.LiquidGlass.magentaGlow.opacity(0.08),
+                    Theme.LiquidGlass.cyanGlow.opacity(colorScheme == .light ? 0.18 : 0.22),
+                    Theme.LiquidGlass.violetGlow.opacity(colorScheme == .light ? 0.14 : 0.18),
+                    Theme.LiquidGlass.magentaGlow.opacity(colorScheme == .light ? 0.06 : 0.08),
                     Color.clear
                 ])
 
@@ -218,9 +228,9 @@ struct EqualizerBodePlotView: View {
                     path,
                     with: .linearGradient(
                         Gradient(colors: [
-                            Theme.LiquidGlass.cyanGlow.opacity(0.8),
-                            Theme.LiquidGlass.violetGlow.opacity(0.7),
-                            Theme.LiquidGlass.magentaGlow.opacity(0.6)
+                            Theme.LiquidGlass.cyanGlow.opacity(0.85),
+                            Theme.LiquidGlass.violetGlow.opacity(0.75),
+                            Theme.LiquidGlass.magentaGlow.opacity(0.65)
                         ]),
                         startPoint: CGPoint(x: padL, y: 0),
                         endPoint: CGPoint(x: padL + contentW, y: 0)
@@ -332,8 +342,8 @@ struct EqualizerBodePlotView: View {
             fillPath.closeSubpath()
 
             let fillGradient = Gradient(colors: [
-                (isBypassed ? Color.gray : Theme.LiquidGlass.cyanGlow).opacity(0.18),
-                (isBypassed ? Color.gray : Theme.LiquidGlass.violetGlow).opacity(0.10),
+                (isBypassed ? Color.gray : Theme.LiquidGlass.cyanGlow).opacity(colorScheme == .light ? 0.22 : 0.18),
+                (isBypassed ? Color.gray : Theme.LiquidGlass.violetGlow).opacity(colorScheme == .light ? 0.12 : 0.10),
                 Color.clear
             ])
 
@@ -383,6 +393,7 @@ struct EqualizerBodePlotView: View {
 
         let logMin = log10(minFreq)
         let logMax = log10(maxFreq)
+        let isLight = colorScheme == .light
 
         return ZStack {
             ForEach(Array(bands.enumerated()), id: \.element.id) { index, band in
@@ -405,22 +416,22 @@ struct EqualizerBodePlotView: View {
                                     .font(.system(size: 9.5, weight: .heavy, design: .rounded))
                                     .foregroundStyle(color)
                                 Text("•")
-                                    .foregroundStyle(Color.white.opacity(0.4))
+                                    .foregroundStyle(isLight ? Color.black.opacity(0.3) : Color.white.opacity(0.4))
                                 Text("\(Int(band.frequency)) Hz")
                                     .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                    .foregroundStyle(Color.white)
+                                    .foregroundStyle(isLight ? Color.black : Color.white)
                                 if band.type.hasGain {
                                     Text("•")
-                                        .foregroundStyle(Color.white.opacity(0.4))
+                                        .foregroundStyle(isLight ? Color.black.opacity(0.3) : Color.white.opacity(0.4))
                                     Text(String(format: "%+.1f dB", band.gain))
                                         .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                        .foregroundStyle(band.gain > 0.01 ? Theme.LiquidGlass.amberGlow : (band.gain < -0.01 ? Theme.LiquidGlass.cyanGlow : Color.white))
+                                        .foregroundStyle(band.gain > 0.01 ? Theme.LiquidGlass.amberGlow : (band.gain < -0.01 ? Theme.LiquidGlass.cyanGlow : (isLight ? Color.black : Color.white)))
                                 }
                                 Text("•")
-                                    .foregroundStyle(Color.white.opacity(0.4))
+                                    .foregroundStyle(isLight ? Color.black.opacity(0.3) : Color.white.opacity(0.4))
                                 Text(String(format: "Q:%.2f", band.q))
                                     .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-                                    .foregroundStyle(Color.white.opacity(0.8))
+                                    .foregroundStyle(isLight ? Color.black.opacity(0.8) : Color.white.opacity(0.8))
                             }
                         }
                         .padding(.horizontal, 8)
@@ -428,16 +439,16 @@ struct EqualizerBodePlotView: View {
                         .background(
                             ZStack {
                                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(Color.black.opacity(0.85))
+                                    .fill(isLight ? Color.white.opacity(0.95) : Color.black.opacity(0.85))
                                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(Theme.LiquidGlass.specularGradient(for: .dark).opacity(0.4))
+                                    .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.4))
                             }
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(Theme.LiquidGlass.borderGradient(for: .dark, glow: color), lineWidth: 0.75)
+                                .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme, glow: color), lineWidth: 0.75)
                         )
-                        .shadow(color: Color.black.opacity(0.5), radius: 6, y: 2)
+                        .shadow(color: Color.black.opacity(isLight ? 0.15 : 0.5), radius: 6, y: 2)
                         .offset(y: -30)
                     }
 
@@ -453,7 +464,11 @@ struct EqualizerBodePlotView: View {
                     Circle()
                         .fill(
                             RadialGradient(
-                                colors: [
+                                colors: isLight ? [
+                                    color,
+                                    color.opacity(0.7),
+                                    Color.white
+                                ] : [
                                     color.opacity(0.9),
                                     color.opacity(0.4),
                                     Color.black.opacity(0.8)
@@ -466,7 +481,7 @@ struct EqualizerBodePlotView: View {
                         .frame(width: 18, height: 18)
                         .overlay(
                             Circle()
-                                .strokeBorder(Color.white.opacity(0.85), lineWidth: 1.2)
+                                .strokeBorder(Color.white.opacity(0.9), lineWidth: 1.2)
                         )
                         .shadow(color: color.opacity(0.7), radius: 5)
 

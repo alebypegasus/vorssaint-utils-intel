@@ -4,10 +4,11 @@
 import AppKit
 import SwiftUI
 
-/// Pro studio band strip & focused inspector console for parametric equalizer bands.
+/// Pro studio band strip & focused inspector console for parametric equalizer bands (supports Light & Dark mode).
 struct EqualizerFilterTableView: View {
     @ObservedObject var equalizer: AudioEqualizerService
     @Binding var selectedBandID: UUID?
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 8) {
@@ -64,7 +65,7 @@ struct EqualizerFilterTableView: View {
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 5)
-                    .background(Theme.LiquidGlass.cyanGlow.opacity(0.18))
+                    .background(Theme.LiquidGlass.cyanGlow.opacity(colorScheme == .light ? 0.22 : 0.18))
                     .foregroundStyle(Theme.LiquidGlass.cyanGlow)
                     .clipShape(Capsule())
                     .overlay(
@@ -84,8 +85,8 @@ struct EqualizerFilterTableView: View {
                         .font(.system(size: 10.5, weight: .medium))
                         .padding(.horizontal, 7)
                         .padding(.vertical, 5)
-                        .background(Color.white.opacity(0.06))
-                        .foregroundStyle(Color.white.opacity(0.7))
+                        .background(Color.primary.opacity(0.06))
+                        .foregroundStyle(Color.primary.opacity(0.75))
                         .clipShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -96,10 +97,10 @@ struct EqualizerFilterTableView: View {
         .padding(.vertical, 5)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.black.opacity(0.35))
+                .fill(colorScheme == .light ? Color.white.opacity(0.7) : Color.black.opacity(0.35))
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(Theme.LiquidGlass.borderGradient(for: .dark), lineWidth: 0.65)
+                        .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme), lineWidth: 0.65)
                 )
         )
     }
@@ -107,6 +108,7 @@ struct EqualizerFilterTableView: View {
     private func bandChip(index: Int, band: EqualizerBand) -> some View {
         let isSelected = selectedBandID == band.id
         let color = colorForFilterType(band.type)
+        let isLight = colorScheme == .light
 
         return Button {
             withAnimation(.liquidSpring) {
@@ -122,7 +124,7 @@ struct EqualizerFilterTableView: View {
                 // Band Index & Frequency
                 Text("#\(index + 1) \(formatFrequencyShort(band.frequency))")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    .foregroundStyle(band.isEnabled ? Color.white : Color.secondary.opacity(0.6))
+                    .foregroundStyle(band.isEnabled ? (isLight ? Color.primary : Color.white) : Color.secondary.opacity(0.6))
 
                 // Gain badge if applicable
                 if band.type.hasGain && abs(band.gain) > 0.05 {
@@ -136,10 +138,10 @@ struct EqualizerFilterTableView: View {
             .background(
                 ZStack {
                     Capsule()
-                        .fill(isSelected ? color.opacity(0.2) : Color.white.opacity(0.05))
+                        .fill(isSelected ? color.opacity(isLight ? 0.25 : 0.2) : Color.primary.opacity(0.05))
                     if isSelected {
                         Capsule()
-                            .fill(Theme.LiquidGlass.specularGradient(for: .dark).opacity(0.4))
+                            .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.4))
                     }
                 }
             )
@@ -147,11 +149,11 @@ struct EqualizerFilterTableView: View {
             .overlay(
                 Capsule()
                     .strokeBorder(
-                        isSelected ? color.opacity(0.85) : Color.white.opacity(0.1),
+                        isSelected ? color.opacity(0.85) : Color.primary.opacity(0.1),
                         lineWidth: isSelected ? 1.2 : 0.6
                     )
             )
-            .shadow(color: isSelected ? color.opacity(0.4) : Color.clear, radius: 4)
+            .shadow(color: isSelected ? color.opacity(0.35) : Color.clear, radius: 4)
         }
         .buttonStyle(.plain)
     }
@@ -161,6 +163,7 @@ struct EqualizerFilterTableView: View {
     private func focusedBandInspector(band: EqualizerBand) -> some View {
         let index = equalizer.activeProfile.bands.firstIndex(where: { $0.id == band.id }) ?? 0
         let color = colorForFilterType(band.type)
+        let isLight = colorScheme == .light
 
         return VStack(spacing: 8) {
             // Deck Header: Band Index, On/Off, Filter Types, Channel, Delete
@@ -201,13 +204,13 @@ struct EqualizerFilterTableView: View {
                             .padding(.vertical, 3.5)
                             .background(
                                 RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                    .fill(band.type == type ? color.opacity(0.25) : Color.white.opacity(0.04))
+                                    .fill(band.type == type ? color.opacity(isLight ? 0.22 : 0.25) : Color.primary.opacity(0.04))
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                                     .strokeBorder(band.type == type ? color.opacity(0.8) : Color.clear, lineWidth: 0.8)
                             )
-                            .foregroundStyle(band.type == type ? Color.white : Color.secondary.opacity(0.7))
+                            .foregroundStyle(band.type == type ? (isLight ? Color.primary : Color.white) : Color.secondary.opacity(0.7))
                         }
                         .buttonStyle(.plain)
                     }
@@ -233,9 +236,9 @@ struct EqualizerFilterTableView: View {
                     }
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
-                    .background(Color.white.opacity(0.06))
+                    .background(Color.primary.opacity(0.06))
                     .clipShape(Capsule())
-                    .foregroundStyle(Color.white.opacity(0.85))
+                    .foregroundStyle(Color.primary.opacity(0.85))
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
@@ -292,7 +295,7 @@ struct EqualizerFilterTableView: View {
                             Spacer()
                             Text(String(format: "%+.1f dB", band.gain))
                                 .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundStyle(band.gain > 0.01 ? Theme.LiquidGlass.amberGlow : (band.gain < -0.01 ? Theme.LiquidGlass.cyanGlow : Color.white))
+                                .foregroundStyle(band.gain > 0.01 ? Theme.LiquidGlass.amberGlow : (band.gain < -0.01 ? Theme.LiquidGlass.cyanGlow : Color.primary))
                         }
 
                         Slider(
@@ -339,17 +342,17 @@ struct EqualizerFilterTableView: View {
         .background(
             ZStack {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.black.opacity(0.45))
+                    .fill(isLight ? Color.white.opacity(0.8) : Color.black.opacity(0.45))
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Theme.LiquidGlass.specularGradient(for: .dark).opacity(0.3))
+                    .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.3))
             }
         )
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Theme.LiquidGlass.borderGradient(for: .dark, glow: color.opacity(0.5)), lineWidth: 0.85)
+                .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme, glow: color.opacity(0.5)), lineWidth: 0.85)
         )
-        .shadow(color: Color.black.opacity(0.4), radius: 8, y: 3)
+        .shadow(color: Color.black.opacity(isLight ? 0.1 : 0.4), radius: 8, y: 3)
     }
 
     private var emptyBandsPrompt: some View {

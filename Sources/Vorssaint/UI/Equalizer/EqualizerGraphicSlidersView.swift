@@ -4,9 +4,10 @@
 import AppKit
 import SwiftUI
 
-/// Pro studio graphic equalizer fader rack with illuminated tracks and ISO frequencies (10, 15, or 31 bands).
+/// Pro studio graphic equalizer fader rack with illuminated tracks and ISO frequencies (10, 15, or 31 bands - supports Light & Dark mode).
 struct EqualizerGraphicSlidersView: View {
     @ObservedObject var equalizer: AudioEqualizerService
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 6) {
@@ -18,7 +19,7 @@ struct EqualizerGraphicSlidersView: View {
                         .foregroundStyle(Theme.LiquidGlass.violetGlow)
                     Text(equalizer.activeProfile.mode.displayName)
                         .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.85))
+                        .foregroundStyle(Color.primary.opacity(0.85))
                 }
 
                 Spacer()
@@ -36,9 +37,9 @@ struct EqualizerGraphicSlidersView: View {
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(Color.white.opacity(0.06))
+                    .background(Color.primary.opacity(0.06))
                     .clipShape(Capsule())
-                    .foregroundStyle(Color.white.opacity(0.75))
+                    .foregroundStyle(Color.primary.opacity(0.75))
                 }
                 .buttonStyle(.plain)
             }
@@ -59,17 +60,17 @@ struct EqualizerGraphicSlidersView: View {
             .background(
                 ZStack {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.black.opacity(0.4))
+                        .fill(colorScheme == .light ? Color.white.opacity(0.7) : Color.black.opacity(0.4))
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Theme.LiquidGlass.specularGradient(for: .dark).opacity(0.25))
+                        .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.25))
                 }
             )
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Theme.LiquidGlass.borderGradient(for: .dark), lineWidth: 0.75)
+                    .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme), lineWidth: 0.75)
             )
-            .shadow(color: Color.black.opacity(0.4), radius: 8, y: 3)
+            .shadow(color: Color.black.opacity(colorScheme == .light ? 0.08 : 0.4), radius: 8, y: 3)
         }
     }
 
@@ -81,7 +82,7 @@ struct EqualizerGraphicSlidersView: View {
             // Numeric Readout
             Text(String(format: "%+.0f", gain))
                 .font(.system(size: 9, weight: .bold, design: .monospaced))
-                .foregroundStyle(gain > 0.01 ? Theme.LiquidGlass.amberGlow : (gain < -0.01 ? Theme.LiquidGlass.cyanGlow : Color.white.opacity(0.5)))
+                .foregroundStyle(gain > 0.01 ? Theme.LiquidGlass.amberGlow : (gain < -0.01 ? Theme.LiquidGlass.cyanGlow : Color.secondary))
                 .frame(height: 12)
 
             // Illuminated Vertical Fader
@@ -99,7 +100,7 @@ struct EqualizerGraphicSlidersView: View {
             // Frequency Key
             Text(key)
                 .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                .foregroundStyle(Color.white.opacity(0.75))
+                .foregroundStyle(colorScheme == .light ? Color.primary.opacity(0.85) : Color.white.opacity(0.75))
                 .frame(height: 12)
         }
     }
@@ -109,6 +110,7 @@ struct EqualizerGraphicSlidersView: View {
 private struct CustomStudioVerticalSlider: View {
     @Binding var value: Double
     var range: ClosedRange<Double>
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         GeometryReader { geometry in
@@ -120,7 +122,7 @@ private struct CustomStudioVerticalSlider: View {
             ZStack(alignment: .top) {
                 // Fader Slot Background
                 Capsule()
-                    .fill(Color.white.opacity(0.08))
+                    .fill(colorScheme == .light ? Color.black.opacity(0.08) : Color.white.opacity(0.08))
                     .frame(width: 4, height: height)
                     .position(x: width / 2, y: height / 2)
 
@@ -128,7 +130,7 @@ private struct CustomStudioVerticalSlider: View {
                 let zeroFraction = (0.0 - range.lowerBound) / (range.upperBound - range.lowerBound)
                 let zeroY = height - (CGFloat(zeroFraction) * height)
                 Rectangle()
-                    .fill(Color.white.opacity(0.45))
+                    .fill(colorScheme == .light ? Color.black.opacity(0.3) : Color.white.opacity(0.45))
                     .frame(width: 12, height: 1.2)
                     .position(x: width / 2, y: zeroY)
 
@@ -150,7 +152,7 @@ private struct CustomStudioVerticalSlider: View {
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .fill(
                             LinearGradient(
-                                colors: [Color(white: 0.95), Color(white: 0.75)],
+                                colors: colorScheme == .light ? [Color.white, Color(white: 0.88)] : [Color(white: 0.95), Color(white: 0.75)],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
@@ -159,7 +161,7 @@ private struct CustomStudioVerticalSlider: View {
                             RoundedRectangle(cornerRadius: 3, style: .continuous)
                                 .strokeBorder(Color.white, lineWidth: 0.8)
                         )
-                        .shadow(color: Color.black.opacity(0.6), radius: 3, y: 1.5)
+                        .shadow(color: Color.black.opacity(colorScheme == .light ? 0.25 : 0.6), radius: 3, y: 1.5)
 
                     // Center Line on Knob
                     Rectangle()
