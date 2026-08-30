@@ -173,6 +173,9 @@ final class EqualizerDSPInstance {
     private var preampLinear: Float = 1.0
     private var sampleRate: Double = 48000.0
 
+    private var isBassExciterEnabled: Bool = false
+    private var isSpatialVirtualizerEnabled: Bool = false
+
     // Lock-free double-buffering configuration lock
     private let configLock = os_unfair_lock_t.allocate(capacity: 1)
 
@@ -186,7 +189,11 @@ final class EqualizerDSPInstance {
     }
 
     /// Updates filter coefficients and preamp for the DSP engine.
-    func update(profile: EqualizerProfile, isBypassed: Bool, sampleRate: Double) {
+    func update(profile: EqualizerProfile,
+                isBypassed: Bool,
+                sampleRate: Double,
+                isBassExciterEnabled: Bool = false,
+                isSpatialVirtualizerEnabled: Bool = false) {
         self.sampleRate = sampleRate > 0 ? sampleRate : 48000.0
         let preampDB = profile.preamp
         let preampScale = Float(pow(10.0, preampDB / 20.0))
@@ -231,7 +238,6 @@ final class EqualizerDSPInstance {
                         q = 0.71
                     } else {
                         type = .peaking
-                        // ISO 10-band: Q ≈ 1.41, 15-band: Q ≈ 2.15, 31-band: Q ≈ 4.31
                         switch profile.mode {
                         case .graphic10: q = 1.41
                         case .graphic15: q = 2.15
@@ -256,6 +262,8 @@ final class EqualizerDSPInstance {
         os_unfair_lock_lock(configLock)
         self.preampLinear = preampScale
         self.isBypassed = isBypassed
+        self.isBassExciterEnabled = isBassExciterEnabled
+        self.isSpatialVirtualizerEnabled = isSpatialVirtualizerEnabled
         self.leftFilters = newLeft
         self.rightFilters = newRight
         os_unfair_lock_unlock(configLock)
@@ -276,14 +284,8 @@ final class EqualizerDSPInstance {
         let preamp = preampLinear
         let leftCount = leftFilters.count
         let rightCount = rightFilters.count
-
-        if leftCount == 0 && rightCount == 0 {
-            if abs(preamp - 1.0) > 1e-4 {
-                var p = preamp
-                vDSP_vsmul(samples, 1, &p, samples, 1, vDSP_Length(frames * 2))
-            }
-            return
-        }
+        let bassFX = isBassExciterEnabled
+        let spatialFX = isSpatialVirtualizerEnabled
 
         var base = 0
         for _ in 0..<frames {
@@ -295,6 +297,22 @@ final class EqualizerDSPInstance {
             }
             for i in 0..<rightCount {
                 right = rightFilters[i].processSample(right)
+            }
+
+            // Psychoacoustic Bass Exciter (warm harmonic saturation on low frequencies)
+            if bassFX {
+                let lowAvg = (left + right) * 0.5
+                let harmonic = (lowAvg - 0.25 * lowAvg * lowAvg * lowAvg) * 0.15
+                left += harmonic
+                right += harmonic
+            }
+
+            // 3D Spatial Virtualizer (Mid-Side holographic stereo expansion)
+            if spatialFX {
+                let mid = (left + right) * 0.5
+                let side = (left - right) * 0.5 * 1.32 // 32% wider stereo field
+                left = mid + side
+                right = mid - side
             }
 
             samples[base] = left

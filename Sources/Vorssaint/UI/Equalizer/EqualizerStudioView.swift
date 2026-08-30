@@ -15,7 +15,7 @@ struct EqualizerStudioView: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            // Pro DAW Unified Header Bar
+            // Pro DAW Unified Responsive Header Bar
             headerBar
 
             // Interactive Bode Plot Graph with FFT Spectrum
@@ -23,7 +23,7 @@ struct EqualizerStudioView: View {
                 equalizer: equalizer,
                 selectedBandID: $selectedBandID
             )
-            .frame(minHeight: 200, idealHeight: 290, maxHeight: .infinity)
+            .frame(minHeight: 220, idealHeight: 300, maxHeight: .infinity)
 
             // Mode-specific Bottom Console
             if equalizer.activeProfile.mode == .parametric {
@@ -43,7 +43,7 @@ struct EqualizerStudioView: View {
         .padding(.horizontal, 14)
         .padding(.bottom, 12)
         .padding(.top, 32)
-        .frame(minWidth: 760, idealWidth: 880, maxWidth: .infinity,
+        .frame(minWidth: 860, idealWidth: 920, maxWidth: .infinity,
                minHeight: 560, idealHeight: 640, maxHeight: .infinity)
         .background(
             ZStack {
@@ -81,144 +81,37 @@ struct EqualizerStudioView: View {
         }
     }
 
-    // MARK: - Header Bar
+    // MARK: - Header Bar (Responsive, Never Overlapping, Zero Text Wrapping)
 
     private var headerBar: some View {
-        HStack(spacing: 10) {
-            // Power Button
-            Button {
-                withAnimation(.liquidBouncy) {
-                    equalizer.isEnabled.toggle()
-                }
-            } label: {
-                Image(systemName: "power")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(equalizer.isEnabled ? Color.white : Color.primary.opacity(0.35))
-                    .frame(width: 30, height: 30)
-                    .background(
-                        ZStack {
-                            Circle()
-                                .fill(equalizer.isEnabled ? Theme.LiquidGlass.cyanGlow.opacity(0.85) : Color.primary.opacity(0.06))
-                            if equalizer.isEnabled {
-                                Circle()
-                                    .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.6))
-                            }
-                        }
-                    )
-                    .overlay(
-                        Circle()
-                            .strokeBorder(
-                                equalizer.isEnabled
-                                    ? Theme.LiquidGlass.cyanGlow.opacity(0.9)
-                                    : Color.primary.opacity(0.12),
-                                lineWidth: 1.2
-                            )
-                    )
-                    .shadow(color: equalizer.isEnabled ? Theme.LiquidGlass.cyanGlow.opacity(0.5) : Color.clear, radius: 6)
+        HStack(spacing: 8) {
+            // Group 1: Power, Bypass & Mode Switcher
+            HStack(spacing: 6) {
+                powerButton
+                bypassButton
+                customModeSwitcher
             }
-            .buttonStyle(.plain)
-            .help(equalizer.isEnabled ? "Disable Equalizer" : "Enable Equalizer")
-
-            // A/B Bypass Pill
-            Button {
-                withAnimation(.liquidBouncy) {
-                    equalizer.isBypassed.toggle()
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: equalizer.isBypassed ? "pause.circle.fill" : "bolt.fill")
-                        .font(.system(size: 9.5))
-                    Text(equalizer.isBypassed ? "BYPASS" : "ACTIVE")
-                        .font(.system(size: 9.5, weight: .heavy, design: .rounded))
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .background(
-                    Capsule()
-                        .fill(equalizer.isBypassed ? Color.orange.opacity(0.2) : Theme.LiquidGlass.cyanGlow.opacity(0.16))
-                )
-                .overlay(
-                    Capsule()
-                        .strokeBorder(
-                            equalizer.isBypassed ? Color.orange.opacity(0.7) : Theme.LiquidGlass.cyanGlow.opacity(0.6),
-                            lineWidth: 0.85
-                        )
-                )
-                .foregroundStyle(equalizer.isBypassed ? Color.orange : Theme.LiquidGlass.cyanGlow)
-                .shadow(color: (equalizer.isBypassed ? Color.orange : Theme.LiquidGlass.cyanGlow).opacity(0.3), radius: 4)
-            }
-            .buttonStyle(.plain)
-            .help("Instant A/B comparison (Bypass all filter processing)")
-
-            // Custom Liquid Mode Switcher
-            customModeSwitcher
+            .fixedSize(horizontal: true, vertical: false)
 
             Spacer(minLength: 4)
 
-            // Target Scope & Preset Menus
-            targetScopeAndPresetBar
+            // Group 2: Scope & Preset Dropdowns
+            HStack(spacing: 6) {
+                targetScopeMenu
+                presetMenu
+            }
+            .fixedSize(horizontal: true, vertical: false)
 
             Spacer(minLength: 4)
 
-            // Test Tone Generator Tool
-            Button {
-                showToneGenerator = true
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "waveform.path.ecg")
-                        .font(.system(size: 10))
-                        .foregroundStyle(Theme.LiquidGlass.cyanGlow)
-                    Text("Tone Gen")
-                        .font(.system(size: 10.5, weight: .semibold))
-                }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 5)
-                .background(Color.primary.opacity(0.06))
-                .clipShape(Capsule())
-                .overlay(
-                    Capsule()
-                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.7)
-                )
+            // Group 3: Audio FX, Tone Gen, VU Meter, Preamp
+            HStack(spacing: 6) {
+                audioFXGroup
+                toneGenButton
+                EqualizerStereoVUMeter()
+                preampControl
             }
-            .buttonStyle(.plain)
-            .help("Acoustic Tone & Noise Generator for speaker/headphone calibration")
-
-            // Stereo VU Peak Meter
-            EqualizerStereoVUMeter()
-
-            // Preamp Gain Slider
-            HStack(spacing: 5) {
-                Text("Preamp")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Color.secondary)
-
-                Text(String(format: "%+.1f dB", equalizer.activeProfile.preamp))
-                    .font(.system(size: 10.5, weight: .bold, design: .monospaced))
-                    .foregroundStyle(equalizer.activeProfile.preamp > 0.01 ? Theme.LiquidGlass.amberGlow : (equalizer.activeProfile.preamp < -0.01 ? Theme.LiquidGlass.cyanGlow : Color.primary))
-                    .frame(width: 48, alignment: .trailing)
-
-                Slider(
-                    value: Binding(
-                        get: { equalizer.activeProfile.preamp },
-                        set: { val in
-                            let snapped = abs(val) < 0.2 ? 0.0 : round(val * 10) / 10
-                            equalizer.updatePreamp(snapped)
-                        }
-                    ),
-                    in: -20.0...20.0
-                )
-                .frame(width: 65)
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4.5)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(colorScheme == .light ? Color.white.opacity(0.7) : Color.black.opacity(0.4))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme), lineWidth: 0.65)
-                    )
-            )
+            .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
@@ -232,7 +125,77 @@ struct EqualizerStudioView: View {
         )
     }
 
-    // MARK: - Custom Liquid Mode Switcher
+    // MARK: - Subcomponents of Header
+
+    private var powerButton: some View {
+        Button {
+            withAnimation(.liquidBouncy) {
+                equalizer.isEnabled.toggle()
+            }
+        } label: {
+            Image(systemName: "power")
+                .font(.system(size: 12.5, weight: .bold))
+                .foregroundStyle(equalizer.isEnabled ? Color.white : Color.primary.opacity(0.35))
+                .frame(width: 28, height: 28)
+                .background(
+                    ZStack {
+                        Circle()
+                            .fill(equalizer.isEnabled ? Theme.LiquidGlass.cyanGlow.opacity(0.85) : Color.primary.opacity(0.06))
+                        if equalizer.isEnabled {
+                            Circle()
+                                .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.6))
+                        }
+                    }
+                )
+                .overlay(
+                    Circle()
+                        .strokeBorder(
+                            equalizer.isEnabled
+                                ? Theme.LiquidGlass.cyanGlow.opacity(0.9)
+                                : Color.primary.opacity(0.12),
+                            lineWidth: 1.2
+                        )
+                )
+                .shadow(color: equalizer.isEnabled ? Theme.LiquidGlass.cyanGlow.opacity(0.5) : Color.clear, radius: 6)
+        }
+        .buttonStyle(.plain)
+        .help(equalizer.isEnabled ? "Disable Equalizer" : "Enable Equalizer")
+        .fixedSize()
+    }
+
+    private var bypassButton: some View {
+        Button {
+            withAnimation(.liquidBouncy) {
+                equalizer.isBypassed.toggle()
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: equalizer.isBypassed ? "pause.circle.fill" : "bolt.fill")
+                    .font(.system(size: 9))
+                Text(equalizer.isBypassed ? "BYPASS" : "ACTIVE")
+                    .font(.system(size: 9, weight: .heavy, design: .rounded))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(equalizer.isBypassed ? Color.orange.opacity(0.2) : Theme.LiquidGlass.cyanGlow.opacity(0.16))
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(
+                        equalizer.isBypassed ? Color.orange.opacity(0.7) : Theme.LiquidGlass.cyanGlow.opacity(0.6),
+                        lineWidth: 0.85
+                    )
+            )
+            .foregroundStyle(equalizer.isBypassed ? Color.orange : Theme.LiquidGlass.cyanGlow)
+            .shadow(color: (equalizer.isBypassed ? Color.orange : Theme.LiquidGlass.cyanGlow).opacity(0.3), radius: 4)
+        }
+        .buttonStyle(.plain)
+        .help("Instant A/B comparison (Bypass all filter processing)")
+        .fixedSize()
+    }
 
     private var customModeSwitcher: some View {
         HStack(spacing: 2) {
@@ -244,9 +207,11 @@ struct EqualizerStudioView: View {
                         equalizer.syncDSP()
                     }
                 } label: {
-                    Text(mode.displayName)
-                        .font(.system(size: 10.5, weight: isSelected ? .bold : .medium))
-                        .padding(.horizontal, 8)
+                    Text(modeShortLabel(mode))
+                        .font(.system(size: 10, weight: isSelected ? .bold : .medium))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(.horizontal, 7)
                         .padding(.vertical, 4.5)
                         .background(
                             ZStack {
@@ -273,9 +238,10 @@ struct EqualizerStudioView: View {
                         .shadow(color: isSelected ? Theme.LiquidGlass.cyanGlow.opacity(0.3) : Color.clear, radius: 4)
                 }
                 .buttonStyle(.plain)
+                .fixedSize()
             }
         }
-        .padding(3)
+        .padding(2.5)
         .background(
             Capsule()
                 .fill(colorScheme == .light ? Color.black.opacity(0.06) : Color.black.opacity(0.45))
@@ -284,87 +250,215 @@ struct EqualizerStudioView: View {
                         .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.6)
                 )
         )
+        .fixedSize(horizontal: true, vertical: false)
     }
 
-    // MARK: - Target Scope & Preset Dropdowns
+    private func modeShortLabel(_ mode: EqualizerMode) -> String {
+        switch mode {
+        case .parametric: return "Parametric"
+        case .graphic10: return "10-Band"
+        case .graphic15: return "15-Band"
+        case .graphic31: return "31-Band"
+        }
+    }
 
-    private var targetScopeAndPresetBar: some View {
-        HStack(spacing: 6) {
-            // Target Scope
-            Menu {
-                Button {
-                    equalizer.activeTargetScope = .globalMaster
-                } label: {
-                    Label("Global Output (All System Audio)", systemImage: "speaker.wave.3.fill")
+    private var targetScopeMenu: some View {
+        Menu {
+            Button {
+                equalizer.activeTargetScope = .globalMaster
+            } label: {
+                Label("Global Output (All Audio)", systemImage: "speaker.wave.3.fill")
+            }
+
+            if !mixer.apps.isEmpty {
+                Divider()
+                ForEach(mixer.apps) { app in
+                    Button {
+                        equalizer.activeTargetScope = .app(bundleID: app.persistenceID ?? app.id, name: app.name)
+                    } label: {
+                        Label(app.name, systemImage: "app.fill")
+                    }
                 }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: scopeIcon)
+                    .font(.system(size: 9))
+                    .foregroundStyle(Theme.LiquidGlass.cyanGlow)
+                Text(equalizer.activeTargetScope.displayName)
+                    .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4.5)
+            .background(Color.primary.opacity(0.06))
+            .clipShape(Capsule())
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
 
-                if !mixer.apps.isEmpty {
-                    Divider()
-                    ForEach(mixer.apps) { app in
-                        Button {
-                            equalizer.activeTargetScope = .app(bundleID: app.persistenceID ?? app.id, name: app.name)
-                        } label: {
-                            Label(app.name, systemImage: "app.fill")
+    private var presetMenu: some View {
+        Menu {
+            Section(header: Text("Presets")) {
+                ForEach(equalizer.allProfiles()) { profile in
+                    Button {
+                        equalizer.selectProfile(id: profile.id)
+                    } label: {
+                        if equalizer.activeProfile.id == profile.id {
+                            Label(profile.name, systemImage: "checkmark")
+                        } else {
+                            Text(profile.name)
                         }
                     }
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: scopeIcon)
-                        .font(.system(size: 9.5))
-                        .foregroundStyle(Theme.LiquidGlass.cyanGlow)
-                    Text(equalizer.activeTargetScope.displayName)
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 4.5)
-                .background(Color.primary.opacity(0.06))
-                .clipShape(Capsule())
             }
-            .menuStyle(.borderlessButton)
+
+            Divider()
+
+            Button {
+                showPresetSheet = true
+            } label: {
+                Label("Manage Profiles & AutoEq…", systemImage: "slider.vertical.3")
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "music.note.list")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Theme.LiquidGlass.violetGlow)
+                Text(equalizer.activeProfile.name)
+                    .font(.system(size: 10, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4.5)
+            .background(Color.primary.opacity(0.06))
+            .clipShape(Capsule())
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private var audioFXGroup: some View {
+        HStack(spacing: 4) {
+            // Bass Exciter Toggle
+            Button {
+                withAnimation(.liquidSpring) {
+                    equalizer.isBassExciterEnabled.toggle()
+                }
+            } label: {
+                HStack(spacing: 3) {
+                    Image(systemName: "speaker.wave.3")
+                        .font(.system(size: 9))
+                    Text("Bass FX")
+                        .font(.system(size: 9.5, weight: .bold))
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4.5)
+                .background(
+                    Capsule()
+                        .fill(equalizer.isBassExciterEnabled ? Theme.LiquidGlass.amberGlow.opacity(0.25) : Color.primary.opacity(0.05))
+                )
+                .overlay(
+                    Capsule()
+                        .strokeBorder(equalizer.isBassExciterEnabled ? Theme.LiquidGlass.amberGlow.opacity(0.8) : Color.clear, lineWidth: 0.8)
+                )
+                .foregroundStyle(equalizer.isBassExciterEnabled ? Theme.LiquidGlass.amberGlow : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Psychoacoustic Bass Exciter (Enhances sub-harmonics for richer low-end)")
             .fixedSize()
 
-            // Active Preset Menu
-            Menu {
-                Section(header: Text("Presets")) {
-                    ForEach(equalizer.allProfiles()) { profile in
-                        Button {
-                            equalizer.selectProfile(id: profile.id)
-                        } label: {
-                            if equalizer.activeProfile.id == profile.id {
-                                Label(profile.name, systemImage: "checkmark")
-                            } else {
-                                Text(profile.name)
-                            }
-                        }
-                    }
-                }
-
-                Divider()
-
-                Button {
-                    showPresetSheet = true
-                } label: {
-                    Label("Manage Profiles & AutoEq…", systemImage: "slider.vertical.3")
+            // 3D Spatial Virtualizer Toggle
+            Button {
+                withAnimation(.liquidSpring) {
+                    equalizer.isSpatialVirtualizerEnabled.toggle()
                 }
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "music.note.list")
-                        .font(.system(size: 9.5))
-                        .foregroundStyle(Theme.LiquidGlass.violetGlow)
-                    Text(equalizer.activeProfile.name)
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .lineLimit(1)
+                HStack(spacing: 3) {
+                    Image(systemName: "globe.americas.fill")
+                        .font(.system(size: 9))
+                    Text("3D Space")
+                        .font(.system(size: 9.5, weight: .bold))
                 }
-                .padding(.horizontal, 7)
+                .padding(.horizontal, 6)
                 .padding(.vertical, 4.5)
-                .background(Color.primary.opacity(0.06))
-                .clipShape(Capsule())
+                .background(
+                    Capsule()
+                        .fill(equalizer.isSpatialVirtualizerEnabled ? Theme.LiquidGlass.violetGlow.opacity(0.25) : Color.primary.opacity(0.05))
+                )
+                .overlay(
+                    Capsule()
+                        .strokeBorder(equalizer.isSpatialVirtualizerEnabled ? Theme.LiquidGlass.violetGlow.opacity(0.8) : Color.clear, lineWidth: 0.8)
+                )
+                .foregroundStyle(equalizer.isSpatialVirtualizerEnabled ? Theme.LiquidGlass.violetGlow : Color.secondary)
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.plain)
+            .help("3D Spatial Audio Virtualizer (Expands holographic stereo soundstage)")
             .fixedSize()
         }
+    }
+
+    private var toneGenButton: some View {
+        Button {
+            showToneGenerator = true
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "waveform.path.ecg")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(Theme.LiquidGlass.cyanGlow)
+                Text("Tone")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4.5)
+            .background(Color.primary.opacity(0.06))
+            .clipShape(Capsule())
+            .overlay(
+                Capsule()
+                    .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.7)
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Acoustic Tone & Noise Generator for speaker/headphone calibration")
+        .fixedSize()
+    }
+
+    private var preampControl: some View {
+        HStack(spacing: 4) {
+            Text("Preamp")
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(Color.secondary)
+
+            Text(String(format: "%+.1f dB", equalizer.activeProfile.preamp))
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .foregroundStyle(equalizer.activeProfile.preamp > 0.01 ? Theme.LiquidGlass.amberGlow : (equalizer.activeProfile.preamp < -0.01 ? Theme.LiquidGlass.cyanGlow : Color.primary))
+                .frame(width: 46, alignment: .trailing)
+
+            Slider(
+                value: Binding(
+                    get: { equalizer.activeProfile.preamp },
+                    set: { val in
+                        let snapped = abs(val) < 0.2 ? 0.0 : round(val * 10) / 10
+                        equalizer.updatePreamp(snapped)
+                    }
+                ),
+                in: -20.0...20.0
+            )
+            .tint(Theme.LiquidGlass.cyanGlow)
+            .frame(width: 58)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(colorScheme == .light ? Color.white.opacity(0.7) : Color.black.opacity(0.4))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme), lineWidth: 0.65)
+                )
+        )
+        .fixedSize()
     }
 
     private var scopeIcon: String {
@@ -396,7 +490,7 @@ struct EqualizerStudioView: View {
                     Image(systemName: "arrow.up.arrow.down")
                         .font(.system(size: 9.5))
                     Text("Import / Export Profiles")
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(.system(size: 10, weight: .medium))
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)

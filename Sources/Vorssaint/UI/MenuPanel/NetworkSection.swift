@@ -184,11 +184,65 @@ struct NetworkSection: View {
                                value: monitor.snapshot.netUpBytesPerSec,
                                color: PanelMetricColor.green(for: colorScheme))
                 }
+
+                // Network Pulse: Real-time Ping, Jitter, and Connection Health
+                networkPulseRow
+
                 if showGraph, monitor.snapshot.netDownHistory.count >= 2 {
                     graph
                 }
             }
         }
+    }
+
+    private var networkPulseRow: some View {
+        let pulse = NetworkPulseService.shared
+        let ping = pulse.currentPingMs
+        let qualityColor: Color = ping <= 0 ? .gray : (ping < 35 ? Theme.LiquidGlass.emeraldGlow : (ping < 80 ? Theme.LiquidGlass.amberGlow : .red))
+
+        return HStack(spacing: 6) {
+            // Pulse dot
+            Circle()
+                .fill(qualityColor)
+                .frame(width: 6, height: 6)
+                .shadow(color: qualityColor.opacity(0.8), radius: 3)
+
+            Text("Pulse (1.1.1.1)")
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            if ping > 0 {
+                HStack(spacing: 8) {
+                    Text("\(Int(ping)) ms")
+                        .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                        .foregroundStyle(qualityColor)
+
+                    if pulse.jitterMs > 0 {
+                        Text("±\(String(format: "%.1f", pulse.jitterMs)) ms")
+                            .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if pulse.packetLossPercent > 0 {
+                        Text("\(String(format: "%.0f%%", pulse.packetLossPercent)) loss")
+                            .font(.system(size: 9.5, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.red)
+                    }
+                }
+            } else {
+                Text("Probing…")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        )
     }
 
     private func rateColumn(icon: String, label: String, value: Double?, color: Color) -> some View {

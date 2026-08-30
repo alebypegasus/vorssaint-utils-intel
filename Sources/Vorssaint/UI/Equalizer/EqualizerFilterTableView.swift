@@ -75,6 +75,7 @@ struct EqualizerFilterTableView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Add a new parametric filter band")
+                .fixedSize()
 
                 Button {
                     withAnimation(.liquidSpring) {
@@ -91,7 +92,9 @@ struct EqualizerFilterTableView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Reset all bands to 0 dB flat")
+                .fixedSize()
             }
+            .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
@@ -125,12 +128,14 @@ struct EqualizerFilterTableView: View {
                 Text("#\(index + 1) \(formatFrequencyShort(band.frequency))")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundStyle(band.isEnabled ? (isLight ? Color.primary : Color.white) : Color.secondary.opacity(0.6))
+                    .lineLimit(1)
 
                 // Gain badge if applicable
                 if band.type.hasGain && abs(band.gain) > 0.05 {
                     Text(String(format: "%+.0f", band.gain))
                         .font(.system(size: 9, weight: .heavy, design: .monospaced))
                         .foregroundStyle(band.gain > 0 ? Theme.LiquidGlass.amberGlow : Theme.LiquidGlass.cyanGlow)
+                        .lineLimit(1)
                 }
             }
             .padding(.horizontal, 8)
@@ -156,6 +161,7 @@ struct EqualizerFilterTableView: View {
             .shadow(color: isSelected ? color.opacity(0.35) : Color.clear, radius: 4)
         }
         .buttonStyle(.plain)
+        .fixedSize()
     }
 
     // MARK: - Focused Band Inspector Console Deck
@@ -183,6 +189,7 @@ struct EqualizerFilterTableView: View {
                     .foregroundStyle(band.isEnabled ? color : Color.secondary)
                 }
                 .buttonStyle(.plain)
+                .fixedSize()
 
                 Divider().frame(height: 14)
 
@@ -213,6 +220,7 @@ struct EqualizerFilterTableView: View {
                             .foregroundStyle(band.type == type ? (isLight ? Color.primary : Color.white) : Color.secondary.opacity(0.7))
                         }
                         .buttonStyle(.plain)
+                        .fixedSize()
                     }
                 }
 
@@ -257,10 +265,11 @@ struct EqualizerFilterTableView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Delete this band")
+                .fixedSize()
             }
 
             // Deck Controls: Frequency, Gain, Q-Factor
-            HStack(spacing: 12) {
+            HStack(spacing: 14) {
                 // 1. Frequency Control
                 VStack(alignment: .leading, spacing: 3) {
                     HStack {
@@ -282,6 +291,7 @@ struct EqualizerFilterTableView: View {
                         ),
                         in: log10(20.0)...log10(20000.0)
                     )
+                    .tint(Theme.LiquidGlass.cyanGlow)
                 }
                 .frame(minWidth: 140, maxWidth: .infinity)
 
@@ -309,6 +319,7 @@ struct EqualizerFilterTableView: View {
                             ),
                             in: -24.0...24.0
                         )
+                        .tint(band.gain >= 0 ? Theme.LiquidGlass.amberGlow : Theme.LiquidGlass.cyanGlow)
                     }
                     .frame(minWidth: 140, maxWidth: .infinity)
                 }
@@ -334,6 +345,7 @@ struct EqualizerFilterTableView: View {
                         ),
                         in: log10(0.1)...log10(20.0)
                     )
+                    .tint(Theme.LiquidGlass.violetGlow)
                 }
                 .frame(minWidth: 120, maxWidth: .infinity)
             }

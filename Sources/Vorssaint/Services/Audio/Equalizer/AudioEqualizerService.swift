@@ -64,6 +64,18 @@ final class AudioEqualizerService: ObservableObject {
         }
     }
 
+    @Published var isBassExciterEnabled: Bool = false {
+        didSet {
+            syncDSP()
+        }
+    }
+
+    @Published var isSpatialVirtualizerEnabled: Bool = false {
+        didSet {
+            syncDSP()
+        }
+    }
+
     @Published var activeChannelFilter: EqualizerChannelTarget = .stereo
 
     /// Master DSP instance applied to system output or aggregate devices.
@@ -101,12 +113,24 @@ final class AudioEqualizerService: ObservableObject {
     /// Updates all active DSP instances with current profile settings and sample rate.
     func syncDSP() {
         let effectivelyBypassed = !isEnabled || isBypassed
-        masterDSP.update(profile: activeProfile, isBypassed: effectivelyBypassed, sampleRate: currentSampleRate)
+        masterDSP.update(
+            profile: activeProfile,
+            isBypassed: effectivelyBypassed,
+            sampleRate: currentSampleRate,
+            isBassExciterEnabled: isBassExciterEnabled,
+            isSpatialVirtualizerEnabled: isSpatialVirtualizerEnabled
+        )
 
         // Update per-app DSPs
         for (appID, dsp) in appDSPInstances {
             let profileToUse = profileForApp(id: appID)
-            dsp.update(profile: profileToUse, isBypassed: effectivelyBypassed, sampleRate: currentSampleRate)
+            dsp.update(
+                profile: profileToUse,
+                isBypassed: effectivelyBypassed,
+                sampleRate: currentSampleRate,
+                isBassExciterEnabled: isBassExciterEnabled,
+                isSpatialVirtualizerEnabled: isSpatialVirtualizerEnabled
+            )
         }
     }
 
