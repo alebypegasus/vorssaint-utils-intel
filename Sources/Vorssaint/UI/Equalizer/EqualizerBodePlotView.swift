@@ -4,21 +4,19 @@
 import AppKit
 import SwiftUI
 
-/// Interactive Bode magnitude response plot with real-time FFT spectrum analyzer and draggable filter nodes.
+/// Pro studio interactive Bode plot with real-time FFT spectrum analyzer and draggable filter nodes.
 struct EqualizerBodePlotView: View {
     @ObservedObject var equalizer: AudioEqualizerService
     @ObservedObject var spectrum: SpectrumAnalyzerDSP = .shared
     @Binding var selectedBandID: UUID?
 
     @State private var hoveredBandID: UUID?
-    @State private var dragStartLocation: CGPoint?
-    @State private var initialBandFrequency: Double = 1000.0
-    @State private var initialBandGain: Double = 0.0
+    @State private var isDragging = false
 
-    private let minFreq: Double = 20.0
-    private let maxFreq: Double = 20000.0
-    private let minDB: Double = -24.0
-    private let maxDB: Double = 24.0
+    private let minFreq = 20.0
+    private let maxFreq = 20000.0
+    private let minDB = -24.0
+    private let maxDB = 24.0
 
     private let gridFrequencies: [(Double, String)] = [
         (20.0, "20"), (50.0, "50"), (100.0, "100"), (200.0, "200"),
@@ -32,176 +30,254 @@ struct EqualizerBodePlotView: View {
         GeometryReader { geometry in
             let size = geometry.size
             ZStack {
-                // Liquid Glass Background surface
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Theme.LiquidGlass.refractionGradient(for: .dark).opacity(0.85))
+                // Dark Obsidian Glass Canvas Background
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.05, green: 0.07, blue: 0.11),
+                                Color(red: 0.07, green: 0.09, blue: 0.15)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Theme.LiquidGlass.specularGradient(for: .dark).opacity(0.6))
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Theme.LiquidGlass.specularGradient(for: .dark).opacity(0.35))
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .strokeBorder(Theme.LiquidGlass.borderGradient(for: .dark), lineWidth: 0.85)
                     )
-                    .shadow(color: Color.black.opacity(0.35), radius: 12, x: 0, y: 6)
+                    .shadow(color: Color.black.opacity(0.5), radius: 14, x: 0, y: 6)
 
-                // Grid lines & labels
+                // High-Contrast Grid lines & labels
                 gridBackground(size: size)
+                gridLabels(size: size)
 
-                // Live Neon FFT Spectrum Analyzer overlay
+                // Real-Time Neon FFT Spectrum Visualizer
                 if equalizer.isEnabled && !equalizer.isBypassed {
                     spectrumVisualizer(size: size)
                 }
 
-                // Individual filter curves (faint dashed curves)
+                // Individual filter curves (subtle dashed traces in parametric mode)
                 individualFilterCurves(size: size)
 
-                // Combined composite frequency response curve
+                // Master Composite Frequency Response Curve with liquid gradient & fill
                 compositeResponseCurve(size: size)
 
-                // Draggable filter nodes (Parametric mode)
+                // Interactive Draggable Filter Nodes (Parametric mode)
                 if equalizer.activeProfile.mode == .parametric {
                     filterNodesOverlay(size: size)
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
-        .frame(minHeight: 230, maxHeight: 350)
     }
 
     // MARK: - Grid Background
 
     private func gridBackground(size: CGSize) -> some View {
         Canvas { context, canvasSize in
+            let w = canvasSize.width
+            let h = canvasSize.height
+            let padL: CGFloat = 34
+            let padR: CGFloat = 16
+            let padT: CGFloat = 18
+            let padB: CGFloat = 22
+            let contentW = w - padL - padR
+            let contentH = h - padT - padB
+
             // Horizontal dB grid lines
             for db in gridDecibels {
-                let y = yForDB(db, height: canvasSize.height)
+                let y = padT + CGFloat((maxDB - db) / (maxDB - minDB)) * contentH
                 var path = Path()
-                path.move(to: CGPoint(x: 0, y: y))
-                path.addLine(to: CGPoint(x: canvasSize.width, y: y))
+                path.move(to: CGPoint(x: padL, y: y))
+                path.addLine(to: CGPoint(x: w - padR, y: y))
 
-                let isCenter = abs(db) < 0.01
-                let strokeColor = isCenter ? Color.white.opacity(0.35) : Color.white.opacity(0.07)
-                let lineWidth: CGFloat = isCenter ? 1.2 : 0.75
-                let style = isCenter ? StrokeStyle(lineWidth: lineWidth) : StrokeStyle(lineWidth: lineWidth, dash: [4, 4])
-                context.stroke(path, with: .color(strokeColor), style: style)
+                if abs(db) < 0.01 {
+                    // 0 dB center reference line
+                    context.stroke(path, with: .color(Color.white.opacity(0.35)), lineWidth: 1.2)
+                } else {
+                    context.stroke(path, with: .color(Color.white.opacity(0.08)), style: StrokeStyle(lineWidth: 0.65, dash: [4, 4]))
+                }
             }
 
             // Vertical Frequency grid lines
             for (freq, _) in gridFrequencies {
-                let x = xForFreq(freq, width: canvasSize.width)
+                let logMin = log10(minFreq)
+                let logMax = log10(maxFreq)
+                let fraction = CGFloat((log10(freq) - logMin) / (logMax - logMin))
+                let x = padL + fraction * contentW
+
                 var path = Path()
-                path.move(to: CGPoint(x: x, y: 0))
-                path.addLine(to: CGPoint(x: x, y: canvasSize.height))
-                context.stroke(path, with: .color(Color.white.opacity(0.07)), style: StrokeStyle(lineWidth: 0.75, dash: [4, 4]))
+                path.move(to: CGPoint(x: x, y: padT))
+                path.addLine(to: CGPoint(x: x, y: h - padB))
+
+                context.stroke(path, with: .color(Color.white.opacity(0.08)), style: StrokeStyle(lineWidth: 0.65, dash: [3, 4]))
             }
         }
-        .overlay(gridLabels(size: size))
     }
+
+    // MARK: - Grid Labels
 
     private func gridLabels(size: CGSize) -> some View {
-        ZStack(alignment: .topLeading) {
-            // dB labels on left edge
+        let padL: CGFloat = 34
+        let padR: CGFloat = 16
+        let padT: CGFloat = 18
+        let padB: CGFloat = 22
+        let contentW = size.width - padL - padR
+        let contentH = size.height - padT - padB
+
+        return ZStack(alignment: .topLeading) {
+            // Decibel labels on left edge
             ForEach(gridDecibels, id: \.self) { db in
-                if db != minDB && db != maxDB {
-                    Text(String(format: "%+.0f dB", db))
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(db == 0 ? Theme.LiquidGlass.cyanGlow : Color.white.opacity(0.45))
-                        .position(x: 28, y: yForDB(db, height: size.height))
-                }
+                let y = padT + CGFloat((maxDB - db) / (maxDB - minDB)) * contentH
+                Text(String(format: "%+.0f", db))
+                    .font(.system(size: 9, weight: abs(db) < 0.01 ? .bold : .medium, design: .monospaced))
+                    .foregroundStyle(abs(db) < 0.01 ? Theme.LiquidGlass.cyanGlow : Color.white.opacity(0.45))
+                    .frame(width: 28, alignment: .trailing)
+                    .position(x: 16, y: y)
             }
 
-            // Frequency labels on bottom edge
+            // Frequency labels along bottom edge
             ForEach(gridFrequencies, id: \.0) { freq, label in
+                let logMin = log10(minFreq)
+                let logMax = log10(maxFreq)
+                let fraction = CGFloat((log10(freq) - logMin) / (logMax - logMin))
+                let x = padL + fraction * contentW
                 Text(label)
                     .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.5))
-                    .position(x: xForFreq(freq, width: size.width), y: size.height - 12)
+                    .foregroundStyle(Color.white.opacity(0.55))
+                    .position(x: x, y: size.height - 10)
             }
         }
     }
 
-    // MARK: - Spectrum Visualizer
+    // MARK: - Real-Time Neon FFT Spectrum Visualizer
 
     private func spectrumVisualizer(size: CGSize) -> some View {
         let bins = spectrum.spectrumMagnitudes
         let binCount = bins.count
-        return GeometryReader { _ in
-            Path { path in
-                guard binCount > 0 else { return }
-                let stepWidth = size.width / CGFloat(binCount)
-                path.move(to: CGPoint(x: 0, y: size.height))
+        guard binCount > 1 else { return AnyView(EmptyView()) }
 
-                for i in 0..<binCount {
-                    let mag = CGFloat(bins[i])
-                    let x = CGFloat(i) * stepWidth + stepWidth * 0.5
-                    let y = size.height - (mag * (size.height * 0.85))
-                    path.addLine(to: CGPoint(x: x, y: y))
+        let padL: CGFloat = 34
+        let padR: CGFloat = 16
+        let padT: CGFloat = 18
+        let padB: CGFloat = 22
+        let contentW = size.width - padL - padR
+        let contentH = size.height - padT - padB
+
+        return AnyView(
+            Canvas { context, _ in
+                var path = Path()
+                var firstPoint = true
+
+                for b in 0..<binCount {
+                    let fraction = CGFloat(b) / CGFloat(binCount - 1)
+                    let x = padL + fraction * contentW
+                    let mag = CGFloat(bins[b]) // 0.0 ... 1.0
+                    // Map magnitude to dB range: 0.0 = -60dB, 1.0 = +12dB
+                    let dbValue = Double(mag * 40.0 - 24.0)
+                    let y = padT + CGFloat((maxDB - dbValue) / (maxDB - minDB)) * contentH
+                    let clampedY = max(padT, min(size.height - padB, y))
+
+                    if firstPoint {
+                        path.move(to: CGPoint(x: x, y: clampedY))
+                        firstPoint = false
+                    } else {
+                        path.addLine(to: CGPoint(x: x, y: clampedY))
+                    }
                 }
-                path.addLine(to: CGPoint(x: size.width, y: size.height))
-                path.closeSubpath()
-            }
-            .fill(
-                LinearGradient(
-                    gradient: Gradient(colors: [
-                        Theme.LiquidGlass.cyanGlow.opacity(0.35),
-                        Theme.LiquidGlass.violetGlow.opacity(0.22),
-                        Theme.LiquidGlass.magentaGlow.opacity(0.10),
-                        Color.clear
-                    ]),
-                    startPoint: .top,
-                    endPoint: .bottom
+
+                // Closed area fill under the FFT spectrum
+                var fillPath = path
+                fillPath.addLine(to: CGPoint(x: padL + contentW, y: size.height - padB))
+                fillPath.addLine(to: CGPoint(x: padL, y: size.height - padB))
+                fillPath.closeSubpath()
+
+                let spectrumGradient = Gradient(colors: [
+                    Theme.LiquidGlass.cyanGlow.opacity(0.22),
+                    Theme.LiquidGlass.violetGlow.opacity(0.18),
+                    Theme.LiquidGlass.magentaGlow.opacity(0.08),
+                    Color.clear
+                ])
+
+                context.fill(
+                    fillPath,
+                    with: .linearGradient(
+                        spectrumGradient,
+                        startPoint: CGPoint(x: padL, y: padT),
+                        endPoint: CGPoint(x: padL, y: size.height - padB)
+                    )
                 )
-            )
-        }
-        .allowsHitTesting(false)
-        .animation(.liquidSpring, value: spectrum.spectrumMagnitudes)
+
+                // Top neon line
+                context.stroke(
+                    path,
+                    with: .linearGradient(
+                        Gradient(colors: [
+                            Theme.LiquidGlass.cyanGlow.opacity(0.8),
+                            Theme.LiquidGlass.violetGlow.opacity(0.7),
+                            Theme.LiquidGlass.magentaGlow.opacity(0.6)
+                        ]),
+                        startPoint: CGPoint(x: padL, y: 0),
+                        endPoint: CGPoint(x: padL + contentW, y: 0)
+                    ),
+                    lineWidth: 1.5
+                )
+            }
+        )
     }
 
     // MARK: - Individual Filter Curves
 
     private func individualFilterCurves(size: CGSize) -> some View {
-        Canvas { context, canvasSize in
+        Canvas { context, _ in
             guard equalizer.activeProfile.mode == .parametric else { return }
-            let bands = equalizer.activeProfile.bands.filter { $0.isEnabled }
 
-            for band in bands {
-                let coeffs = BiquadCoefficients.compute(
-                    type: band.type,
-                    frequency: band.frequency,
-                    gainDB: band.gain,
-                    q: band.q,
-                    sampleRate: 48000.0
-                )
+            let padL: CGFloat = 34
+            let padR: CGFloat = 16
+            let padT: CGFloat = 18
+            let padB: CGFloat = 22
+            let contentW = size.width - padL - padR
+            let contentH = size.height - padT - padB
 
+            let samplePoints = 120
+            let logMin = log10(minFreq)
+            let logMax = log10(maxFreq)
+
+            for band in equalizer.activeProfile.bands where band.isEnabled {
+                let isSelected = selectedBandID == band.id
                 var path = Path()
-                let points = 80
-                for i in 0...points {
-                    let fraction = Double(i) / Double(points)
-                    let logMin = log10(minFreq)
-                    let logMax = log10(maxFreq)
-                    let f = pow(10.0, logMin + fraction * (logMax - logMin))
-                    let db = coeffs.responseGainDB(at: f)
-                    let x = CGFloat(fraction) * canvasSize.width
-                    let y = yForDB(db, height: canvasSize.height)
+                var first = true
 
-                    if i == 0 {
-                        path.move(to: CGPoint(x: x, y: y))
+                for i in 0...samplePoints {
+                    let fraction = Double(i) / Double(samplePoints)
+                    let freq = pow(10.0, logMin + fraction * (logMax - logMin))
+                    let gain = band.magnitudeResponse(atFrequency: freq, sampleRate: 48000.0)
+
+                    let x = padL + CGFloat(fraction) * contentW
+                    let y = padT + CGFloat((maxDB - gain) / (maxDB - minDB)) * contentH
+                    let clampedY = max(padT, min(size.height - padB, y))
+
+                    if first {
+                        path.move(to: CGPoint(x: x, y: clampedY))
+                        first = false
                     } else {
-                        path.addLine(to: CGPoint(x: x, y: y))
+                        path.addLine(to: CGPoint(x: x, y: clampedY))
                     }
                 }
 
-                let isSelected = selectedBandID == band.id
-                let strokeColor = isSelected ? Theme.LiquidGlass.cyanGlow.opacity(0.9) : Color.white.opacity(0.22)
-                context.stroke(path, with: .color(strokeColor), style: StrokeStyle(lineWidth: isSelected ? 1.6 : 1.0, dash: [3, 3]))
+                let color = colorForFilterType(band.type)
+                context.stroke(
+                    path,
+                    with: .color(color.opacity(isSelected ? 0.6 : 0.22)),
+                    style: StrokeStyle(lineWidth: isSelected ? 1.5 : 0.8, dash: [4, 3])
+                )
             }
         }
-        .allowsHitTesting(false)
     }
 
     // MARK: - Composite Frequency Response Curve
@@ -209,236 +285,246 @@ struct EqualizerBodePlotView: View {
     private func compositeResponseCurve(size: CGSize) -> some View {
         let profile = equalizer.activeProfile
         let isBypassed = !equalizer.isEnabled || equalizer.isBypassed
-        let preamp = isBypassed ? 0.0 : profile.preamp
 
-        // Precompute active filter coefficients
-        var activeCoeffs: [BiquadCoefficients] = []
-        if !isBypassed {
-            if profile.mode == .parametric {
-                for band in profile.bands where band.isEnabled {
-                    let c = BiquadCoefficients.compute(
-                        type: band.type,
-                        frequency: band.frequency,
-                        gainDB: band.gain,
-                        q: band.q,
-                        sampleRate: 48000.0
-                    )
-                    activeCoeffs.append(c)
+        let padL: CGFloat = 34
+        let padR: CGFloat = 16
+        let padT: CGFloat = 18
+        let padB: CGFloat = 22
+        let contentW = size.width - padL - padR
+        let contentH = size.height - padT - padB
+        let zeroY = padT + CGFloat((maxDB - 0.0) / (maxDB - minDB)) * contentH
+
+        let samplePoints = 240
+        let logMin = log10(minFreq)
+        let logMax = log10(maxFreq)
+
+        return Canvas { context, _ in
+            var path = Path()
+            var first = true
+
+            for i in 0...samplePoints {
+                let fraction = Double(i) / Double(samplePoints)
+                let freq = pow(10.0, logMin + fraction * (logMax - logMin))
+
+                let totalGain: Double
+                if isBypassed {
+                    totalGain = 0.0
+                } else {
+                    totalGain = profile.preamp + profile.compositeMagnitudeResponse(atFrequency: freq, sampleRate: 48000.0)
                 }
-            } else {
-                let freqs = GraphicEqualizerFrequencies.frequencies(for: profile.mode)
-                for (index, freq) in freqs.enumerated() {
-                    let key = GraphicEqualizerFrequencies.formatFrequency(freq)
-                    let gain = profile.graphicGains[key] ?? 0.0
-                    if abs(gain) > 0.01 {
-                        let type: EqualizerFilterType = (index == 0) ? .lowShelf : (index == freqs.count - 1 ? .highShelf : .peaking)
-                        let q: Double = profile.mode == .graphic10 ? 1.41 : (profile.mode == .graphic15 ? 2.15 : 4.31)
-                        let c = BiquadCoefficients.compute(type: type, frequency: freq, gainDB: gain, q: q, sampleRate: 48000.0)
-                        activeCoeffs.append(c)
-                    }
+
+                let x = padL + CGFloat(fraction) * contentW
+                let y = padT + CGFloat((maxDB - totalGain) / (maxDB - minDB)) * contentH
+                let clampedY = max(padT, min(size.height - padB, y))
+
+                if first {
+                    path.move(to: CGPoint(x: x, y: clampedY))
+                    first = false
+                } else {
+                    path.addLine(to: CGPoint(x: x, y: clampedY))
                 }
             }
-        }
 
-        return Canvas { context, canvasSize in
-            let pointsCount = 140
-            let logMin = log10(minFreq)
-            let logMax = log10(maxFreq)
-
-            var curvePoints: [CGPoint] = []
-            for i in 0...pointsCount {
-                let fraction = Double(i) / Double(pointsCount)
-                let f = pow(10.0, logMin + fraction * (logMax - logMin))
-                var totalDB = preamp
-                for c in activeCoeffs {
-                    totalDB += c.responseGainDB(at: f)
-                }
-                let x = CGFloat(fraction) * canvasSize.width
-                let y = yForDB(totalDB, height: canvasSize.height)
-                curvePoints.append(CGPoint(x: x, y: y))
-            }
-
-            guard let first = curvePoints.first else { return }
-
-            // Fill under curve with chromatic liquid gradient
-            var fillPath = Path()
-            fillPath.move(to: CGPoint(x: 0, y: yForDB(0, height: canvasSize.height)))
-            fillPath.addLine(to: first)
-            for pt in curvePoints.dropFirst() {
-                fillPath.addLine(to: pt)
-            }
-            fillPath.addLine(to: CGPoint(x: canvasSize.width, y: yForDB(0, height: canvasSize.height)))
+            // Fill area between curve and 0 dB line
+            var fillPath = path
+            fillPath.addLine(to: CGPoint(x: padL + contentW, y: zeroY))
+            fillPath.addLine(to: CGPoint(x: padL, y: zeroY))
             fillPath.closeSubpath()
 
-            let fillGradient = GraphicsContext.Shading.linearGradient(
-                Gradient(colors: [
-                    Theme.LiquidGlass.cyanGlow.opacity(0.38),
-                    Theme.LiquidGlass.violetGlow.opacity(0.20),
-                    Color.clear
-                ]),
-                startPoint: CGPoint(x: canvasSize.width / 2, y: 0),
-                endPoint: CGPoint(x: canvasSize.width / 2, y: canvasSize.height)
+            let fillGradient = Gradient(colors: [
+                (isBypassed ? Color.gray : Theme.LiquidGlass.cyanGlow).opacity(0.18),
+                (isBypassed ? Color.gray : Theme.LiquidGlass.violetGlow).opacity(0.10),
+                Color.clear
+            ])
+
+            context.fill(
+                fillPath,
+                with: .linearGradient(
+                    fillGradient,
+                    startPoint: CGPoint(x: padL, y: padT),
+                    endPoint: CGPoint(x: padL, y: size.height - padB)
+                )
             )
-            context.fill(fillPath, with: fillGradient)
 
-            // Outline curve stroke with glowing neon gradient
-            var strokePath = Path()
-            strokePath.move(to: first)
-            for pt in curvePoints.dropFirst() {
-                strokePath.addLine(to: pt)
-            }
-
-            let strokeGradient = GraphicsContext.Shading.linearGradient(
-                Gradient(colors: [
+            // Dynamic Chromatic Neon Stroke
+            let strokeGradient = Gradient(colors: isBypassed
+                ? [Color.orange.opacity(0.7), Color.orange.opacity(0.7)]
+                : [
                     Theme.LiquidGlass.cyanGlow,
-                    Color(red: 0.2, green: 0.8, blue: 0.95),
+                    Theme.LiquidGlass.cyanGlow,
                     Theme.LiquidGlass.violetGlow,
                     Theme.LiquidGlass.magentaGlow
-                ]),
-                startPoint: CGPoint(x: 0, y: canvasSize.height / 2),
-                endPoint: CGPoint(x: canvasSize.width, y: canvasSize.height / 2)
+                ]
             )
+
             context.stroke(
-                strokePath,
-                with: strokeGradient,
-                style: StrokeStyle(lineWidth: 2.8, lineCap: .round, lineJoin: .round)
+                path,
+                with: .linearGradient(
+                    strokeGradient,
+                    startPoint: CGPoint(x: padL, y: 0),
+                    endPoint: CGPoint(x: padL + contentW, y: 0)
+                ),
+                lineWidth: 2.8
             )
         }
-        .allowsHitTesting(false)
     }
 
-    // MARK: - Interactive Filter Nodes
+    // MARK: - Interactive Filter Nodes Overlay
 
     private func filterNodesOverlay(size: CGSize) -> some View {
         let bands = equalizer.activeProfile.bands
 
+        let padL: CGFloat = 34
+        let padR: CGFloat = 16
+        let padT: CGFloat = 18
+        let padB: CGFloat = 22
+        let contentW = size.width - padL - padR
+        let contentH = size.height - padT - padB
+
+        let logMin = log10(minFreq)
+        let logMax = log10(maxFreq)
+
         return ZStack {
-            ForEach(bands) { band in
-                let x = xForFreq(band.frequency, width: size.width)
-                let y = yForDB(band.gain, height: size.height)
+            ForEach(Array(bands.enumerated()), id: \.element.id) { index, band in
+                let fractionX = CGFloat((log10(band.frequency) - logMin) / (logMax - logMin))
+                let fractionY = CGFloat((maxDB - band.gain) / (maxDB - minDB))
+
+                let nodeX = padL + fractionX * contentW
+                let nodeY = padT + fractionY * contentH
+
                 let isSelected = selectedBandID == band.id
                 let isHovered = hoveredBandID == band.id
+                let color = colorForFilterType(band.type)
 
                 ZStack {
-                    // Outer neon pulse ring when selected
+                    // Floating HUD Tooltip when selected or hovered
+                    if isSelected || isHovered {
+                        VStack(spacing: 2) {
+                            HStack(spacing: 5) {
+                                Text(band.type.shortCode)
+                                    .font(.system(size: 9.5, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(color)
+                                Text("•")
+                                    .foregroundStyle(Color.white.opacity(0.4))
+                                Text("\(Int(band.frequency)) Hz")
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(Color.white)
+                                if band.type.hasGain {
+                                    Text("•")
+                                        .foregroundStyle(Color.white.opacity(0.4))
+                                    Text(String(format: "%+.1f dB", band.gain))
+                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                        .foregroundStyle(band.gain > 0.01 ? Theme.LiquidGlass.amberGlow : (band.gain < -0.01 ? Theme.LiquidGlass.cyanGlow : Color.white))
+                                }
+                                Text("•")
+                                    .foregroundStyle(Color.white.opacity(0.4))
+                                Text(String(format: "Q:%.2f", band.q))
+                                    .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(Color.white.opacity(0.8))
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color.black.opacity(0.85))
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Theme.LiquidGlass.specularGradient(for: .dark).opacity(0.4))
+                            }
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(Theme.LiquidGlass.borderGradient(for: .dark, glow: color), lineWidth: 0.75)
+                        )
+                        .shadow(color: Color.black.opacity(0.5), radius: 6, y: 2)
+                        .offset(y: -30)
+                    }
+
+                    // Pulsing Ring for active node
                     if isSelected {
                         Circle()
-                            .stroke(Theme.LiquidGlass.cyanGlow.opacity(0.85), lineWidth: 1.5)
-                            .frame(width: 32, height: 32)
-                            .background(
-                                Circle().fill(Theme.LiquidGlass.cyanGlow.opacity(0.25))
-                            )
-                            .shadow(color: Theme.LiquidGlass.cyanGlow.opacity(0.8), radius: 8)
-                            .animation(.liquidSpring, value: isSelected)
+                            .strokeBorder(color.opacity(0.7), lineWidth: 1.5)
+                            .frame(width: 28, height: 28)
+                            .shadow(color: color.opacity(0.8), radius: 6)
                     }
 
-                    // Node body with specular reflection
+                    // Glass Handle Body
                     Circle()
                         .fill(
-                            band.isEnabled
-                                ? LinearGradient(colors: [Theme.LiquidGlass.cyanGlow, Color.accentColor], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                : LinearGradient(colors: [Color.secondary.opacity(0.6), Color.secondary.opacity(0.3)], startPoint: .top, endPoint: .bottom)
+                            RadialGradient(
+                                colors: [
+                                    color.opacity(0.9),
+                                    color.opacity(0.4),
+                                    Color.black.opacity(0.8)
+                                ],
+                                center: .topLeading,
+                                startRadius: 2,
+                                endRadius: 10
+                            )
                         )
-                        .frame(width: isSelected || isHovered ? 18 : 14, height: isSelected || isHovered ? 18 : 14)
+                        .frame(width: 18, height: 18)
                         .overlay(
                             Circle()
-                                .stroke(Color.white.opacity(0.9), lineWidth: 2)
+                                .strokeBorder(Color.white.opacity(0.85), lineWidth: 1.2)
                         )
-                        .shadow(color: Color.black.opacity(0.5), radius: 4, x: 0, y: 2)
+                        .shadow(color: color.opacity(0.7), radius: 5)
 
-                    // Band number
-                    if let index = bands.firstIndex(where: { $0.id == band.id }) {
-                        Text("\(index + 1)")
-                            .font(.system(size: 8.5, weight: .bold, design: .rounded))
-                            .foregroundStyle(Color.white)
-                    }
-
-                    // Floating Live Tooltip badge when selected or hovered
-                    if isSelected || isHovered {
-                        VStack(spacing: 1) {
-                            Text("\(Int(band.frequency)) Hz")
-                                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
-                            Text(String(format: "%+.1f dB", band.gain))
-                                .font(.system(size: 8, weight: .medium, design: .monospaced))
-                                .foregroundStyle(Color.white.opacity(0.8))
-                        }
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(Color.black.opacity(0.85))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .strokeBorder(Theme.LiquidGlass.cyanGlow.opacity(0.6), lineWidth: 0.75)
-                                )
-                        )
-                        .offset(y: -28)
-                        .allowsHitTesting(false)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    // Band Number
+                    Text("\(index + 1)")
+                        .font(.system(size: 9, weight: .heavy, design: .monospaced))
+                        .foregroundStyle(Color.white)
+                }
+                .position(x: nodeX, y: nodeY)
+                .contentShape(Circle().size(width: 32, height: 32))
+                .onHover { over in
+                    withAnimation(.liquidSmooth) {
+                        hoveredBandID = over ? band.id : nil
                     }
                 }
-                .position(x: x, y: y)
-                .onHover { hovering in
-                    hoveredBandID = hovering ? band.id : nil
-                }
                 .gesture(
-                    TapGesture()
-                        .onEnded {
-                            selectedBandID = band.id
-                        }
-                )
-                .gesture(
-                    DragGesture(minimumDistance: 1)
-                        .onChanged { value in
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { gesture in
                             if selectedBandID != band.id {
                                 selectedBandID = band.id
-                                initialBandFrequency = band.frequency
-                                initialBandGain = band.gain
                             }
-                            let newX = min(max(value.location.x, 0), size.width)
-                            let newY = min(max(value.location.y, 0), size.height)
+                            isDragging = true
 
-                            let newFreq = freqForX(newX, width: size.width)
-                            let newGain = dbForY(newY, height: size.height)
+                            // Calculate new frequency from X
+                            let clampedX = max(padL, min(size.width - padR, gesture.location.x))
+                            let newFractionX = Double((clampedX - padL) / contentW)
+                            let newFreq = pow(10.0, logMin + newFractionX * (logMax - logMin))
+
+                            // Calculate new gain from Y
+                            let clampedY = max(padT, min(size.height - padB, gesture.location.y))
+                            let newFractionY = Double((clampedY - padT) / contentH)
+                            let newGain = maxDB - newFractionY * (maxDB - minDB)
 
                             equalizer.updateBand(id: band.id) { b in
-                                b.frequency = newFreq
+                                b.frequency = min(maxFreq, max(minFreq, newFreq))
                                 if b.type.hasGain {
-                                    b.gain = newGain
+                                    b.gain = min(maxDB, max(minDB, round(newGain * 10) / 10))
                                 }
                             }
+                        }
+                        .onEnded { _ in
+                            isDragging = false
                         }
                 )
             }
         }
     }
 
-    // MARK: - Coordinate Math
-
-    private func xForFreq(_ freq: Double, width: CGFloat) -> CGFloat {
-        let f = min(max(freq, minFreq), maxFreq)
-        let logMin = log10(minFreq)
-        let logMax = log10(maxFreq)
-        let fraction = (log10(f) - logMin) / (logMax - logMin)
-        return CGFloat(fraction) * width
-    }
-
-    private func freqForX(_ x: CGFloat, width: CGFloat) -> Double {
-        let fraction = min(max(Double(x / width), 0.0), 1.0)
-        let logMin = log10(minFreq)
-        let logMax = log10(maxFreq)
-        return pow(10.0, logMin + fraction * (logMax - logMin))
-    }
-
-    private func yForDB(_ db: Double, height: CGFloat) -> CGFloat {
-        let clamped = min(max(db, minDB), maxDB)
-        let fraction = (maxDB - clamped) / (maxDB - minDB)
-        return CGFloat(fraction) * (height - 30) + 15
-    }
-
-    private func dbForY(_ y: CGFloat, height: CGFloat) -> Double {
-        let contentHeight = max(height - 30, 1)
-        let fraction = min(max(Double((y - 15) / contentHeight), 0.0), 1.0)
-        return maxDB - fraction * (maxDB - minDB)
+    private func colorForFilterType(_ type: EqualizerFilterType) -> Color {
+        switch type {
+        case .peaking: return Theme.LiquidGlass.cyanGlow
+        case .lowShelf: return Theme.LiquidGlass.amberGlow
+        case .highShelf: return Theme.LiquidGlass.violetGlow
+        case .highPass: return Theme.LiquidGlass.emeraldGlow
+        case .lowPass: return Theme.LiquidGlass.magentaGlow
+        case .bandPass: return Color.blue
+        case .notch: return Color.red
+        case .allPass: return Color.purple
+        }
     }
 }

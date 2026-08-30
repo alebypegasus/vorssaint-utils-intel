@@ -125,6 +125,13 @@ struct EqualizerBand: Identifiable, Codable, Equatable {
         self.q = min(max(q, 0.1), 20.0)
         self.channel = channel
     }
+
+    /// Evaluates the magnitude response in dB of this band at target frequency `f` (Hz).
+    func magnitudeResponse(atFrequency freq: Double, sampleRate: Double = 48000.0) -> Double {
+        guard isEnabled else { return 0.0 }
+        let coeffs = BiquadCoefficients.compute(type: type, frequency: frequency, gainDB: gain, q: q, sampleRate: sampleRate)
+        return coeffs.responseGainDB(at: freq, sampleRate: sampleRate)
+    }
 }
 
 /// Standard ISO frequency centers for Graphic Equalizers.
@@ -195,6 +202,31 @@ struct EqualizerProfile: Identifiable, Codable, Equatable {
         self.bands = bands
         self.graphicGains = graphicGains
         self.isBuiltIn = isBuiltIn
+    }
+
+    /// Evaluates the composite magnitude response in dB across all enabled bands or graphic gains.
+    func compositeMagnitudeResponse(atFrequency freq: Double, sampleRate: Double = 48000.0) -> Double {
+        switch mode {
+        case .parametric:
+            var total = 0.0
+            for band in bands where band.isEnabled {
+                total += band.magnitudeResponse(atFrequency: freq, sampleRate: sampleRate)
+            }
+            return total
+        case .graphic10, .graphic15, .graphic31:
+            let freqs = GraphicEqualizerFrequencies.frequencies(for: mode)
+            var total = 0.0
+            for f in freqs {
+                let key = GraphicEqualizerFrequencies.formatFrequency(f)
+                let g = graphicGains[key] ?? 0.0
+                if abs(g) > 0.01 {
+                    let q = mode == .graphic31 ? 4.3 : (mode == .graphic15 ? 2.0 : 1.41)
+                    let coeffs = BiquadCoefficients.compute(type: .peaking, frequency: f, gainDB: g, q: q, sampleRate: sampleRate)
+                    total += coeffs.responseGainDB(at: freq, sampleRate: sampleRate)
+                }
+            }
+            return total
+        }
     }
 
     /// Creates a default 10-band parametric profile.

@@ -3,47 +3,47 @@
 
 import SwiftUI
 
-/// Compact stereo VU & peak level meter with Liquid Glass styling.
+/// Pro studio stereo VU & peak level meter with Liquid Glass styling.
 struct EqualizerStereoVUMeter: View {
     @ObservedObject var spectrum = SpectrumAnalyzerDSP.shared
 
     var body: some View {
-        HStack(spacing: 4) {
-            // Left channel
-            VStack(spacing: 1.5) {
-                vuChannelBar(level: spectrum.peakLevelL)
+        HStack(spacing: 5) {
+            // L Channel
+            HStack(spacing: 2) {
                 Text("L")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 8.5, weight: .heavy, design: .monospaced))
+                    .foregroundStyle(Color.white.opacity(0.6))
+                vuChannelBar(level: spectrum.peakLevelL)
             }
 
-            // Right channel
-            VStack(spacing: 1.5) {
-                vuChannelBar(level: spectrum.peakLevelR)
+            // R Channel
+            HStack(spacing: 2) {
                 Text("R")
-                    .font(.system(size: 8, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 8.5, weight: .heavy, design: .monospaced))
+                    .foregroundStyle(Color.white.opacity(0.6))
+                vuChannelBar(level: spectrum.peakLevelR)
             }
 
-            // Clip LED
-            VStack(spacing: 1.5) {
-                Circle()
-                    .fill(spectrum.isClipping ? Color.red : Color.red.opacity(0.15))
-                    .frame(width: 6.5, height: 6.5)
-                    .shadow(color: spectrum.isClipping ? Color.red.opacity(0.9) : Color.clear, radius: 4)
-                Text("CLIP")
-                    .font(.system(size: 6.5, weight: .heavy, design: .monospaced))
-                    .foregroundStyle(spectrum.isClipping ? Color.red : Color.secondary.opacity(0.6))
-            }
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 4)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
+            // Clip LED Indicator
+            Circle()
+                .fill(spectrum.isClipping ? Color.red : Color.red.opacity(0.18))
+                .frame(width: 7, height: 7)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(Theme.LiquidGlass.borderGradient(for: .dark), lineWidth: 0.6)
+                    Circle()
+                        .strokeBorder(spectrum.isClipping ? Color.red : Color.white.opacity(0.1), lineWidth: 0.8)
+                )
+                .shadow(color: spectrum.isClipping ? Color.red.opacity(0.9) : Color.clear, radius: 5)
+                .help(spectrum.isClipping ? "Audio is clipping (> 0 dBFS)" : "Signal level OK")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.black.opacity(0.45))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Theme.LiquidGlass.borderGradient(for: .dark), lineWidth: 0.7)
                 )
         )
     }
@@ -53,20 +53,22 @@ struct EqualizerStereoVUMeter: View {
             // Trough
             Capsule()
                 .fill(Color.white.opacity(0.08))
-                .frame(width: 4.5, height: 22)
+                .frame(width: 5, height: 24)
 
             // Dynamic Fill
-            let fillHeight = CGFloat(max(0.0, min(1.0, level))) * 22
+            let fillHeight = CGFloat(max(0.0, min(1.0, level))) * 24
             Capsule()
                 .fill(
                     LinearGradient(
-                        colors: level > 0.85 ? [Color.red, Color.orange, Theme.LiquidGlass.cyanGlow] : [Theme.LiquidGlass.cyanGlow, Color.blue],
+                        colors: level > 0.85
+                            ? [Color.red, Color.orange, Theme.LiquidGlass.cyanGlow]
+                            : [Theme.LiquidGlass.cyanGlow, Color.blue],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
-                .frame(width: 4.5, height: max(2, fillHeight))
-                .shadow(color: (level > 0.85 ? Color.orange : Theme.LiquidGlass.cyanGlow).opacity(0.5), radius: 2)
+                .frame(width: 5, height: max(2, fillHeight))
+                .shadow(color: (level > 0.85 ? Color.orange : Theme.LiquidGlass.cyanGlow).opacity(0.6), radius: 3)
         }
     }
 }

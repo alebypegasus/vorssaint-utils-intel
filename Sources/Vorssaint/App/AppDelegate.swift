@@ -1386,10 +1386,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             let host = NSHostingController(rootView: EqualizerStudioView())
             host.sizingOptions = []
             let window = NSWindow(contentViewController: host)
-            window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+            window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
             window.title = "Equalizer Studio"
-            window.contentMinSize = NSSize(width: 760, height: 520)
-            window.setContentSize(NSSize(width: 860, height: 620))
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .visible
+            window.backgroundColor = .clear
+            window.isOpaque = false
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.contentMinSize = NSSize(width: 760, height: 540)
+            window.setContentSize(NSSize(width: 880, height: 620))
             window.isReleasedWhenClosed = false
             window.isRestorable = false
             window.hidesOnDeactivate = false
