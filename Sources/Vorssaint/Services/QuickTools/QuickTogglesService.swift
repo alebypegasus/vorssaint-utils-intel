@@ -115,9 +115,13 @@ final class QuickTogglesService: ObservableObject {
     }
 
     func toggleDesktopIcons() {
+        setDesktopIconsShown(!desktopIconsShown)
+    }
+
+    func setDesktopIconsShown(_ shown: Bool) {
         toggleFinderFlag(.desktopIcons,
                          key: QuickTogglesSupport.createDesktopKey,
-                         to: !desktopIconsShown)
+                         to: shown)
     }
 
     // MARK: - Disks

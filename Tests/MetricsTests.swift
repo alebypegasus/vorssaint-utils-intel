@@ -10499,9 +10499,9 @@ struct MetricsTests {
                 && AppFeature.fanControl.enabledKeys.isEmpty
                 && AppFeature.fanControl.permissions.isEmpty
                 && AppFeature.fanControl.energyProfile == .idle
-                && AppFeature.fanControl.isBeta
+                && !AppFeature.fanControl.isBeta
                 && !AppFeature.monitorPower.isBeta,
-               "fan control is an on-demand beta with no broad permission")
+               "fan control is an on-demand feature with no broad permission")
 
         // MARK: Hardware-gated installs
 

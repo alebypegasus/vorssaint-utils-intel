@@ -120,6 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             MaxCapacityProbe.shared.refreshIfStale()
         }
         UpdateService.shared.startAutomaticChecks()
+        SmartClipboardMathService.shared.startMonitoring()
         NotificationCenter.default.addObserver(self, selector: #selector(appBecameActive),
                                                name: NSApplication.didBecomeActiveNotification, object: nil)
 

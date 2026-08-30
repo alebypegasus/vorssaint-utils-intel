@@ -4,8 +4,8 @@
 import AppKit
 import SwiftUI
 
-/// Ultra-premium Liquid Glass Radial Menu for macOS with dynamic illumination,
-/// tactile 3D glass chips, precision HUD sectors, and responsive spring physics.
+/// Ultra-premium Liquid Glass Radial Menu for macOS with chronograph precision ticks,
+/// dynamic cursor light sweep, tactile 3D glass chips, and crystal core hub.
 struct RadialMenuView: View {
     @ObservedObject private var service = RadialMenuService.shared
     @ObservedObject private var l10n = L10n.shared
@@ -25,24 +25,27 @@ struct RadialMenuView: View {
             // 1. Ambient Outer Aura
             Circle()
                 .fill(profileColor.opacity(colorScheme == .light ? 0.12 : 0.22))
-                .frame(width: RadialMenuLayout.wheelDiameter + 30, height: RadialMenuLayout.wheelDiameter + 30)
-                .blur(radius: 20)
+                .frame(width: RadialMenuLayout.wheelDiameter + 36, height: RadialMenuLayout.wheelDiameter + 36)
+                .blur(radius: 22)
 
             // 2. Liquid Glass Multi-Layer Backplate Disc
             backplate
 
-            // 3. Spoke Sector Divider Lines
+            // 3. Chronometer Outer Perimeter Tick Marks
+            chronometerTicks
+
+            // 4. Spoke Sector Divider Lines
             spokeDividers
 
-            // 4. Luminous Highlighted Wedge
+            // 5. Luminous Highlighted Wedge with Dynamic Light Sweep
             if let index = service.highlightedIndex, items.indices.contains(index) {
                 highlightedWedge(for: index)
             }
 
-            // 5. Action Chips Ring
+            // 6. Action Chips Ring
             ring.id(service.stack.count)
 
-            // 6. Floating Crystal Core Hub
+            // 7. Floating Crystal Core Hub
             hub
         }
         .frame(width: RadialMenuLayout.panelSize, height: RadialMenuLayout.panelSize)
@@ -53,6 +56,10 @@ struct RadialMenuView: View {
         .animation(reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.24, dampingFraction: 0.78),
                    value: service.visible)
         .accessibilityLabel(text.pageTitle)
+        .onChange(of: service.highlightedIndex) { _, _ in
+            // Subtle haptic tick when moving between slices
+            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+        }
     }
 
     // MARK: - Liquid Glass Backplate
@@ -72,8 +79,8 @@ struct RadialMenuView: View {
                 .fill(
                     RadialGradient(
                         colors: isLight ? [
-                            Color.white.opacity(0.65),
-                            Color(red: 0.94, green: 0.96, blue: 0.99).opacity(0.75)
+                            Color.white.opacity(0.68),
+                            Color(red: 0.94, green: 0.96, blue: 0.99).opacity(0.78)
                         ] : [
                             Color(red: 0.08, green: 0.10, blue: 0.16).opacity(0.85),
                             Color(red: 0.04, green: 0.05, blue: 0.09).opacity(0.92)
@@ -110,6 +117,44 @@ struct RadialMenuView: View {
         .shadow(color: Color.black.opacity(isLight ? 0.16 : 0.55), radius: 24, y: 8)
     }
 
+    // MARK: - Chronometer Perimeter Ticks
+
+    private var chronometerTicks: some View {
+        Canvas { context, size in
+            let center = CGPoint(x: size.width / 2, y: size.height / 2)
+            let radius = RadialMenuLayout.wheelDiameter / 2 - 4
+            let totalTicks = 48
+            let isLight = colorScheme == .light
+
+            for i in 0..<totalTicks {
+                let angle = Double(i) * (2.0 * .pi / Double(totalTicks)) - .pi / 2
+                let isMajor = i % (totalTicks / max(items.count, 1)) == 0
+                let length: CGFloat = isMajor ? 5.0 : 2.5
+                let opacity = isMajor ? (isLight ? 0.35 : 0.45) : (isLight ? 0.12 : 0.18)
+
+                let p1 = CGPoint(
+                    x: center.x + CGFloat(cos(angle)) * (radius - length),
+                    y: center.y + CGFloat(sin(angle)) * (radius - length)
+                )
+                let p2 = CGPoint(
+                    x: center.x + CGFloat(cos(angle)) * radius,
+                    y: center.y + CGFloat(sin(angle)) * radius
+                )
+
+                var path = Path()
+                path.move(to: p1)
+                path.addLine(to: p2)
+
+                context.stroke(
+                    path,
+                    with: .color((isMajor ? profileColor : (isLight ? Color.black : Color.white)).opacity(opacity)),
+                    lineWidth: isMajor ? 1.5 : 0.8
+                )
+            }
+        }
+        .frame(width: RadialMenuLayout.panelSize, height: RadialMenuLayout.panelSize)
+    }
+
     // MARK: - Sector Spoke Dividers
 
     private var spokeDividers: some View {
@@ -119,7 +164,7 @@ struct RadialMenuView: View {
 
             let center = CGPoint(x: size.width / 2, y: size.height / 2)
             let innerR = RadialMenuLayout.deadZoneRadius + 6
-            let outerR = RadialMenuLayout.wheelDiameter / 2 - 6
+            let outerR = RadialMenuLayout.wheelDiameter / 2 - 7
             let step = 2.0 * .pi / Double(count)
 
             let strokeColor = (colorScheme == .light ? Color.black : Color.white).opacity(0.08)

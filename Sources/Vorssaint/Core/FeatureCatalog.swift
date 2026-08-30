@@ -171,7 +171,7 @@ extension AppFeature {
 
     var availabilityKey: String { DefaultsKey.featureAvailable(rawValue) }
 
-    var isBeta: Bool { self == .fanControl || self == .killProcess }
+    var isBeta: Bool { false }
 
     /// Availability read straight from defaults. Existing features stay
     /// available on update; explicit beta opt-ins may start unavailable.

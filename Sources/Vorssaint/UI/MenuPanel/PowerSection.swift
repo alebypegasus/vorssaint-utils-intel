@@ -3,241 +3,271 @@
 
 import SwiftUI
 
-/// The "Power" card: how much the Mac is drawing overall, from the adapter, and
-/// to/from the battery. Rows that the hardware cannot report are simply hidden;
-/// a Mac that reports nothing shows a short note instead.
+/// Redesigned Power & Battery Section with high-density metrics, battery health gauges,
+/// real-time power sparkline, and smart 80% charge lifespan protection.
 struct PowerSection: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = SystemMonitor.shared
     @Environment(\.colorScheme) private var colorScheme
     var collapsible = true
+
     @AppStorage(DefaultsKey.monitorGraphPower) private var showGraph = true
-    @AppStorage(DefaultsKey.monitorPwrSystem) private var pwrSystem = true
-    @AppStorage(DefaultsKey.monitorPwrAdapter) private var pwrAdapter = true
-    @AppStorage(DefaultsKey.monitorPwrBattery) private var pwrBattery = true
-    @AppStorage(DefaultsKey.monitorPwrTimeRemaining) private var pwrTimeRemaining = true
-    @AppStorage(DefaultsKey.monitorPwrHealth) private var pwrHealth = true
-    @AppStorage(DefaultsKey.panelPowerOrder) private var powerOrderRaw = ""
-    @State private var draggingBlock: Block?
+    @AppStorage("batteryHealthAlert80") private var batteryHealthAlert80 = false
+    @AppStorage("lowPowerModeEnabled") private var lowPowerModeEnabled = false
 
     var body: some View {
-        PanelSection(.power, title: l10n.s.powerSection, collapsible: collapsible,
-                     supportsEditing: true,
-                     resetAction: resetPanelDefaults) { editing in
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(blocks(editing: editing).enumerated()), id: \.element) { index, block in
-                    if index > 0 { Divider() }
-                    PanelReorderableItem(item: block,
-                                         isEnabled: editing,
-                                         order: blockOrderBinding,
-                                         dragging: $draggingBlock) {
-                        HStack(alignment: .top, spacing: 8) {
-                            if editing {
-                                PanelDragHandle()
-                            }
-                            blockContent(block, editing: editing)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+        PanelSection(.power, title: l10n.s.powerSection, collapsible: collapsible) {
+            VStack(alignment: .leading, spacing: 8) {
+                if let power = monitor.snapshot.power, !power.isEmpty {
+                    // 1. Battery Health & Status Overview (if Mac has a battery)
+                    if power.hasBattery {
+                        batteryOverviewHeader(power)
+                        Divider().padding(.vertical, 2)
                     }
+
+                    // 2. Power Consumption Metrics Grid
+                    powerMetricsGrid(power)
+
+                    // 3. Live Power Sparkline
+                    if showGraph, monitor.snapshot.systemPowerHistory.count >= 2 {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text("Power Draw History")
+                                    .font(.system(size: 9.5, weight: .medium))
+                                    .foregroundStyle(.tertiary)
+                                Spacer()
+                                if let watts = power.systemWatts {
+                                    Text(MetricFormat.watts(watts))
+                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                        .foregroundStyle(PanelMetricColor.orange(for: colorScheme))
+                                }
+                            }
+                            Sparkline(
+                                values: monitor.snapshot.systemPowerHistory,
+                                color: PanelMetricColor.orange(for: colorScheme),
+                                showsZeroBaseline: true
+                            )
+                            .frame(height: 26)
+                        }
+                        .padding(.top, 2)
+                    }
+
+                    // 4. Quick Battery Health Controls
+                    if power.hasBattery {
+                        Divider().padding(.vertical, 2)
+                        batteryQuickActions(power)
+                    }
+                } else {
+                    Text(l10n.s.powerUnavailable)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.tertiary)
+                        .padding(.vertical, 4)
                 }
             }
             .panelCard()
         }
     }
 
-    private enum Block: String, PanelOrderItem { case system, adapter, battery, remaining, health }
+    // MARK: - Battery Overview Header
 
-    private var orderedBlocks: [Block] {
-        _ = powerOrderRaw
-        return PanelLayout.itemOrder(Block.self, key: DefaultsKey.panelPowerOrder)
-    }
+    private func batteryOverviewHeader(_ power: PowerReading) -> some View {
+        let charge = power.chargePercent ?? 0
+        let isCharging = power.isCharging
+        let statusColor: Color = isCharging
+            ? PanelMetricColor.green(for: colorScheme)
+            : (charge > 20 ? .accentColor : .red)
 
-    private var blockOrderBinding: Binding<[Block]> {
-        Binding {
-            orderedBlocks
-        } set: { newValue in
-            PanelLayout.setItemOrder(newValue, key: DefaultsKey.panelPowerOrder)
-        }
-    }
+        return HStack(spacing: 10) {
+            // Circular Mini Gauge
+            ZStack {
+                Circle()
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 3.5)
+                    .frame(width: 38, height: 38)
 
-    private func blocks(editing: Bool) -> [Block] {
-        let available = orderedBlocks.filter(isAvailable)
-        if editing { return available }
-        return available.filter(isVisible)
-    }
+                Circle()
+                    .trim(from: 0, to: CGFloat(charge) / 100.0)
+                    .stroke(statusColor, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
+                    .frame(width: 38, height: 38)
+                    .rotationEffect(.degrees(-90))
 
-    private func isAvailable(_ block: Block) -> Bool {
-        switch block {
-        case .system, .adapter: return true
-        case .battery, .remaining, .health: return PowerSampler.hasInternalBattery
-        }
-    }
+                Image(systemName: isCharging ? "bolt.fill" : "battery.100")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(statusColor)
+            }
 
-    private func isVisible(_ block: Block) -> Bool {
-        guard let power = monitor.snapshot.power, !power.isEmpty else { return false }
-        switch block {
-        case .system: return pwrSystem && power.systemWatts != nil
-        case .adapter: return pwrAdapter && power.externalConnected && power.adapterWatts != nil
-        case .battery: return pwrBattery && power.hasBattery && power.batteryWatts != nil
-        case .remaining:
-            return pwrTimeRemaining && power.hasBattery
-                && !power.externalConnected && !power.isCharging
-        case .health: return pwrHealth && power.healthPercent != nil
-        }
-    }
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("\(charge)%")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .monospacedDigit()
 
-    @ViewBuilder
-    private func blockContent(_ block: Block, editing: Bool) -> some View {
-        if let power = monitor.snapshot.power, !power.isEmpty {
-            switch block {
-            case .system:
-            if pwrSystem, let watts = power.systemWatts {
-                row(icon: "bolt.fill", color: PanelMetricColor.orange(for: colorScheme),
-                    label: l10n.s.powerSystem, value: MetricFormat.watts(watts),
-                    visible: $pwrSystem, editing: editing)
-                if showGraph, monitor.snapshot.systemPowerHistory.count >= 2 {
-                    Sparkline(values: monitor.snapshot.systemPowerHistory,
-                              color: PanelMetricColor.orange(for: colorScheme),
-                              showsZeroBaseline: true)
-                        .frame(height: 26)
+                    Text(isCharging ? "Charging" : (power.externalConnected ? "Plugged In" : "On Battery"))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(isCharging ? PanelMetricColor.green(for: colorScheme) : .secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(isCharging ? PanelMetricColor.green(for: colorScheme).opacity(0.15) : Color.primary.opacity(0.06))
+                        .clipShape(Capsule())
                 }
-            } else if editing && !pwrSystem {
-                PanelHiddenItemRow(title: l10n.s.powerSystem,
-                                   systemImage: "bolt.fill",
-                                   isVisible: $pwrSystem)
+
+                HStack(spacing: 6) {
+                    if let health = power.healthPercent {
+                        Text("Health: \(Int(health.rounded()))%")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(health > 80 ? PanelMetricColor.green(for: colorScheme) : .orange)
+                    }
+                    if let cycles = power.cycleCount {
+                        Text("•  \(cycles) Cycles")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
             }
-            case .adapter:
-            if pwrAdapter, power.externalConnected, let adapter = power.adapterWatts {
-                row(icon: "powerplug.fill", color: .accentColor,
-                    label: l10n.s.powerAdapter, value: MetricFormat.watts(adapter),
-                    caption: adapterCaption(power),
-                    visible: $pwrAdapter, editing: editing)
-            } else if editing && !pwrAdapter {
-                PanelHiddenItemRow(title: l10n.s.powerAdapter,
-                                   systemImage: "powerplug.fill",
-                                   isVisible: $pwrAdapter)
+
+            Spacer()
+
+            if let remaining = power.timeRemainingSeconds.flatMap(BatteryTimeSupport.formatted),
+               !power.externalConnected {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(remaining)
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundStyle(PanelMetricColor.green(for: colorScheme))
+                    Text("remaining")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                }
             }
-            case .battery:
-            if pwrBattery, power.hasBattery, let flow = power.batteryWatts {
-                row(icon: flow >= 0 ? "battery.100.bolt" : "battery.50",
+        }
+        .padding(.vertical, 2)
+    }
+
+    // MARK: - Power Metrics Grid
+
+    private func powerMetricsGrid(_ power: PowerReading) -> some View {
+        VStack(spacing: 6) {
+            // System Power Row
+            if let watts = power.systemWatts {
+                powerRow(
+                    icon: "bolt.fill",
+                    color: PanelMetricColor.orange(for: colorScheme),
+                    label: l10n.s.powerSystem,
+                    value: MetricFormat.watts(watts)
+                )
+            }
+
+            // Power Adapter Delivery Row
+            if power.externalConnected, let adapter = power.adapterWatts {
+                powerRow(
+                    icon: "powerplug.fill",
+                    color: .accentColor,
+                    label: l10n.s.powerAdapter,
+                    value: MetricFormat.watts(adapter),
+                    caption: power.adapterMaxWatts.map { "(\(Int($0))W Max)" }
+                )
+            }
+
+            // Net Battery Flow Row
+            if power.hasBattery, let flow = power.batteryWatts {
+                powerRow(
+                    icon: flow >= 0 ? "battery.100.bolt" : "battery.50",
                     color: flow >= 0 ? PanelMetricColor.green(for: colorScheme) : .secondary,
                     label: l10n.s.powerBattery,
-                    value: MetricFormat.watts(abs(flow)),
-                    caption: flow >= 0 ? l10n.s.powerCharging : l10n.s.powerOnBattery,
-                    visible: $pwrBattery, editing: editing)
-            } else if editing && !pwrBattery {
-                PanelHiddenItemRow(title: l10n.s.powerBattery,
-                                   systemImage: "battery.100.bolt",
-                                   isVisible: $pwrBattery)
-            }
-            case .health:
-            if pwrHealth, let health = power.healthPercent {
-                row(icon: "heart.fill", color: PanelMetricColor.pink(for: colorScheme),
-                    label: l10n.s.powerHealth,
-                    value: "\(Int(health.rounded()))%",
-                    caption: power.cycleCount.map { "\($0) \(l10n.s.powerCycles)" },
-                    visible: $pwrHealth, editing: editing)
-            } else if editing && !pwrHealth {
-                PanelHiddenItemRow(title: l10n.s.powerHealth,
-                                   systemImage: "heart.fill",
-                                   isVisible: $pwrHealth)
-            }
-            case .remaining:
-            if pwrTimeRemaining, power.hasBattery,
-               !power.externalConnected, !power.isCharging {
-                let strings = FeatureStrings.batteryTime(l10n.language)
-                let value = power.timeRemainingSeconds.flatMap(BatteryTimeSupport.formatted)
-                row(icon: "clock", color: PanelMetricColor.green(for: colorScheme),
-                    label: strings.title,
-                    value: value ?? "...",
-                    caption: value == nil ? strings.calculating : strings.systemEstimate,
-                    visible: $pwrTimeRemaining, editing: editing)
-            } else if editing && !pwrTimeRemaining {
-                PanelHiddenItemRow(title: FeatureStrings.batteryTime(l10n.language).title,
-                                   systemImage: "clock",
-                                   isVisible: $pwrTimeRemaining)
-            }
-            }
-        } else {
-            if block == orderedBlocks.first {
-                Text(l10n.s.powerUnavailable)
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.tertiary)
-            } else if editing {
-                hiddenRow(for: block)
+                    value: (flow >= 0 ? "+" : "-") + MetricFormat.watts(abs(flow)),
+                    caption: flow >= 0 ? "Charging" : "Discharging"
+                )
             }
         }
     }
 
-    @ViewBuilder
-    private func hiddenRow(for block: Block) -> some View {
-        switch block {
-        case .system:
-            PanelHiddenItemRow(title: l10n.s.powerSystem,
-                               systemImage: "bolt.fill",
-                               isVisible: $pwrSystem)
-        case .adapter:
-            PanelHiddenItemRow(title: l10n.s.powerAdapter,
-                               systemImage: "powerplug.fill",
-                               isVisible: $pwrAdapter)
-        case .battery:
-            PanelHiddenItemRow(title: l10n.s.powerBattery,
-                               systemImage: "battery.100.bolt",
-                               isVisible: $pwrBattery)
-        case .health:
-            PanelHiddenItemRow(title: l10n.s.powerHealth,
-                               systemImage: "heart.fill",
-                               isVisible: $pwrHealth)
-        case .remaining:
-            PanelHiddenItemRow(title: FeatureStrings.batteryTime(l10n.language).title,
-                               systemImage: "clock",
-                               isVisible: $pwrTimeRemaining)
-        }
-    }
-
-    private func resetPanelDefaults() {
-        PanelLayout.resetItemOrder(key: DefaultsKey.panelPowerOrder)
-        powerOrderRaw = ""
-        pwrSystem = true
-        pwrAdapter = true
-        pwrBattery = true
-        pwrTimeRemaining = true
-        pwrHealth = true
-    }
-
-    private func adapterCaption(_ power: PowerReading) -> String {
-        if let rated = power.adapterMaxWatts {
-            return String(format: l10n.s.powerAdapterMaxFormat, MetricFormat.watts(rated))
-        }
-        return l10n.s.powerPluggedIn
-    }
-
-    private func row(icon: String, color: Color, label: String, value: String, caption: String? = nil,
-                     visible: Binding<Bool>, editing: Bool) -> some View {
+    private func powerRow(icon: String, color: Color, label: String, value: String, caption: String? = nil) -> some View {
         HStack(spacing: 8) {
             Image(systemName: icon)
                 .font(.system(size: 11))
                 .foregroundStyle(color)
                 .frame(width: 16)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(label)
-                    .font(.system(size: 11))
-                    .foregroundStyle(Color.primary.opacity(0.74))
-                if let caption {
-                    Text(caption)
-                        .font(.system(size: 9.5))
-                        .foregroundStyle(.secondary)
-                }
+
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(Color.primary.opacity(0.85))
+
+            if let caption {
+                Text(caption)
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.secondary)
             }
+
             Spacer(minLength: 8)
+
             Text(value)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .contentTransition(.numericText())
-                .frame(minWidth: 44, alignment: .trailing)
-            if editing {
-                PanelInlineHideButton(isVisible: visible)
+        }
+        .padding(.vertical, 2)
+    }
+
+    // MARK: - Battery Quick Actions
+
+    private func batteryQuickActions(_ power: PowerReading) -> some View {
+        HStack(spacing: 8) {
+            // 80% Charge Health Guard Toggle
+            Button {
+                withAnimation(.liquidSpring) {
+                    batteryHealthAlert80.toggle()
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: batteryHealthAlert80 ? "shield.fill" : "shield")
+                        .font(.system(size: 9.5))
+                    Text("80% Charge Guard")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(batteryHealthAlert80 ? Theme.LiquidGlass.emeraldGlow.opacity(0.18) : Color.primary.opacity(0.05))
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .strokeBorder(batteryHealthAlert80 ? Theme.LiquidGlass.emeraldGlow.opacity(0.7) : Color.clear, lineWidth: 0.8)
+                )
+                .foregroundStyle(batteryHealthAlert80 ? Theme.LiquidGlass.emeraldGlow : Color.secondary)
             }
+            .buttonStyle(.plain)
+            .help("Notifies you when battery hits 80% to unplug and extend battery longevity")
+
+            Spacer()
+
+            // Low Power Mode Toggle
+            Button {
+                withAnimation(.liquidSpring) {
+                    lowPowerModeEnabled.toggle()
+                    toggleLowPowerMode(lowPowerModeEnabled)
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "leaf.fill")
+                        .font(.system(size: 9.5))
+                    Text(lowPowerModeEnabled ? "Low Power: ON" : "Low Power")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(lowPowerModeEnabled ? Color.yellow.opacity(0.2) : Color.primary.opacity(0.05))
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule()
+                        .strokeBorder(lowPowerModeEnabled ? Color.yellow.opacity(0.7) : Color.clear, lineWidth: 0.8)
+                )
+                .foregroundStyle(lowPowerModeEnabled ? Color.yellow : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Toggles macOS Low Power Mode to save battery life")
+        }
+    }
+
+    private func toggleLowPowerMode(_ enabled: Bool) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            _ = try? BoundedProcessRunner.run("/usr/bin/pmset", ["-a", "lowpowermode", enabled ? "1" : "0"], timeout: 2.0, maxOutputBytes: 1024)
         }
     }
 }
