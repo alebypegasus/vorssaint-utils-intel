@@ -4,6 +4,35 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [3.6.0] - 2026-08-30
+
+### Summary
+Vorssaint 3.6.0 is a massive landmark release introducing 5 all-new Swiss Army Knife utilities, dynamic Adaptive AppIcon switching for Light and Dark modes, a complete redesign and decluttering of Fan Control, System, and Power menu cards in Liquid Glass style, an ultra-precise 48-tick Chronograph Radial Menu, an automated In-App Update engine pointing to your GitHub repository with Release vs Developer channel selection, and universal architecture support across Intel (`x86_64`) and Apple Silicon (`arm64`).
+
+### Added
+- **Dynamic Adaptive AppIcon (Light & Dark Mode)**: App automatically detects macOS system appearance in real-time and swaps between high-res light and dark icons in the Dock, App Switcher, and system panels.
+- **5 New Swiss Army Knife Utilities**:
+  - **Meeting Shield (`MeetingShieldService.swift`)**: 1-click meeting protection that hides desktop icons, enables Keep Awake, and activates Focus/DND.
+  - **Always-On-Top Window Pin (`WindowPinService.swift`)**: Universal floating pin to keep any active application window on top of others.
+  - **Smart Clipboard Math (`SmartClipboardMathService.swift`)**: Instantly evaluates mathematical expressions copied to clipboard and displays an interactive HUD.
+  - **Privacy Sentinel & Mic Mute (`PrivacySentinelService.swift`)**: Real-time microphone and camera access audit with 1-click global mute.
+  - **80% Battery Health Guard**: Intelligent charging limiter and notification system to extend long-term lithium battery lifespan.
+- **In-App Update Engine with Channel Selector**:
+  - Direct background download, verification, installation, and app restart from `alebypegasus/vorssaint-utils-intel`.
+  - Channel switcher in Settings: Choose between **Release (Stable)** and **Developer (New Features / Pre-release)**.
+- **Radial Menu Chronograph Overhaul**:
+  - 48 perimeter chronograph precision ticks with fluid angular tracking.
+  - Tactile haptic feedback on slice selection.
+  - Liquid Glass 3D glassmorphic chips with category badges (`APP`, `TOOL`, `TOGGLE`, `HOTKEY`, `MEDIA`).
+- **Graduation from Beta**:
+  - Fan Control and advanced system monitor tools graduated to production status with seamless single-authorization setup.
+
+### Redesigned & Refined
+- **Controle das Ventoinhas (Fan Control)**: Redesigned with custom Liquid Glass pill picker (`Sistema`, `Manual`, `Curva`), cyan/emerald accents, custom slider tinting, and compact safety footnote.
+- **Sistema & Hardware (System Section)**: Replaced cluttered tables with a balanced 2-column temperature card (CPU & GPU), dynamic load-based color coding (cyan/emerald < 60%, amber 60-85%, red > 85%), moved `Liberar RAM` into Memory header, and removed redundant battery bars.
+- **Energia (Power Section)**: Battery gauge ring now stays vibrant emerald green at 100% / plugged-in, eliminates redundant zero-watt charging lines, and features sleek toggle capsules for 80% Charge Guard and Low Power Mode.
+- **Universal Multi-Architecture**: Full support for both Intel (`x86_64`) and Apple Silicon (`arm64`) with native macOS APIs and Universal Binary packaging.
+
 ## [3.5.0] - 2026-08-26
 
 ### Summary

@@ -2550,17 +2550,18 @@ struct MetricsTests {
                "update showcase intro starts unseen")
         expect(registeredDefaults[DefaultsKey.updateShowcaseMediaOverride] as? String == "",
                "update showcase media override is empty by default")
-        expect(SupportUpdateIntroInfo.releaseVersion == "3.5.0",
-               "support prompt is deliberately pinned to 3.5.0")
-        expect(SupportUpdateIntroInfo.shouldShow(appVersion: "3.5.0", lastSeenVersion: "3.4.0"),
+        expect(SupportUpdateIntroInfo.releaseVersion == "3.6.0",
+               "support prompt is deliberately pinned to 3.6.0")
+        expect(SupportUpdateIntroInfo.shouldShow(appVersion: "3.6.0", lastSeenVersion: "3.5.0"),
                "support prompt shows once after updating to its pinned release")
-        expect(!SupportUpdateIntroInfo.shouldShow(appVersion: "3.5.0", lastSeenVersion: "3.5.0"),
+        expect(!SupportUpdateIntroInfo.shouldShow(appVersion: "3.6.0", lastSeenVersion: "3.6.0"),
                "support prompt stays hidden after it is seen")
         expect(!SupportUpdateIntroInfo.shouldShow(appVersion: "3.3.0", lastSeenVersion: nil)
                && !SupportUpdateIntroInfo.shouldShow(appVersion: "3.3.1", lastSeenVersion: nil)
                && !SupportUpdateIntroInfo.shouldShow(appVersion: "3.3.2", lastSeenVersion: nil)
                && !SupportUpdateIntroInfo.shouldShow(appVersion: "3.3.3", lastSeenVersion: nil)
-               && !SupportUpdateIntroInfo.shouldShow(appVersion: "3.4.0", lastSeenVersion: nil),
+               && !SupportUpdateIntroInfo.shouldShow(appVersion: "3.4.0", lastSeenVersion: nil)
+               && !SupportUpdateIntroInfo.shouldShow(appVersion: "3.5.0", lastSeenVersion: nil),
                "support prompt never leaks into another release")
         expect(SupportUpdateIntroStep.discord.next == .social
                && SupportUpdateIntroStep.social.next == .support
@@ -2584,21 +2585,21 @@ struct MetricsTests {
         // decision above is made consciously, never by omission.
         let releasePlist = NSDictionary(contentsOfFile: "Resources/Info.plist")
         let plistVersion = (releasePlist?["CFBundleShortVersionString"] as? String) ?? ""
-        expect(plistVersion == "3.5.0",
+        expect(plistVersion == "3.6.0",
                "bumping the app version requires re-deciding the support prompt pin above")
         let plistBuild = (releasePlist?["CFBundleVersion"] as? String) ?? ""
-        expect(plistBuild == "82",
+        expect(plistBuild == "83",
                "every app version needs its own incremented bundle build")
-        expect(SupportUpdateIntroInfo.releaseVersion == "3.5.0",
-               "the support prompt remains deliberately pinned to 3.5.0")
-        // 3.5.0 adds several headline features, so the tour is re-curated
+        expect(SupportUpdateIntroInfo.releaseVersion == "3.6.0",
+               "the support prompt remains deliberately pinned to 3.6.0")
+        // 3.6.0 adds several headline features, so the tour is re-curated
         // around only what this update genuinely introduces.
-        expect(UpdateHighlightsInfo.releaseVersion == "3.5.0",
+        expect(UpdateHighlightsInfo.releaseVersion == "3.6.0",
                "re-decide the highlights tour on a feature release: re-curate its rows and move the pin to the shipping version")
-        expect(UpdateHighlightsInfo.shouldShow(appVersion: "3.5.0", lastSeenVersion: "3.4.0")
-               && UpdateHighlightsInfo.shouldShow(appVersion: "3.5.0", lastSeenVersion: nil),
+        expect(UpdateHighlightsInfo.shouldShow(appVersion: "3.6.0", lastSeenVersion: "3.5.0")
+               && UpdateHighlightsInfo.shouldShow(appVersion: "3.6.0", lastSeenVersion: nil),
                "highlights tour shows once after updating to its pinned release")
-        expect(!UpdateHighlightsInfo.shouldShow(appVersion: "3.5.0", lastSeenVersion: "3.5.0"),
+        expect(!UpdateHighlightsInfo.shouldShow(appVersion: "3.6.0", lastSeenVersion: "3.6.0"),
                "highlights tour stays hidden after it is seen")
         expect(!UpdateHighlightsInfo.shouldShow(appVersion: "3.3.1", lastSeenVersion: nil)
                && !UpdateHighlightsInfo.shouldShow(appVersion: "3.3.2", lastSeenVersion: nil)
