@@ -359,21 +359,41 @@ if (( DEV )); then
 else
     rm -rf build
     mkdir -p build
-    swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -target "$TARGET" -sdk "$SDK" \
+    echo "▸ Compiling (release - Universal x86_64 & arm64) against $(basename "$SDK")…"
+    if swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -target "arm64-apple-macosx14.0" -sdk "$SDK" \
         "${SDK_COMPAT_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
-        "${APP_SOURCES[@]}" -o "build/$EXECUTABLE"
+        "${APP_SOURCES[@]}" -o "build/${EXECUTABLE}_arm64" 2>/dev/null \
+       && swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -target "x86_64-apple-macosx14.0" -sdk "$SDK" \
+        "${SDK_COMPAT_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
+        "${APP_SOURCES[@]}" -o "build/${EXECUTABLE}_x86_64" 2>/dev/null; then
+        lipo -create -output "build/$EXECUTABLE" "build/${EXECUTABLE}_x86_64" "build/${EXECUTABLE}_arm64"
+        echo "✓ Universal binary created: x86_64 + arm64"
+    else
+        swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -target "$TARGET" -sdk "$SDK" \
+            "${SDK_COMPAT_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
+            "${APP_SOURCES[@]}" -o "build/$EXECUTABLE"
+    fi
 fi
 
 echo "▸ Compiling protected fan helper…"
-swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
-    Sources/Vorssaint/Services/FanControl/FanControlSupport.swift \
-    Sources/Vorssaint/Services/FanControl/FanControlXPC.swift \
-    Sources/Vorssaint/Services/SystemMonitor/SMCClient.swift \
-    Sources/Vorssaint/Services/Metrics/TemperatureSensorSelector.swift \
-    Sources/Vorssaint/Services/FanControl/FanControlHardware.swift \
-    Sources/FanControlHelper/main.swift \
-    -o "build/$FAN_HELPER_ID"
-"build/$FAN_HELPER_ID" --selftest
+HELPER_SOURCES=(
+    Sources/Vorssaint/Services/FanControl/FanControlSupport.swift
+    Sources/Vorssaint/Services/FanControl/FanControlXPC.swift
+    Sources/Vorssaint/Services/SystemMonitor/SMCClient.swift
+    Sources/Vorssaint/Services/Metrics/TemperatureSensorSelector.swift
+    Sources/Vorssaint/Services/FanControl/FanControlHardware.swift
+    Sources/FanControlHelper/main.swift
+)
+if (( ! DEV )) \
+   && swiftc -O -target "arm64-apple-macosx14.0" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" "${HELPER_SOURCES[@]}" -o "build/${FAN_HELPER_ID}_arm64" 2>/dev/null \
+   && swiftc -O -target "x86_64-apple-macosx14.0" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" "${HELPER_SOURCES[@]}" -o "build/${FAN_HELPER_ID}_x86_64" 2>/dev/null; then
+    lipo -create -output "build/$FAN_HELPER_ID" "build/${FAN_HELPER_ID}_x86_64" "build/${FAN_HELPER_ID}_arm64"
+else
+    swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" "${HELPER_SOURCES[@]}" -o "build/$FAN_HELPER_ID"
+fi
+if [[ "$(uname -m)" == "x86_64" ]] || [[ "$(uname -m)" == "arm64" ]]; then
+    "build/$FAN_HELPER_ID" --selftest
+fi
 
 echo "▸ Generating app icon…"
 swift Tools/MakeIcon.swift build/AppIcon.iconset

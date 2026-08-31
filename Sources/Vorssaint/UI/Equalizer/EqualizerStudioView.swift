@@ -200,45 +200,18 @@ struct EqualizerStudioView: View {
     private var customModeSwitcher: some View {
         HStack(spacing: 2) {
             ForEach(EqualizerMode.allCases) { mode in
-                let isSelected = equalizer.activeProfile.mode == mode
-                Button {
-                    withAnimation(.liquidSpring) {
-                        equalizer.activeProfile.mode = mode
-                        equalizer.syncDSP()
+                EqualizerModePill(
+                    mode: mode,
+                    title: modeShortLabel(mode),
+                    isSelected: equalizer.activeProfile.mode == mode,
+                    colorScheme: colorScheme,
+                    onSelect: {
+                        withAnimation(.liquidSpring) {
+                            equalizer.activeProfile.mode = mode
+                            equalizer.syncDSP()
+                        }
                     }
-                } label: {
-                    Text(modeShortLabel(mode))
-                        .font(.system(size: 10, weight: isSelected ? .bold : .medium))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 4.5)
-                        .background(
-                            ZStack {
-                                if isSelected {
-                                    Capsule()
-                                        .fill(Theme.LiquidGlass.cyanGlow.opacity(colorScheme == .light ? 0.25 : 0.22))
-                                    Capsule()
-                                        .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.4))
-                                } else {
-                                    Capsule()
-                                        .fill(Color.clear)
-                                }
-                            }
-                        )
-                        .clipShape(Capsule())
-                        .overlay(
-                            Capsule()
-                                .strokeBorder(
-                                    isSelected ? Theme.LiquidGlass.cyanGlow.opacity(0.8) : Color.clear,
-                                    lineWidth: 0.85
-                                )
-                        )
-                        .foregroundStyle(isSelected ? (colorScheme == .light ? Color.primary : Color.white) : Color.secondary)
-                        .shadow(color: isSelected ? Theme.LiquidGlass.cyanGlow.opacity(0.3) : Color.clear, radius: 4)
-                }
-                .buttonStyle(.plain)
-                .fixedSize()
+                )
             }
         }
         .padding(2.5)
@@ -501,5 +474,57 @@ struct EqualizerStudioView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 4)
+    }
+}
+
+private struct EqualizerModePill: View {
+    let mode: EqualizerMode
+    let title: String
+    let isSelected: Bool
+    let colorScheme: ColorScheme
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            Text(title)
+                .font(.system(size: 10, weight: isSelected ? .bold : .medium))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4.5)
+                .background(backgroundStyle)
+                .clipShape(Capsule())
+                .overlay(borderOverlay)
+                .foregroundStyle(textColor)
+                .shadow(color: isSelected ? Theme.LiquidGlass.cyanGlow.opacity(0.3) : Color.clear, radius: 4)
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private var backgroundStyle: some View {
+        if isSelected {
+            ZStack {
+                Capsule()
+                    .fill(Theme.LiquidGlass.cyanGlow.opacity(colorScheme == .light ? 0.25 : 0.22))
+                Capsule()
+                    .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.4))
+            }
+        } else {
+            Capsule().fill(Color.clear)
+        }
+    }
+
+    private var borderOverlay: some View {
+        Capsule()
+            .strokeBorder(
+                isSelected ? Theme.LiquidGlass.cyanGlow.opacity(0.8) : Color.clear,
+                lineWidth: 0.85
+            )
+    }
+
+    private var textColor: Color {
+        isSelected ? (colorScheme == .light ? Color.primary : Color.white) : Color.secondary
     }
 }
