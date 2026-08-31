@@ -10,8 +10,8 @@ under GPL-3.0-or-later.
 ## Getting started
 
 ```sh
-git clone https://github.com/alebypegasus/vorssaint-utils-intel.git
-cd vorssaint-utils-intel
+git clone https://github.com/alebypegasus/vorssaint-utils.git
+cd vorssaint-utils
 ./build.sh                         # build and assemble the bundle
 ./build/Vorssaint --selftest       # quick health check (SELFTEST OK)
 ./build.sh --install               # install into /Applications and launch

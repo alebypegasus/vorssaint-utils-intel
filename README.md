@@ -5,32 +5,32 @@
   </picture>
 </p>
 
-<h1 align="center">Vorssaint Intel &amp; Hackintosh Edition</h1>
+<h1 align="center">Vorssaint Utils</h1>
 
 <p align="center">
   One menu bar icon doing the job of a dozen paid Mac apps.<br>
-  <strong>Enhanced Intel &amp; Apple Silicon Edition</strong> · Maintained by <a href="https://github.com/alebypegasus">@alebypegasus</a>.<br>
+  <strong>Enhanced Universal Edition (Apple Silicon &amp; Intel)</strong> · Maintained by <a href="https://github.com/alebypegasus">@alebypegasus</a>.<br>
   Free, open source, and everything runs locally on your Mac.
 </p>
 
 <p align="center">
   <a href="#install">Install</a> ·
-  <a href="#intel--hackintosh-enhancements">Intel Features</a> ·
+  <a href="#intel--hackintosh-enhancements">Hardware Features</a> ·
   <a href="#everything-it-does">Features</a> ·
   <a href="#private-by-default">Privacy</a> ·
   <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/alebypegasus/vorssaint-utils-intel/releases"><img src="https://img.shields.io/github/v/release/alebypegasus/vorssaint-utils-intel?label=release&color=4c8dff" alt="Latest release"></a>
-  <a href="https://github.com/alebypegasus/vorssaint-utils-intel/releases"><img src="https://img.shields.io/github/downloads/alebypegasus/vorssaint-utils-intel/total?color=4c8dff" alt="Downloads"></a>
-  <a href="https://github.com/alebypegasus/vorssaint-utils-intel/actions/workflows/ci.yml"><img src="https://github.com/alebypegasus/vorssaint-utils-intel/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
-  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%2B%20Intel%20%26%20Apple%20Silicon-black" alt="macOS 14 and newer, Intel & Apple Silicon"></a>
+  <a href="https://github.com/alebypegasus/vorssaint-utils/releases"><img src="https://img.shields.io/github/v/release/alebypegasus/vorssaint-utils?label=release&color=4c8dff" alt="Latest release"></a>
+  <a href="https://github.com/alebypegasus/vorssaint-utils/releases"><img src="https://img.shields.io/github/downloads/alebypegasus/vorssaint-utils/total?color=4c8dff" alt="Downloads"></a>
+  <a href="https://github.com/alebypegasus/vorssaint-utils/actions/workflows/ci.yml"><img src="https://github.com/alebypegasus/vorssaint-utils/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
+  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%2B%20Universal%20(Apple%20Silicon%20%26%20Intel)-black" alt="macOS 14 and newer, Apple Silicon & Intel"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License GPL 3.0 or later"></a>
 </p>
 
 > [!NOTE]
-> **Vorssaint Intel & Hackintosh Edition** is an independent, dedicated edition maintained by [@alebypegasus](https://github.com/alebypegasus/vorssaint-utils-intel). It adds full telemetry for Intel Mac architectures and Hackintoshes (SMC core/die temperature keys, CPU package power in Watts, clock speed discovery, dynamic Metal EDR / BrightIntosh display brightness boost, and streamlined passwordless background execution).
+> **Vorssaint Utils** is an independent utility edition maintained by [@alebypegasus](https://github.com/alebypegasus/vorssaint-utils). It provides universal support for Apple Silicon and Intel Mac architectures / Hackintoshes (SMC core/die temperature keys, CPU package power in Watts, clock speed discovery, dynamic Metal EDR / Brightness boost, and streamlined passwordless background execution).
 >
 > 💖 **Special Thanks & Credit**: Massive appreciation to the original [Vorssaint](https://github.com/vorssaintapp/vorssaint-utils) team (@vorssaintapp / @vorssaint) for creating the wonderful foundation and core macOS utilities.
 
@@ -213,8 +213,8 @@ The shelf and almost every quick toggle need no permission at all. Finder cut an
 ### Build it yourself
 
 ```sh
-git clone https://github.com/alebypegasus/vorssaint-utils-intel.git
-cd vorssaint-utils-intel
+git clone https://github.com/alebypegasus/vorssaint-utils.git
+cd vorssaint-utils
 ./build.sh            # compile, generate the icon, assemble the signed bundle
 ./build.sh --install  # the same, then install into Applications and launch
 ```

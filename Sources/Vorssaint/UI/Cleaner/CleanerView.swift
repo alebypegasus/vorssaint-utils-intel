@@ -13,51 +13,101 @@ struct CleanerSettings: View {
     @AppStorage(DefaultsKey.whatsAppDownloadsEnabled) private var whatsAppEnabled = false
     @State private var tool = Tool.system
 
-    private enum Tool: String {
-        case system, whatsApp
+    private enum Tool: String, CaseIterable {
+        case system, largeFiles, duplicates, optimizer, devDoctor, shredder, organizer, startup, battery, miniHUD, privacy, turbo, network, whatsApp
+    }
+
+    private var extStrings: CleanerExtendedStrings {
+        CleanerExtendedStrings.localized(l10n.language)
+    }
+
+    private var tenStrings: TenFeaturesExtendedStrings {
+        TenFeaturesExtendedStrings.localized(l10n.language)
     }
 
     /// A panel surface can ask for a specific tool; the hint is one-shot.
     private func consumeToolHint() {
         guard let hint = router.cleanerTool else { return }
         router.cleanerTool = nil
-        guard whatsAppEnabled, let wanted = Tool(rawValue: hint) else { return }
+        guard let wanted = Tool(rawValue: hint) else { return }
+        if wanted == .whatsApp && !whatsAppEnabled { return }
         tool = wanted
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            if whatsAppEnabled {
-                Picker("", selection: $tool) {
-                    Label(l10n.s.cleanerName, systemImage: "sparkles")
-                        .tag(Tool.system)
-                    Label(FeatureStrings.whatsAppDownloads(l10n.language).title,
-                          systemImage: "arrow.down.doc")
-                        .tag(Tool.whatsApp)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    Group {
+                        ToolTabButton(title: extStrings.tabSystemJunk, icon: "sparkles", isSelected: tool == .system) { tool = .system }
+                        ToolTabButton(title: extStrings.tabLargeFiles, icon: "internaldrive", isSelected: tool == .largeFiles) { tool = .largeFiles }
+                        ToolTabButton(title: extStrings.tabDuplicates, icon: "doc.on.doc", isSelected: tool == .duplicates) { tool = .duplicates }
+                        ToolTabButton(title: extStrings.tabOptimizer, icon: "gauge.with.needle", isSelected: tool == .optimizer) { tool = .optimizer }
+                        ToolTabButton(title: tenStrings.titleDevDoctor, icon: "stethoscope", isSelected: tool == .devDoctor) { tool = .devDoctor }
+                        ToolTabButton(title: tenStrings.titleFileShredder, icon: "flame", isSelected: tool == .shredder) { tool = .shredder }
+                    }
+                    Group {
+                        ToolTabButton(title: tenStrings.titleAutoOrganizer, icon: "folder.badge.gearshape", isSelected: tool == .organizer) { tool = .organizer }
+                        ToolTabButton(title: tenStrings.titleStartupManager, icon: "gearshape.2", isSelected: tool == .startup) { tool = .startup }
+                        ToolTabButton(title: tenStrings.titleBatteryGuard, icon: "battery.100.bolt", isSelected: tool == .battery) { tool = .battery }
+                        ToolTabButton(title: tenStrings.titleMiniHUD, icon: "macwindow.on.rectangle", isSelected: tool == .miniHUD) { tool = .miniHUD }
+                        ToolTabButton(title: tenStrings.titlePrivacyAuditor, icon: "lock.shield", isSelected: tool == .privacy) { tool = .privacy }
+                        ToolTabButton(title: tenStrings.titleTurboBoost, icon: "bolt.fill", isSelected: tool == .turbo) { tool = .turbo }
+                        ToolTabButton(title: tenStrings.titleNetworkOptimizer, icon: "network", isSelected: tool == .network) { tool = .network }
+                        if whatsAppEnabled {
+                            ToolTabButton(title: FeatureStrings.whatsAppDownloads(l10n.language).title, icon: "arrow.down.doc", isSelected: tool == .whatsApp) { tool = .whatsApp }
+                        }
+                    }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 440)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 14)
-
-                Divider()
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
             }
+            .background(Color(NSColor.controlBackgroundColor))
 
-            if whatsAppEnabled, tool == .whatsApp {
-                WhatsAppDownloadsSettings()
-            } else {
+            Divider()
+
+            switch tool {
+            case .system:
                 CleanerView()
+            case .largeFiles:
+                LargeFilesView()
+            case .duplicates:
+                DuplicateFilesView()
+            case .optimizer:
+                SystemAdvisorView()
+            case .devDoctor:
+                DevEnvironmentDoctorView()
+            case .shredder:
+                FileShredderView()
+            case .organizer:
+                FileAutoOrganizerView()
+            case .startup:
+                StartupManagerView()
+            case .battery:
+                BatteryHealthGuardView()
+            case .miniHUD:
+                MiniHUDView()
+            case .privacy:
+                PrivacyAuditorView()
+            case .turbo:
+                TurboBoostView()
+            case .network:
+                NetworkOptimizerView()
+            case .whatsApp:
+                if whatsAppEnabled {
+                    WhatsAppDownloadsSettings()
+                } else {
+                    CleanerView()
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
-            if !whatsAppEnabled { tool = .system }
             consumeToolHint()
         }
         .onChange(of: router.cleanerTool) { _, _ in consumeToolHint() }
         .onChange(of: whatsAppEnabled) { _, enabled in
-            tool = enabled ? .whatsApp : .system
+            if !enabled && tool == .whatsApp { tool = .system }
             WhatsAppDownloadScheduler.shared.syncWithPreferences()
             WhatsAppDownloadOrganizer.shared.syncWithPreferences()
             if !enabled {
@@ -65,6 +115,28 @@ struct CleanerSettings: View {
                 WhatsAppDownloadOrganizer.shared.stop()
             }
         }
+    }
+}
+
+private struct ToolTabButton: View {
+    let title: String
+    let icon: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                )
+                .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -158,20 +230,24 @@ struct CleanerView: View {
         }.map(title(for:))
     }
 
+    private var extStrings: CleanerExtendedStrings {
+        CleanerExtendedStrings.localized(l10n.language)
+    }
+
     // MARK: Display groups
 
     /// How the raw finds are presented: safe groups first, fully selected;
     /// judgment calls under optional, unchecked and collapsed.
     private enum DisplayGroup: Int, CaseIterable, Identifiable {
-        case loginItems, safeCaches, logs, developer
-        case leftovers, otherCaches, deviceBackups, trash
+        case loginItems, safeCaches, browserCaches, appMediaCaches, logs, systemLogs, developer, temporaryResidue
+        case leftovers, otherCaches, deviceBackups, trash, externalTrashes
 
         var id: Int { rawValue }
 
         var isSafe: Bool {
             switch self {
-            case .loginItems, .safeCaches, .logs, .developer: return true
-            case .leftovers, .otherCaches, .deviceBackups, .trash: return false
+            case .loginItems, .safeCaches, .browserCaches, .appMediaCaches, .logs, .systemLogs, .developer, .temporaryResidue: return true
+            case .leftovers, .otherCaches, .deviceBackups, .trash, .externalTrashes: return false
             }
         }
 
@@ -179,11 +255,16 @@ struct CleanerView: View {
             switch self {
             case .loginItems: return [.loginItems]
             case .safeCaches, .otherCaches: return [.caches]
+            case .browserCaches: return [.browserCaches]
+            case .appMediaCaches: return [.appMediaCaches]
             case .logs: return [.logs]
+            case .systemLogs: return [.systemLogs]
             case .developer: return [.developer]
+            case .temporaryResidue: return [.temporaryResidue]
             case .leftovers: return [.leftovers]
             case .deviceBackups: return [.deviceBackups]
             case .trash: return [.trash]
+            case .externalTrashes: return [.externalTrashes]
             }
         }
 
@@ -191,12 +272,17 @@ struct CleanerView: View {
             switch self {
             case .loginItems: return "power"
             case .safeCaches: return "archivebox"
+            case .browserCaches: return "globe"
+            case .appMediaCaches: return "message"
             case .logs: return "doc.text"
+            case .systemLogs: return "stethoscope"
             case .developer: return "hammer"
+            case .temporaryResidue: return "arrow.down.circle"
             case .leftovers: return "puzzlepiece"
             case .otherCaches: return "internaldrive"
             case .deviceBackups: return "iphone"
             case .trash: return "trash"
+            case .externalTrashes: return "externaldrive.badge.xmark"
             }
         }
     }
@@ -213,12 +299,17 @@ struct CleanerView: View {
         switch group {
         case .loginItems: return l10n.s.cleanerCatLoginItems
         case .safeCaches: return l10n.s.cleanerCatCaches
+        case .browserCaches: return extStrings.catBrowserCaches
+        case .appMediaCaches: return extStrings.catAppMediaCaches
         case .logs: return l10n.s.cleanerCatLogs
+        case .systemLogs: return extStrings.catSystemLogs
         case .developer: return l10n.s.cleanerCatDeveloper
+        case .temporaryResidue: return extStrings.catTemporaryResidue
         case .leftovers: return l10n.s.cleanerCatLeftovers
         case .otherCaches: return l10n.s.cleanerCatOtherCaches
         case .deviceBackups: return l10n.s.cleanerCatDeviceBackups
         case .trash: return l10n.s.cleanerCatTrash
+        case .externalTrashes: return extStrings.catExternalTrashes
         }
     }
 
@@ -226,12 +317,17 @@ struct CleanerView: View {
         switch group {
         case .loginItems: return l10n.s.cleanerLoginItemsCaption
         case .safeCaches: return l10n.s.cleanerCachesCaption
+        case .browserCaches: return extStrings.browserCachesCaption
+        case .appMediaCaches: return extStrings.appMediaCachesCaption
         case .logs: return l10n.s.cleanerLogsCaption
+        case .systemLogs: return extStrings.systemLogsCaption
         case .developer: return l10n.s.cleanerDeveloperCaption
+        case .temporaryResidue: return extStrings.temporaryResidueCaption
         case .leftovers: return l10n.s.cleanerLeftoversCaption
         case .otherCaches: return l10n.s.cleanerOtherCachesCaption
         case .deviceBackups: return l10n.s.cleanerDeviceBackupsCaption
         case .trash: return l10n.s.cleanerTrashNote
+        case .externalTrashes: return extStrings.externalTrashesCaption
         }
     }
 

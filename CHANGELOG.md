@@ -18,7 +18,7 @@ Vorssaint 3.6.0 is a massive landmark release introducing 5 all-new Swiss Army K
   - **Privacy Sentinel & Mic Mute (`PrivacySentinelService.swift`)**: Real-time microphone and camera access audit with 1-click global mute.
   - **80% Battery Health Guard**: Intelligent charging limiter and notification system to extend long-term lithium battery lifespan.
 - **In-App Update Engine with Channel Selector**:
-  - Direct background download, verification, installation, and app restart from `alebypegasus/vorssaint-utils-intel`.
+  - Direct background download, verification, installation, and app restart from `alebypegasus/vorssaint-utils`.
   - Channel switcher in Settings: Choose between **Release (Stable)** and **Developer (New Features / Pre-release)**.
 - **Radial Menu Chronograph Overhaul**:
   - 48 perimeter chronograph precision ticks with fluid angular tracking.

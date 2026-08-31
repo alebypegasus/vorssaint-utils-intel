@@ -118,11 +118,16 @@ final class JunkCleaner: ObservableObject {
                     return found
                 }),
                 (.loginItems, { Self.scanOrphanedLaunchPlists(installed: installed) }),
+                (.browserCaches, { Self.scanBrowserCaches(excluding: claimed) }),
+                (.appMediaCaches, { Self.scanAppMediaCaches(excluding: claimed) }),
                 (.caches, { Self.scanCaches(excluding: claimed) }),
                 (.logs, { Self.scanLogs(excluding: claimed) }),
+                (.systemLogs, { Self.scanSystemLogs(excluding: claimed) }),
                 (.developer, { Self.scanDeveloperJunk() }),
-                (.trash, { Self.scanTrash() }),
+                (.temporaryResidue, { Self.scanTemporaryResidue() }),
                 (.deviceBackups, { Self.scanDeviceBackups() }),
+                (.trash, { Self.scanTrash() }),
+                (.externalTrashes, { Self.scanExternalTrashes() }),
             ]
             for (category, run) in categories {
                 DispatchQueue.main.async { [weak self] in
@@ -501,6 +506,102 @@ final class JunkCleaner: ObservableObject {
         guard size > 0 else { return [] }
         return [Item(url: url, category: .trash, size: size,
                      detail: "", recommended: false)]
+    }
+
+    private static func scanBrowserCaches(excluding claimed: Set<String>) -> [Item] {
+        let fm = FileManager.default
+        var found: [Item] = []
+        for entry in CleanerPolicy.browserCachePaths {
+            let url = URL(fileURLWithPath: NSHomeDirectory() + entry.path)
+            guard fm.fileExists(atPath: url.path) else { continue }
+            guard !claimed.contains(url.standardizedFileURL.path) else { continue }
+            let size = directorySize(of: url, fm: fm)
+            guard size > 0 else { continue }
+            found.append(Item(url: url, category: .browserCaches, size: size,
+                              detail: entry.label,
+                              recommended: CleanerPolicy.precheckBrowserCaches))
+        }
+        return sorted(found)
+    }
+
+    private static func scanAppMediaCaches(excluding claimed: Set<String>) -> [Item] {
+        let fm = FileManager.default
+        var found: [Item] = []
+        for entry in CleanerPolicy.appMediaCachePaths {
+            let url = URL(fileURLWithPath: NSHomeDirectory() + entry.path)
+            guard fm.fileExists(atPath: url.path) else { continue }
+            guard !claimed.contains(url.standardizedFileURL.path) else { continue }
+            let size = directorySize(of: url, fm: fm)
+            guard size > 0 else { continue }
+            found.append(Item(url: url, category: .appMediaCaches, size: size,
+                              detail: entry.label,
+                              recommended: CleanerPolicy.precheckAppMediaCaches))
+        }
+        return sorted(found)
+    }
+
+    private static func scanSystemLogs(excluding claimed: Set<String>) -> [Item] {
+        let fm = FileManager.default
+        var found: [Item] = []
+        let systemLogDirs = [
+            "/Library/Logs/DiagnosticReports",
+            NSHomeDirectory() + "/Library/Logs/CrashReporter",
+        ]
+        for dir in systemLogDirs {
+            let url = URL(fileURLWithPath: dir)
+            guard fm.fileExists(atPath: url.path) else { continue }
+            guard !claimed.contains(url.standardizedFileURL.path) else { continue }
+            let size = directorySize(of: url, fm: fm)
+            guard size > 0 else { continue }
+            found.append(Item(url: url, category: .systemLogs, size: size,
+                              detail: url.lastPathComponent,
+                              recommended: CleanerPolicy.precheckSystemLogs))
+        }
+        return sorted(found)
+    }
+
+    private static func scanTemporaryResidue() -> [Item] {
+        let fm = FileManager.default
+        var found: [Item] = []
+        let downloads = NSHomeDirectory() + "/Downloads"
+        if let entries = try? fm.contentsOfDirectory(atPath: downloads) {
+            let now = Date()
+            for entry in entries {
+                let ext = (entry as NSString).pathExtension.lowercased()
+                if ext == "crdownload" || ext == "download" || ext == "part" {
+                    let url = URL(fileURLWithPath: downloads).appendingPathComponent(entry)
+                    if let attrs = try? fm.attributesOfItem(atPath: url.path),
+                       let modDate = attrs[.modificationDate] as? Date,
+                       now.timeIntervalSince(modDate) > 7 * 86400 {
+                        let size = fileSize(url)
+                        if size > 0 {
+                            found.append(Item(url: url, category: .temporaryResidue, size: size,
+                                              detail: "Stale Download: " + entry,
+                                              recommended: CleanerPolicy.precheckTemporaryResidue))
+                        }
+                    }
+                }
+            }
+        }
+        return sorted(found)
+    }
+
+    private static func scanExternalTrashes() -> [Item] {
+        let fm = FileManager.default
+        var found: [Item] = []
+        let volumes = "/Volumes"
+        guard let entries = try? fm.contentsOfDirectory(atPath: volumes) else { return [] }
+        for entry in entries where !entry.hasPrefix(".") {
+            let trashPath = "\(volumes)/\(entry)/.Trashes"
+            guard fm.fileExists(atPath: trashPath) else { continue }
+            let url = URL(fileURLWithPath: trashPath)
+            let size = directorySize(of: url, fm: fm)
+            guard size > 0 else { continue }
+            found.append(Item(url: url, category: .externalTrashes, size: size,
+                              detail: "\(entry) Trash",
+                              recommended: CleanerPolicy.precheckExternalTrashes))
+        }
+        return sorted(found)
     }
 
     // MARK: - Helpers

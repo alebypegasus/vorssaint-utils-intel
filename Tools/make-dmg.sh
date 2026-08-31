@@ -9,12 +9,14 @@ set -euo pipefail
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 cd "$(dirname "$0")/.."
 
-if [[ -d "build/stage/Vorssaint Intel.app" ]]; then
+if [[ -d "build/stage/Vorssaint Utils.app" ]]; then
+    APP_NAME="Vorssaint Utils"
+elif [[ -d "build/stage/Vorssaint Intel.app" ]]; then
     APP_NAME="Vorssaint Intel"
 elif [[ -d "build/stage/Vorssaint.app" ]]; then
     APP_NAME="Vorssaint"
 else
-    APP_NAME="Vorssaint Intel"
+    APP_NAME="Vorssaint Utils"
 fi
 APP="build/stage/$APP_NAME.app"
 VOLUME="$APP_NAME"

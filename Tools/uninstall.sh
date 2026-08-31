@@ -9,17 +9,17 @@
 # Also clears the pre-rename "Vorssaint Utils.app" if it is still around.
 set -uo pipefail
 
-BUNDLE="com.vorssaint.utils.intel"
-LEGACY_BUNDLE="com.vorssaint.utils"
-APP="/Applications/Vorssaint Intel.app"
-LEGACY_APP="/Applications/Vorssaint.app"
-OLD_LEGACY_APP="/Applications/Vorssaint Utils.app"
+BUNDLE="com.vorssaint.utils"
+LEGACY_BUNDLE="com.vorssaint.utils.intel"
+APP="/Applications/Vorssaint Utils.app"
+LEGACY_APP="/Applications/Vorssaint Intel.app"
+OLD_LEGACY_APP="/Applications/Vorssaint.app"
 
 echo "▸ Quitting…"
-pkill -x VorssaintIntel 2>/dev/null || true
-pkill -x VorssaintDeveloper 2>/dev/null || true
-pkill -x Vorssaint 2>/dev/null || true
 pkill -x VorssaintUtils 2>/dev/null || true
+pkill -x VorssaintDeveloper 2>/dev/null || true
+pkill -x VorssaintIntel 2>/dev/null || true
+pkill -x Vorssaint 2>/dev/null || true
 sleep 0.5
 
 # Detach from the system from inside whichever bundle still exists: unregisters

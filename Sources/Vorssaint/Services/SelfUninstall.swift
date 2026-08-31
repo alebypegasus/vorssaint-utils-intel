@@ -13,7 +13,7 @@ import ServiceManagement
 /// bundle id; and the only thing deleted is the app's own bundle, which is moved
 /// to the Trash (reversible). Nothing leaves the machine.
 enum SelfUninstall {
-    private static var bundleID: String { Bundle.main.bundleIdentifier ?? "com.vorssaint.utils.intel" }
+    private static var bundleID: String { Bundle.main.bundleIdentifier ?? "com.vorssaint.utils" }
 
     /// Resets every TCC permission the app holds, drops the login item and the
     /// optional closed-lid sudoers rule, and leaves the app in place. Calls back

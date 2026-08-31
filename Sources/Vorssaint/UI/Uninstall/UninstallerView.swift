@@ -11,26 +11,48 @@ struct UninstallerView: View {
     @ObservedObject private var uninstaller = AppUninstaller.shared
     @ObservedObject private var homebrew = HomebrewManager.shared
     @ObservedObject private var permissions = Permissions.shared
-    @State private var dropTargeted = false
-    @State private var showingAppPicker = false
-    @State private var pendingHomebrewRemoval: HomebrewPackage?
-    @State private var showHomebrewDetails = false
+    @State private var mode: Mode = .allApps
+
+    private enum Mode: String, CaseIterable {
+        case allApps, dropPicker
+    }
 
     var body: some View {
-        content
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .alert(l10n.s.homebrewConfirmUninstallTitle,
-                   isPresented: Binding(get: { pendingHomebrewRemoval != nil },
-                                        set: { if !$0 { pendingHomebrewRemoval = nil } }),
-                   presenting: pendingHomebrewRemoval) { package in
-                Button(l10n.s.uninstallerCancel, role: .cancel) {}
-                Button(l10n.s.homebrewUninstall, role: .destructive) {
-                    pendingHomebrewRemoval = nil
-                    uninstaller.removeSelectedWithHomebrew()
-                }
-            } message: { package in
-                Text(String(format: l10n.s.homebrewConfirmUninstallBodyFormat, package.displayName))
+        VStack(spacing: 0) {
+            Picker("", selection: $mode) {
+                Label("All Applications", systemImage: "square.grid.2x2")
+                    .tag(Mode.allApps)
+                Label("Drag & Drop App", systemImage: "arrow.down.doc")
+                    .tag(Mode.dropPicker)
             }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(maxWidth: 360)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            if mode == .allApps {
+                DeepUninstallerEnhancedView()
+            } else {
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .alert(l10n.s.homebrewConfirmUninstallTitle,
+               isPresented: Binding(get: { pendingHomebrewRemoval != nil },
+                                    set: { if !$0 { pendingHomebrewRemoval = nil } }),
+               presenting: pendingHomebrewRemoval) { package in
+            Button(l10n.s.uninstallerCancel, role: .cancel) {}
+            Button(l10n.s.homebrewUninstall, role: .destructive) {
+                pendingHomebrewRemoval = nil
+                uninstaller.removeSelectedWithHomebrew()
+            }
+        } message: { package in
+            Text(String(format: l10n.s.homebrewConfirmUninstallBodyFormat, package.displayName))
+        }
     }
 
     @ViewBuilder

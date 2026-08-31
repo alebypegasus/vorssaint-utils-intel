@@ -16,6 +16,7 @@ enum CleanerSupport {
     /// end: the raw value is a stable identity.
     enum Category: Int, CaseIterable, Identifiable {
         case leftovers, loginItems, caches, logs, developer, trash, deviceBackups
+        case browserCaches, appMediaCaches, systemLogs, temporaryResidue, externalTrashes
 
         var id: Int { rawValue }
     }

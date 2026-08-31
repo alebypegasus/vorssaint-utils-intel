@@ -8,7 +8,7 @@ Please report security vulnerabilities in private. Do not open a public issue, p
 
 Use GitHub's private vulnerability reporting for this repository.
 
-- **[Report a vulnerability privately](https://github.com/alebypegasus/vorssaint-utils-intel/security/advisories/new)**
+- **[Report a vulnerability privately](https://github.com/alebypegasus/vorssaint-utils/security/advisories/new)**
 
 That opens a private security advisory that only you and the maintainer can see.
 

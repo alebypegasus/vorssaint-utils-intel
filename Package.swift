@@ -5,7 +5,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "VorssaintIntel",
+    name: "VorssaintUtils",
     platforms: [.macOS(.v14)],
     targets: [
         .systemLibrary(
