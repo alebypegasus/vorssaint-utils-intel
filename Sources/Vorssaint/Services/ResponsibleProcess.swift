@@ -98,6 +98,9 @@ enum ResponsibleProcess {
     }
 
     private static func currentAppIcon(pointSize: CGFloat) -> NSImage? {
+        if let current = NSApp.applicationIconImage {
+            return current
+        }
         if let url = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
            let image = ImageThumbnailer.thumbnail(for: url, pointSize: pointSize) {
             return image

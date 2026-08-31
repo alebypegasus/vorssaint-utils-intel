@@ -454,6 +454,10 @@ FAN_HELPER_VERSION="$(
     "$STAGE/Contents/Info.plist"
 printf 'APPL????' > "$STAGE/Contents/PkgInfo"
 cp build/AppIcon.icns "$STAGE/Contents/Resources/AppIcon.icns"
+cp Resources/Brand/AppIcon-Light.icns "$STAGE/Contents/Resources/AppIcon-Light.icns" 2>/dev/null || true
+cp Resources/Brand/AppIcon-Dark.icns "$STAGE/Contents/Resources/AppIcon-Dark.icns" 2>/dev/null || true
+cp Resources/Brand/AppIcon-Light.png "$STAGE/Contents/Resources/AppIcon-Light.png" 2>/dev/null || true
+cp Resources/Brand/AppIcon-Dark.png "$STAGE/Contents/Resources/AppIcon-Dark.png" 2>/dev/null || true
 cp build/MenuBarIcon.png build/MenuBarIcon@2x.png build/BrandMark.png "$STAGE/Contents/Resources/"
 if [[ -f build/Assets.car ]]; then
     cp build/Assets.car "$STAGE/Contents/Resources/Assets.car"

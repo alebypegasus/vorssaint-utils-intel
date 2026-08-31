@@ -47,6 +47,7 @@ final class AppAppearanceController: ObservableObject {
     func apply() {
         NSApp.appearance = nsAppearance
         panel?.appearance = nsAppearance
+        AdaptiveAppIconService.shared.updateIcon()
     }
 
     /// Registers the menu bar panel so it follows the choice too.
