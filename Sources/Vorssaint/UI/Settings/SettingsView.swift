@@ -316,12 +316,26 @@ struct UpdatesView: View {
                     UpdateService.shared.autoCheckEnabled = value
                 }
 
-            VStack(alignment: .leading, spacing: 4) {
-                Toggle(l10n.s.includeBetaUpdatesToggle, isOn: $includeBetas)
-                    .onChange(of: includeBetas) { _, value in
-                        UpdateService.shared.includeBetaUpdates = value
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Canal de Atualização")
+                    .font(.system(size: 11, weight: .semibold))
+
+                Picker("", selection: Binding<Bool>(
+                    get: { includeBetas },
+                    set: { newValue in
+                        includeBetas = newValue
+                        UpdateService.shared.includeBetaUpdates = newValue
                     }
-                SettingsCaptionText(l10n.s.includeBetaUpdatesCaption)
+                )) {
+                    Text("Versão Release (Estável)").tag(false)
+                    Text("Versão Developer (Novas Features)").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .controlSize(.small)
+
+                SettingsCaptionText(includeBetas
+                    ? "Você receberá antecipadamente builds de desenvolvimento com as mais recentes funcionalidades e otimizações."
+                    : "Você receberá apenas lançamentos finais e plenamente validados.")
             }
 
             statusRow
