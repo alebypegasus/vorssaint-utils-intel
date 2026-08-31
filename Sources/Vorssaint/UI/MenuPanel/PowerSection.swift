@@ -32,7 +32,7 @@ struct PowerSection: View {
                     if showGraph, monitor.snapshot.systemPowerHistory.count >= 2 {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
-                                Text("Power Draw History")
+                                Text("Consumo de Energia (Histórico)")
                                     .font(.system(size: 9.5, weight: .medium))
                                     .foregroundStyle(.tertiary)
                                 Spacer()
@@ -71,55 +71,58 @@ struct PowerSection: View {
     // MARK: - Battery Overview Header
 
     private func batteryOverviewHeader(_ power: PowerReading) -> some View {
-        let charge = power.chargePercent ?? 0
+        let charge = power.chargePercent ?? 100
         let isCharging = power.isCharging
-        let statusColor: Color = isCharging
-            ? PanelMetricColor.green(for: colorScheme)
-            : (charge > 20 ? .accentColor : .red)
+        let isPluggedIn = power.externalConnected
 
-        return HStack(spacing: 10) {
-            // Circular Mini Gauge
+        // Always vibrant emerald when plugged in / charged; amber/red only when discharging low
+        let statusColor: Color = (isCharging || isPluggedIn || charge >= 80)
+            ? Theme.LiquidGlass.emeraldGlow
+            : (charge > 20 ? Theme.LiquidGlass.cyanGlow : Color.red)
+
+        return HStack(spacing: 12) {
+            // Circular Mini Ring Gauge
             ZStack {
                 Circle()
                     .strokeBorder(Color.primary.opacity(0.08), lineWidth: 3.5)
-                    .frame(width: 38, height: 38)
+                    .frame(width: 40, height: 40)
 
                 Circle()
-                    .trim(from: 0, to: CGFloat(charge) / 100.0)
+                    .trim(from: 0, to: CGFloat(max(charge, 5)) / 100.0)
                     .stroke(statusColor, style: StrokeStyle(lineWidth: 3.5, lineCap: .round))
-                    .frame(width: 38, height: 38)
+                    .frame(width: 40, height: 40)
                     .rotationEffect(.degrees(-90))
 
-                Image(systemName: isCharging ? "bolt.fill" : "battery.100")
-                    .font(.system(size: 13, weight: .bold))
+                Image(systemName: isCharging ? "bolt.fill" : (isPluggedIn ? "powerplug.fill" : "battery.100"))
+                    .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(statusColor)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text("\(charge)%")
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
                         .monospacedDigit()
 
-                    Text(isCharging ? "Charging" : (power.externalConnected ? "Plugged In" : "On Battery"))
+                    Text(isCharging ? "Carregando" : (isPluggedIn ? "Conectado à Tomada" : "Na Bateria"))
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(isCharging ? PanelMetricColor.green(for: colorScheme) : .secondary)
+                        .foregroundStyle(statusColor)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1.5)
-                        .background(isCharging ? PanelMetricColor.green(for: colorScheme).opacity(0.15) : Color.primary.opacity(0.06))
+                        .background(statusColor.opacity(0.12))
                         .clipShape(Capsule())
                 }
 
                 HStack(spacing: 6) {
                     if let health = power.healthPercent {
-                        Text("Health: \(Int(health.rounded()))%")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(health > 80 ? PanelMetricColor.green(for: colorScheme) : .orange)
+                        Text("Saúde: \(Int(health.rounded()))%")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(health > 79 ? Theme.LiquidGlass.emeraldGlow : Color.orange)
                     }
                     if let cycles = power.cycleCount {
-                        Text("•  \(cycles) Cycles")
+                        Text("•  \(cycles) Ciclos")
                             .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -131,8 +134,8 @@ struct PowerSection: View {
                 VStack(alignment: .trailing, spacing: 1) {
                     Text(remaining)
                         .font(.system(size: 13, weight: .bold, design: .monospaced))
-                        .foregroundStyle(PanelMetricColor.green(for: colorScheme))
-                    Text("remaining")
+                        .foregroundStyle(Theme.LiquidGlass.emeraldGlow)
+                    Text("restante")
                         .font(.system(size: 9))
                         .foregroundStyle(.tertiary)
                 }
@@ -166,14 +169,14 @@ struct PowerSection: View {
                 )
             }
 
-            // Net Battery Flow Row
-            if power.hasBattery, let flow = power.batteryWatts {
+            // Net Battery Flow Row (hide zero redundancy if 100% full)
+            if power.hasBattery, let flow = power.batteryWatts, abs(flow) > 0.15 || !power.externalConnected {
                 powerRow(
                     icon: flow >= 0 ? "battery.100.bolt" : "battery.50",
-                    color: flow >= 0 ? PanelMetricColor.green(for: colorScheme) : .secondary,
+                    color: flow >= 0 ? Theme.LiquidGlass.emeraldGlow : .secondary,
                     label: l10n.s.powerBattery,
                     value: (flow >= 0 ? "+" : "-") + MetricFormat.watts(abs(flow)),
-                    caption: flow >= 0 ? "Charging" : "Discharging"
+                    caption: flow >= 0 ? "Carregando" : "Descarregando"
                 )
             }
         }
@@ -222,20 +225,18 @@ struct PowerSection: View {
                     Text("80% Charge Guard")
                         .font(.system(size: 10, weight: .semibold))
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 5)
                 .background(batteryHealthAlert80 ? Theme.LiquidGlass.emeraldGlow.opacity(0.18) : Color.primary.opacity(0.05))
-                .clipShape(Capsule())
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .overlay(
-                    Capsule()
-                        .strokeBorder(batteryHealthAlert80 ? Theme.LiquidGlass.emeraldGlow.opacity(0.7) : Color.clear, lineWidth: 0.8)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(batteryHealthAlert80 ? Theme.LiquidGlass.emeraldGlow.opacity(0.7) : Color.primary.opacity(0.06), lineWidth: 0.8)
                 )
                 .foregroundStyle(batteryHealthAlert80 ? Theme.LiquidGlass.emeraldGlow : Color.secondary)
             }
             .buttonStyle(.plain)
-            .help("Notifies you when battery hits 80% to unplug and extend battery longevity")
-
-            Spacer()
+            .help("Notifica quando a bateria atingir 80% para prolongar a vida útil")
 
             // Low Power Mode Toggle
             Button {
@@ -247,21 +248,21 @@ struct PowerSection: View {
                 HStack(spacing: 4) {
                     Image(systemName: "leaf.fill")
                         .font(.system(size: 9.5))
-                    Text(lowPowerModeEnabled ? "Low Power: ON" : "Low Power")
+                    Text(lowPowerModeEnabled ? "Modo Eco: ON" : "Modo Eco")
                         .font(.system(size: 10, weight: .semibold))
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 5)
                 .background(lowPowerModeEnabled ? Color.yellow.opacity(0.2) : Color.primary.opacity(0.05))
-                .clipShape(Capsule())
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                 .overlay(
-                    Capsule()
-                        .strokeBorder(lowPowerModeEnabled ? Color.yellow.opacity(0.7) : Color.clear, lineWidth: 0.8)
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(lowPowerModeEnabled ? Color.yellow.opacity(0.7) : Color.primary.opacity(0.06), lineWidth: 0.8)
                 )
                 .foregroundStyle(lowPowerModeEnabled ? Color.yellow : Color.secondary)
             }
             .buttonStyle(.plain)
-            .help("Toggles macOS Low Power Mode to save battery life")
+            .help("Alterna o Modo de Baixo Consumo do macOS")
         }
     }
 
