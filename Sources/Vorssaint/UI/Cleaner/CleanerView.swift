@@ -14,7 +14,7 @@ struct CleanerSettings: View {
     @State private var tool = Tool.system
 
     private enum Tool: String, CaseIterable {
-        case system, largeFiles, duplicates, optimizer, devDoctor, shredder, organizer, startup, battery, miniHUD, privacy, turbo, network, whatsApp
+        case system, diskVisualizer, memoryPro, largeFiles, duplicates, optimizer, devDoctor, shredder, organizer, startup, battery, miniHUD, privacy, turbo, network, whatsApp
     }
 
     private var extStrings: CleanerExtendedStrings {
@@ -40,13 +40,15 @@ struct CleanerSettings: View {
                 HStack(spacing: 6) {
                     Group {
                         ToolTabButton(title: extStrings.tabSystemJunk, icon: "sparkles", isSelected: tool == .system) { tool = .system }
+                        ToolTabButton(title: "Uso de Disco (Pizza)", icon: "chart.pie.fill", isSelected: tool == .diskVisualizer) { tool = .diskVisualizer }
+                        ToolTabButton(title: "Memória Pro", icon: "memorychip.fill", isSelected: tool == .memoryPro) { tool = .memoryPro }
                         ToolTabButton(title: extStrings.tabLargeFiles, icon: "internaldrive", isSelected: tool == .largeFiles) { tool = .largeFiles }
                         ToolTabButton(title: extStrings.tabDuplicates, icon: "doc.on.doc", isSelected: tool == .duplicates) { tool = .duplicates }
                         ToolTabButton(title: extStrings.tabOptimizer, icon: "gauge.with.needle", isSelected: tool == .optimizer) { tool = .optimizer }
                         ToolTabButton(title: tenStrings.titleDevDoctor, icon: "stethoscope", isSelected: tool == .devDoctor) { tool = .devDoctor }
-                        ToolTabButton(title: tenStrings.titleFileShredder, icon: "flame", isSelected: tool == .shredder) { tool = .shredder }
                     }
                     Group {
+                        ToolTabButton(title: tenStrings.titleFileShredder, icon: "flame", isSelected: tool == .shredder) { tool = .shredder }
                         ToolTabButton(title: tenStrings.titleAutoOrganizer, icon: "folder.badge.gearshape", isSelected: tool == .organizer) { tool = .organizer }
                         ToolTabButton(title: tenStrings.titleStartupManager, icon: "gearshape.2", isSelected: tool == .startup) { tool = .startup }
                         ToolTabButton(title: tenStrings.titleBatteryGuard, icon: "battery.100.bolt", isSelected: tool == .battery) { tool = .battery }
@@ -69,6 +71,10 @@ struct CleanerSettings: View {
             switch tool {
             case .system:
                 CleanerView()
+            case .diskVisualizer:
+                DiskUsageVisualizerView()
+            case .memoryPro:
+                MemoryMaintenanceView()
             case .largeFiles:
                 LargeFilesView()
             case .duplicates:

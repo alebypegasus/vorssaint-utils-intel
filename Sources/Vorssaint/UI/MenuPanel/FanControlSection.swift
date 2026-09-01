@@ -200,8 +200,75 @@ struct FanControlCardContent: View {
                 .tint(Theme.LiquidGlass.cyanGlow)
                 .controlSize(.small)
                 .disabled(isWorking)
+
+            HStack(spacing: 4) {
+                presetButton(title: "Silencioso", level: 30)
+                presetButton(title: "Médio", level: 50)
+                presetButton(title: "Gamer", level: 80)
+                presetButton(title: "Overdrive", level: 100, isGlow: true)
+            }
+            .padding(.top, 2)
+
+            jetBlastCard
         }
         .padding(.vertical, 2)
+    }
+
+    private func presetButton(title: String, level: Int, isGlow: Bool = false) -> some View {
+        let isSelected = coolingLevel == level
+        return Button {
+            coolingLevel = level
+            applyConfiguration(.manual(level: level))
+        } label: {
+            Text(title)
+                .font(.system(size: 9.5, weight: isSelected ? .bold : .medium))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .frame(maxWidth: .infinity)
+                .background(isSelected ? (isGlow ? Theme.LiquidGlass.magentaGlow : Theme.LiquidGlass.cyanGlow) : Color.primary.opacity(0.04))
+                .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(0.8))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var jetBlastCard: some View {
+        let service = FanControlService.shared
+        HStack(spacing: 8) {
+            Image(systemName: "bolt.horizontal.fill")
+                .foregroundStyle(Theme.LiquidGlass.magentaGlow)
+                .font(.system(size: 13, weight: .bold))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(service.isJetBlastActive ? "Jet Blast Ativo: \(service.jetBlastRemainingSeconds)s" : "Jet Blast (Cooldown Extremo)")
+                    .font(.system(size: 11, weight: .bold))
+                Text("Força 100% de ventoinha instantaneamente por 2 min")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button {
+                if service.isJetBlastActive {
+                    service.cancelJetBlast()
+                } else {
+                    service.triggerJetBlast()
+                }
+            } label: {
+                Text(service.isJetBlastActive ? "Parar" : "Disparar")
+                    .font(.system(size: 10, weight: .bold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(service.isJetBlastActive ? Color.red : Theme.LiquidGlass.magentaGlow)
+            .controlSize(.small)
+        }
+        .padding(8)
+        .liquidGlassCard(cornerRadius: 8, glow: service.isJetBlastActive ? Theme.LiquidGlass.magentaGlow : nil)
+        .padding(.top, 2)
     }
 
     private var statusHeader: some View {

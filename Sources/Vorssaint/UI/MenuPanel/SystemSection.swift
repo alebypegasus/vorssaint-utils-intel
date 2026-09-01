@@ -239,8 +239,12 @@ struct SystemSection: View {
             return [Theme.LiquidGlass.emeraldGlow, Theme.LiquidGlass.emeraldGlow.opacity(0.85)]
         case .balanced:
             return [Color(red: 0.25, green: 0.45, blue: 0.85), Color(red: 0.18, green: 0.35, blue: 0.75)]
-        case .maximum:
-            return [Color.orange, Color.orange.opacity(0.85)]
+        case .performance:
+            return [Theme.LiquidGlass.amberGlow, Theme.LiquidGlass.amberGlow.opacity(0.85)]
+        case .overclock:
+            return [Theme.LiquidGlass.magentaGlow, Color.red]
+        case .custom:
+            return [Theme.LiquidGlass.cyanGlow, Theme.LiquidGlass.violetGlow]
         }
     }
 

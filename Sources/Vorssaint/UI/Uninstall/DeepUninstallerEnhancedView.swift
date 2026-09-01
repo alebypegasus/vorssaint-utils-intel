@@ -64,54 +64,13 @@ struct DeepUninstallerEnhancedView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(uninstaller.filteredApps) { app in
-                    HStack(spacing: 14) {
-                        if let icon = app.icon {
-                            Image(nsImage: icon)
-                                .resizable()
-                                .frame(width: 38, height: 38)
-                        } else {
-                            Image(systemName: "app.fill")
-                                .font(.system(size: 32))
-                                .foregroundStyle(.accentColor)
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(uninstaller.filteredApps, id: \.id) { app in
+                            appRowView(app: app)
                         }
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(app.name)
-                                .font(.system(size: 14, weight: .semibold))
-                            HStack(spacing: 8) {
-                                Text(app.bundleID)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                if app.leftoversCount > 0 {
-                                    Text("• \(app.leftoversCount) leftover folders")
-                                        .font(.caption)
-                                        .foregroundStyle(.orange)
-                                }
-                            }
-                        }
-
-                        Spacer()
-
-                        VStack(alignment: .trailing, spacing: 3) {
-                            Text(ByteCountFormatter.string(fromByteCount: app.totalSize, countStyle: .file))
-                                .font(.system(size: 13, weight: .medium))
-                            Text("App: \(ByteCountFormatter.string(fromByteCount: app.appSize, countStyle: .file)) | Lib: \(ByteCountFormatter.string(fromByteCount: app.leftoversSize, countStyle: .file))")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Button(role: .destructive) {
-                            appToUninstall = app
-                            showingConfirm = true
-                        } label: {
-                            Image(systemName: "trash")
-                                .foregroundStyle(.red)
-                        }
-                        .buttonStyle(.borderless)
-                        .padding(.leading, 8)
                     }
-                    .padding(.vertical, 4)
+                    .padding(16)
                 }
             }
         }
@@ -127,5 +86,62 @@ struct DeepUninstallerEnhancedView: View {
         } message: { app in
             Text("This will safely remove \(app.name) along with \(ByteCountFormatter.string(fromByteCount: app.leftoversSize, countStyle: .file)) in caches, preferences, containers, and support files to the Trash.")
         }
+    }
+
+    @ViewBuilder
+    private func iconView(icon: NSImage?) -> some View {
+        if let icon = icon {
+            Image(nsImage: icon)
+                .resizable()
+                .frame(width: 38, height: 38)
+        } else {
+            Image(systemName: "app.fill")
+                .font(.system(size: 32))
+                .foregroundStyle(Color.accentColor)
+        }
+    }
+
+    @ViewBuilder
+    private func appRowView(app: DeepAppUninstaller.InstalledAppFootprint) -> some View {
+        HStack(spacing: 14) {
+            iconView(icon: app.icon)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(app.name)
+                    .font(.system(size: 14, weight: .semibold))
+                HStack(spacing: 8) {
+                    Text(app.bundleID)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if app.leftoversCount > 0 {
+                        Text("• \(app.leftoversCount) leftover folders")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+            }
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(ByteCountFormatter.string(fromByteCount: app.totalSize, countStyle: .file))
+                    .font(.system(size: 13, weight: .medium))
+                Text("App: \(ByteCountFormatter.string(fromByteCount: app.appSize, countStyle: .file)) | Lib: \(ByteCountFormatter.string(fromByteCount: app.leftoversSize, countStyle: .file))")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button(role: .destructive) {
+                appToUninstall = app
+                showingConfirm = true
+            } label: {
+                Image(systemName: "trash")
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.borderless)
+            .padding(.leading, 8)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color(NSColor.controlBackgroundColor)))
     }
 }

@@ -122,6 +122,8 @@ enum SettingsDirectory {
                                                  s.homebrewName]),
                 SettingsDirectoryItem(page: .cleaner, title: s.cleanerName, icon: "sparkles",
                                       keywords: [s.cleanerScheduleTitle,
+                                                 "pizza", "disco", "disk usage", "pie chart", "overclock",
+                                                 "turbo", "memória", "memory pro", "ram", "purga", "bateria",
                                                  FeatureStrings.whatsAppDownloads(language).title,
                                                  FeatureStrings.whatsAppDownloads(language).automatic,
                                                  FeatureStrings.whatsAppDownloads(language).fileTypes]),

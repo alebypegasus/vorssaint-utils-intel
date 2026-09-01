@@ -19,6 +19,10 @@ final class FanControlService: ObservableObject {
     @Published private(set) var snapshot: FanControlSnapshot = .empty
     @Published private(set) var error: FanControlErrorCode?
     @Published private(set) var isWorking = false
+    @Published var isJetBlastActive = false
+    @Published var jetBlastRemainingSeconds = 0
+    @Published var isOverdriveEnabled = false
+    private var jetBlastTimer: Timer?
 
     private let probeQueue = DispatchQueue(label: "com.vorssaint.fan-control.probe",
                                            qos: .utility)
@@ -162,6 +166,42 @@ final class FanControlService: ObservableObject {
                                       preserving: response.error ?? .controlFailed,
                                       retrySnapshot: retrySnapshot)
             }
+        }
+    }
+
+    func triggerJetBlast(durationSeconds: Int = 120) {
+        guard accessState == .enabled else { authorize(); return }
+        isJetBlastActive = true
+        jetBlastRemainingSeconds = durationSeconds
+        isOverdriveEnabled = true
+
+        applyConfiguration(.manual(level: FanControlPolicy.maximumCoolingLevel))
+
+        jetBlastTimer?.invalidate()
+        jetBlastTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] t in
+            guard let self else { return }
+            if self.jetBlastRemainingSeconds > 1 {
+                self.jetBlastRemainingSeconds -= 1
+            } else {
+                t.invalidate()
+                self.cancelJetBlast()
+            }
+        }
+    }
+
+    func cancelJetBlast() {
+        jetBlastTimer?.invalidate()
+        jetBlastTimer = nil
+        isJetBlastActive = false
+        jetBlastRemainingSeconds = 0
+        restoreAutomatic()
+    }
+
+    func applyPresetLevel(_ level: Int) {
+        if level <= 0 {
+            restoreAutomatic()
+        } else {
+            applyConfiguration(.manual(level: min(100, max(10, level))))
         }
     }
 

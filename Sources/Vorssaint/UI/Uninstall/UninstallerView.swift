@@ -12,6 +12,10 @@ struct UninstallerView: View {
     @ObservedObject private var homebrew = HomebrewManager.shared
     @ObservedObject private var permissions = Permissions.shared
     @State private var mode: Mode = .allApps
+    @State private var showHomebrewDetails = false
+    @State private var showingAppPicker = false
+    @State private var dropTargeted = false
+    @State private var pendingHomebrewRemoval: HomebrewPackage? = nil
 
     private enum Mode: String, CaseIterable {
         case allApps, dropPicker
