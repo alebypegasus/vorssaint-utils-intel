@@ -902,13 +902,21 @@ final class SystemMonitor: ObservableObject {
             name.hasPrefix("Tp") || name.hasPrefix("Te") || name.hasPrefix("Tf") || name.hasPrefix("TC") || name.hasPrefix("Tg") || name.hasPrefix("TG")
                 || name.range(of: "^TB[0-9]T$", options: .regularExpression) != nil
         }
-        cpuKeys = all.filter { $0.name.hasPrefix("Tp") || $0.name.hasPrefix("Te") || $0.name.hasPrefix("Tf") || $0.name.hasPrefix("TC") }
+        cpuKeys = all.filter {
+            ($0.name.hasPrefix("Tp") || $0.name.hasPrefix("Te")
+                || $0.name.hasPrefix("Tf") || $0.name.hasPrefix("TC"))
+                && !TemperatureSensorSelector.isGPUTemperatureKey($0.name,
+                                                                  platform: cpuTemperaturePlatform)
+        }
         preferredCPUKeys = cpuKeys.filter {
             TemperatureSensorSelector.isCPUCoreKey($0.name, platform: cpuTemperaturePlatform)
         }
         let preferredNames = Set(preferredCPUKeys.map(\.name))
         fallbackCPUKeys = cpuKeys.filter { !preferredNames.contains($0.name) }
-        gpuKeys = all.filter { $0.name.hasPrefix("Tg") || $0.name.hasPrefix("TG") }
+        gpuKeys = all.filter {
+            TemperatureSensorSelector.isGPUTemperatureKey($0.name,
+                                                          platform: cpuTemperaturePlatform)
+        }
         batteryKeys = all.filter { $0.name.hasPrefix("TB") }
     }
 
