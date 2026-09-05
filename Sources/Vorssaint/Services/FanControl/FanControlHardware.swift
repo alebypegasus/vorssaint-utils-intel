@@ -273,7 +273,8 @@ final class FanControlHardware {
         if let temperatureKeys { return temperatureKeys }
         let keys = client.keys { name in
             TemperatureSensorSelector.isCPUTemperatureKey(name, platform: temperaturePlatform)
-                || TemperatureSensorSelector.isGPUTemperatureKey(name, platform: temperaturePlatform)
+                || TemperatureSensorSelector.isGPUTemperatureKey(name,
+                                                                 platform: temperaturePlatform)
         }
         let result = TemperatureKeys(
             cpu: keys.filter {
