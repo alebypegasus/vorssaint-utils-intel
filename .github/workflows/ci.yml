@@ -2,21 +2,23 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/new-features]
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feature/new-features' }}
 
 jobs:
   compatibility:
     name: Swift 6.0.3 compatibility
     runs-on: macos-15
     timeout-minutes: 30
+    permissions:
+      contents: read
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
     steps:
@@ -42,6 +44,8 @@ jobs:
     name: Build & selftest
     runs-on: macos-26
     timeout-minutes: 30
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -58,9 +62,29 @@ jobs:
 
       - name: Unit tests
         run: ./build.sh --test
+
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Vorssaint-Utils-dmg
           path: dist/*.dmg
           if-no-files-found: error
+
+      - name: Publish Preview Release
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/new-features')
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
+        with:
+          tag_name: preview
+          name: "Vorssaint Utils (Preview Build)"
+          prerelease: true
+          make_latest: false
+          files: dist/*.dmg
+          body: |
+            ### 🚀 Vorssaint Utils — Preview Build
+            Esta versão prévia é gerada automaticamente a cada push na branch `main`.
+
+            - **Commit**: `${{ github.sha }}`
+            - **Arquitetura**: Universal (Apple Silicon & Intel)
+            
+            > [!NOTE]
+            > Baixe o arquivo `.dmg` abaixo para testar as mais recentes funcionalidades e melhorias. Arraste o Vorssaint para sua pasta `/Applications`.

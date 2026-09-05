@@ -131,8 +131,23 @@ enum TemperatureSensorSelector {
         }
     }
 
+    /// Whether a key is a GPU sensor.
+    ///
+    /// Apple Silicon reports graphics as `Tg*`. Intel Macs use `TG*` for a
+    /// discrete card and keep integrated graphics on the CPU package as `TCGC`,
+    /// as documented in the sensor dumps in vorssaintapp/vorssaint-utils#523.
+    /// `TCGC` therefore has to be claimed here before the `TC` prefix sends it
+    /// to the CPU set.
+    static func isGPUTemperatureKey(_ key: String,
+                                    platform: CPUTemperaturePlatform) -> Bool {
+        if key.hasPrefix("Tg") { return true }
+        guard platform == .intelFamily || platform == .generic else { return false }
+        return key == "TCGC" || key.hasPrefix("TG")
+    }
+
     static func isCPUTemperatureKey(_ key: String,
                                     platform: CPUTemperaturePlatform) -> Bool {
+        if isGPUTemperatureKey(key, platform: platform) { return false }
         if key.hasPrefix("Tp") || key.hasPrefix("Te") || key.hasPrefix("TC") { return true }
         return platform == .appleM3Family && key.hasPrefix("Tf")
     }

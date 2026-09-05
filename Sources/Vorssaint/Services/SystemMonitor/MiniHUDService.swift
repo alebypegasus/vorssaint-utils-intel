@@ -92,7 +92,7 @@ final class MiniHUDService: ObservableObject {
 
             // 3. Network sample
             let now = Date()
-            let elapsed = max(0.5, now.timeIntervalSince(self.lastSampleDate))
+            _ = max(0.5, now.timeIntervalSince(self.lastSampleDate))
             self.lastSampleDate = now
 
             let sample = MetricSample(

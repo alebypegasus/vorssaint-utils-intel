@@ -21,6 +21,8 @@ enum SettingsDirectory {
     static func sections(_ s: Strings,
                          language: AppLanguage) -> [(title: String, items: [SettingsDirectoryItem])] {
         let categories = FeatureStrings.settingsCategories(language)
+        let tenStrings = TenFeaturesExtendedStrings.localized(language)
+        let extStrings = CleanerExtendedStrings.localized(language)
         return [
             (categories.essentials, [
                 SettingsDirectoryItem(page: .general, title: s.tabGeneral, icon: "gearshape",
@@ -50,11 +52,14 @@ enum SettingsDirectory {
                                                  FeatureStrings.keepAwakeDisplaySleep(language)
                                                      .allowDisplaySleep,
                                                  FeatureStrings.bluetoothSleep(language).pageTitle,
-                                                 FeatureStrings.bluetoothSleep(language).enable]),
+                                                 FeatureStrings.bluetoothSleep(language).enable,
+                                                 tenStrings.titleBatteryGuard,
+                                                 tenStrings.titleTurboBoost]),
                 SettingsDirectoryItem(page: .monitor, title: s.tabMonitor, icon: "chart.line.uptrend.xyaxis",
                                       keywords: [s.menuBarSpacingLabel, s.menuBarHideIconToggle,
                                                  s.monitorMemoryPressureDot,
-                                                 FeatureStrings.fanControl(language).menuBarTitle]),
+                                                 FeatureStrings.fanControl(language).menuBarTitle,
+                                                 tenStrings.titleMiniHUD]),
                 SettingsDirectoryItem(page: .equalizer, title: s.equalizerTitle, icon: "slider.vertical.3",
                                       keywords: ["Equalizer", "EQ", "APO", "AutoEq", "Bass", "Treble", "Parametric", "Graphic", "Audio", "Sound", s.equalizerTitle]),
             ]),
@@ -109,6 +114,11 @@ enum SettingsDirectory {
                                       keywords: ["PDF", "GIF", "PNG", "JPEG", "convert", "resize", "watermark",
                                                  "rename", "profile", "fit", "fill", "crop",
                                                  s.mediaStartConvertPDF, s.ocrName]),
+                SettingsDirectoryItem(page: .organizer,
+                                      title: tenStrings.titleAutoOrganizer,
+                                      icon: "folder.badge.gearshape",
+                                      keywords: ["organizer", "downloads", "desktop", "sort", "clean",
+                                                 tenStrings.titleAutoOrganizer]),
             ]),
             // Everything about the apps installed on the Mac lives together:
             // what is out of date, what is junk and what should go.
@@ -127,6 +137,11 @@ enum SettingsDirectory {
                                                  FeatureStrings.whatsAppDownloads(language).title,
                                                  FeatureStrings.whatsAppDownloads(language).automatic,
                                                  FeatureStrings.whatsAppDownloads(language).fileTypes]),
+                SettingsDirectoryItem(page: .startup,
+                                      title: tenStrings.titleStartupManager,
+                                      icon: "gearshape.2",
+                                      keywords: ["startup", "login items", "launchagents", "daemons", "boot",
+                                                 tenStrings.titleStartupManager]),
                 SettingsDirectoryItem(page: .homebrew, title: s.homebrewName, icon: "shippingbox"),
                 SettingsDirectoryItem(page: .uninstaller, title: s.uninstallerName, icon: "trash"),
                 SettingsDirectoryItem(page: .killProcess,
@@ -154,6 +169,21 @@ enum SettingsDirectory {
                                       icon: "camera.viewfinder",
                                       keywords: SettingsSearchSupport.screenCaptureKeywords(
                                         s, language: language)),
+                SettingsDirectoryItem(page: .optimizer,
+                                      title: extStrings.tabOptimizer,
+                                      icon: "gauge.with.needle",
+                                      keywords: ["optimizer", "speed", "fluidity", "advisor",
+                                                 extStrings.tabOptimizer]),
+                SettingsDirectoryItem(page: .privacy,
+                                      title: tenStrings.titlePrivacyAuditor,
+                                      icon: "lock.shield",
+                                      keywords: ["privacy", "permissions", "camera", "microphone", "tcc",
+                                                 tenStrings.titlePrivacyAuditor]),
+                SettingsDirectoryItem(page: .network,
+                                      title: tenStrings.titleNetworkOptimizer,
+                                      icon: "network",
+                                      keywords: ["dns", "network", "ping", "latency", "cloudflare", "google",
+                                                 tenStrings.titleNetworkOptimizer]),
                 SettingsDirectoryItem(page: .urlCleaner, title: s.urlCleanerName, icon: "link"),
                 SettingsDirectoryItem(page: .keyDebounce, title: s.keyDebounceName, icon: "keyboard"),
                 SettingsDirectoryItem(page: .superKey,

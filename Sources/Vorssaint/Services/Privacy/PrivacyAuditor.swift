@@ -90,7 +90,6 @@ final class PrivacyAuditor: ObservableObject {
         isScanning = true
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let fm = FileManager.default
             var list: [PermissionEntry] = []
 
             // Audit common apps with TCC access

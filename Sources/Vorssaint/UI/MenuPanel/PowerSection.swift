@@ -268,7 +268,7 @@ struct PowerSection: View {
 
     private func toggleLowPowerMode(_ enabled: Bool) {
         DispatchQueue.global(qos: .userInitiated).async {
-            _ = try? BoundedProcessRunner.run("/usr/bin/pmset", ["-a", "lowpowermode", enabled ? "1" : "0"], timeout: 2.0, maxOutputBytes: 1024)
+            _ = BoundedProcessRunner.run("/usr/bin/pmset", ["-a", "lowpowermode", enabled ? "1" : "0"], timeout: 2.0, maxOutputBytes: 1024)
         }
     }
 }

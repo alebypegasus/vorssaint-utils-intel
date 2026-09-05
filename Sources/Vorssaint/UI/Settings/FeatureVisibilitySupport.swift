@@ -9,6 +9,7 @@ import Foundation
 enum SettingsPage: Hashable {
     case general, features, energy, monitor, equalizer
     case mouse, switcher, keyDebounce, superKey, cutPaste, autoQuit, cleaner, uninstaller, urlCleaner, homebrew, appUpdates, media, clipboard, windowLayout, shelf, quickTools, textSnippets, screenshot, radialMenu, commandBar, killProcess
+    case startup, organizer, privacy, network, optimizer
     case shortcuts, advanced, about, releaseNotes, support
 }
 
@@ -263,7 +264,8 @@ enum FeatureVisibilitySupport {
         case .screenshot: return [.screenshot, .screenRecorder, .screenOCR, .colorPicker]
         case .radialMenu: return [.radialMenu]
         case .commandBar: return [.commandBar]
-        case .general, .features, .shortcuts, .advanced, .about, .releaseNotes, .support:
+        case .startup, .organizer, .privacy, .network, .optimizer,
+             .general, .features, .shortcuts, .advanced, .about, .releaseNotes, .support:
             return []
         }
     }

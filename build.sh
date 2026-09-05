@@ -504,13 +504,18 @@ xattr -c -r "$STAGE" 2>/dev/null || true
 #      as a fallback so contributors without a Developer ID still get a constant
 #      designated requirement across their local builds.
 #   3. Ad-hoc — fresh clone with no identity at all.
+# Unlock dedicated signing keychain if present (from Tools/setup-signing.sh)
+if [[ -f "$HOME/Library/Keychains/vorssaint-signing.keychain-db" ]]; then
+    security unlock-keychain -p "vorssaint-signing" "$HOME/Library/Keychains/vorssaint-signing.keychain-db" 2>/dev/null || true
+fi
+
 DEVID="$(developer_id_identity)"
 codesign_app() {
     local target="$1"
     if [[ -n "$DEVID" ]]; then
         codesign_with_timestamp_retry --force --strip-disallowed-xattrs --options runtime --timestamp \
             --entitlements "$ENTITLEMENTS" --sign "$DEVID" "$target"
-    elif security find-identity -v -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
+    elif security find-identity -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
         codesign --force --strip-disallowed-xattrs --sign "$LEGACY_IDENTITY" "$target"
     else
         codesign --force --strip-disallowed-xattrs --sign - "$target"
@@ -522,7 +527,7 @@ codesign_fan_helper() {
     if [[ -n "$DEVID" ]]; then
         codesign_with_timestamp_retry --force --strip-disallowed-xattrs --options runtime --timestamp \
             --identifier "$FAN_HELPER_ID" --sign "$DEVID" "$target"
-    elif security find-identity -v -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
+    elif security find-identity -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
         codesign --force --strip-disallowed-xattrs --identifier "$FAN_HELPER_ID" \
             --sign "$LEGACY_IDENTITY" "$target"
     else
@@ -537,7 +542,7 @@ sign_bundle() {
 
     if [[ -n "$DEVID" ]]; then
         echo "  signing with Developer ID (hardened runtime): $DEVID"
-    elif security find-identity -v -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
+    elif security find-identity -p codesigning 2>/dev/null | grep -q "$LEGACY_IDENTITY"; then
         echo "  signing with legacy self-signed identity: $LEGACY_IDENTITY"
     else
         echo "  signing ad-hoc (no identity installed — run Tools/setup-signing.sh)"

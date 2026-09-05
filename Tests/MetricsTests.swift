@@ -10451,12 +10451,11 @@ struct MetricsTests {
         expect(AppFeature.switcher.availabilityKey == "featureAvailable.switcher",
                "availability key derives from the raw value")
         expect(AppFeature.availabilityDefaults.count == AppFeature.allCases.count
-                && (AppFeature.availabilityDefaults[AppFeature.fanControl.availabilityKey] as? Bool) == false
                 && (AppFeature.availabilityDefaults[AppFeature.diskImageInstaller.availabilityKey] as? Bool) == false
                 && (AppFeature.availabilityDefaults[AppFeature.focusFollowsMouse.availabilityKey] as? Bool) == false
                 && (AppFeature.availabilityDefaults[AppFeature.killProcess.availabilityKey] as? Bool) == false
                 && AppFeature.allCases.filter {
-                    $0 != .focusFollowsMouse && $0 != .fanControl && $0 != .diskImageInstaller
+                    $0 != .focusFollowsMouse && $0 != .diskImageInstaller
                         && $0 != .killProcess
                 }.allSatisfy {
                     (AppFeature.availabilityDefaults[$0.availabilityKey] as? Bool) == true

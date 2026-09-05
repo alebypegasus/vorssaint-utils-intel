@@ -14,7 +14,7 @@ struct CleanerSettings: View {
     @State private var tool = Tool.system
 
     private enum Tool: String, CaseIterable {
-        case system, diskVisualizer, memoryPro, largeFiles, duplicates, optimizer, devDoctor, shredder, organizer, startup, battery, miniHUD, privacy, turbo, network, whatsApp
+        case system, largeFiles, duplicates, diskVisualizer, memoryPro, devDoctor, shredder, whatsApp
     }
 
     private var extStrings: CleanerExtendedStrings {
@@ -36,69 +36,24 @@ struct CleanerSettings: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    Group {
-                        ToolTabButton(title: extStrings.tabSystemJunk, icon: "sparkles", isSelected: tool == .system) { tool = .system }
-                        ToolTabButton(title: "Uso de Disco (Pizza)", icon: "chart.pie.fill", isSelected: tool == .diskVisualizer) { tool = .diskVisualizer }
-                        ToolTabButton(title: "Memória Pro", icon: "memorychip.fill", isSelected: tool == .memoryPro) { tool = .memoryPro }
-                        ToolTabButton(title: extStrings.tabLargeFiles, icon: "internaldrive", isSelected: tool == .largeFiles) { tool = .largeFiles }
-                        ToolTabButton(title: extStrings.tabDuplicates, icon: "doc.on.doc", isSelected: tool == .duplicates) { tool = .duplicates }
-                        ToolTabButton(title: extStrings.tabOptimizer, icon: "gauge.with.needle", isSelected: tool == .optimizer) { tool = .optimizer }
-                        ToolTabButton(title: tenStrings.titleDevDoctor, icon: "stethoscope", isSelected: tool == .devDoctor) { tool = .devDoctor }
-                    }
-                    Group {
-                        ToolTabButton(title: tenStrings.titleFileShredder, icon: "flame", isSelected: tool == .shredder) { tool = .shredder }
-                        ToolTabButton(title: tenStrings.titleAutoOrganizer, icon: "folder.badge.gearshape", isSelected: tool == .organizer) { tool = .organizer }
-                        ToolTabButton(title: tenStrings.titleStartupManager, icon: "gearshape.2", isSelected: tool == .startup) { tool = .startup }
-                        ToolTabButton(title: tenStrings.titleBatteryGuard, icon: "battery.100.bolt", isSelected: tool == .battery) { tool = .battery }
-                        ToolTabButton(title: tenStrings.titleMiniHUD, icon: "macwindow.on.rectangle", isSelected: tool == .miniHUD) { tool = .miniHUD }
-                        ToolTabButton(title: tenStrings.titlePrivacyAuditor, icon: "lock.shield", isSelected: tool == .privacy) { tool = .privacy }
-                        ToolTabButton(title: tenStrings.titleTurboBoost, icon: "bolt.fill", isSelected: tool == .turbo) { tool = .turbo }
-                        ToolTabButton(title: tenStrings.titleNetworkOptimizer, icon: "network", isSelected: tool == .network) { tool = .network }
-                        if whatsAppEnabled {
-                            ToolTabButton(title: FeatureStrings.whatsAppDownloads(l10n.language).title, icon: "arrow.down.doc", isSelected: tool == .whatsApp) { tool = .whatsApp }
-                        }
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-            }
-            .background(Color(NSColor.controlBackgroundColor))
-
+            tabBar
             Divider()
 
             switch tool {
             case .system:
                 CleanerView()
-            case .diskVisualizer:
-                DiskUsageVisualizerView()
-            case .memoryPro:
-                MemoryMaintenanceView()
             case .largeFiles:
                 LargeFilesView()
             case .duplicates:
                 DuplicateFilesView()
-            case .optimizer:
-                SystemAdvisorView()
+            case .diskVisualizer:
+                DiskUsageVisualizerView()
+            case .memoryPro:
+                MemoryMaintenanceView()
             case .devDoctor:
                 DevEnvironmentDoctorView()
             case .shredder:
                 FileShredderView()
-            case .organizer:
-                FileAutoOrganizerView()
-            case .startup:
-                StartupManagerView()
-            case .battery:
-                BatteryHealthGuardView()
-            case .miniHUD:
-                MiniHUDView()
-            case .privacy:
-                PrivacyAuditorView()
-            case .turbo:
-                TurboBoostView()
-            case .network:
-                NetworkOptimizerView()
             case .whatsApp:
                 if whatsAppEnabled {
                     WhatsAppDownloadsSettings()
@@ -122,6 +77,27 @@ struct CleanerSettings: View {
             }
         }
     }
+
+    @ViewBuilder
+    private var tabBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ToolTabButton(title: extStrings.tabSystemJunk, icon: "sparkles", isSelected: tool == .system) { tool = .system }
+                ToolTabButton(title: extStrings.tabLargeFiles, icon: "internaldrive", isSelected: tool == .largeFiles) { tool = .largeFiles }
+                ToolTabButton(title: extStrings.tabDuplicates, icon: "doc.on.doc", isSelected: tool == .duplicates) { tool = .duplicates }
+                ToolTabButton(title: "Uso de Disco (Pizza)", icon: "chart.pie.fill", isSelected: tool == .diskVisualizer) { tool = .diskVisualizer }
+                ToolTabButton(title: "Memória Pro", icon: "memorychip.fill", isSelected: tool == .memoryPro) { tool = .memoryPro }
+                ToolTabButton(title: tenStrings.titleDevDoctor, icon: "stethoscope", isSelected: tool == .devDoctor) { tool = .devDoctor }
+                ToolTabButton(title: tenStrings.titleFileShredder, icon: "flame", isSelected: tool == .shredder) { tool = .shredder }
+                if whatsAppEnabled {
+                    ToolTabButton(title: FeatureStrings.whatsAppDownloads(l10n.language).title, icon: "arrow.down.doc", isSelected: tool == .whatsApp) { tool = .whatsApp }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+        .background(Color(NSColor.controlBackgroundColor))
+    }
 }
 
 private struct ToolTabButton: View {
@@ -132,15 +108,25 @@ private struct ToolTabButton: View {
 
     var body: some View {
         Button(action: action) {
-            Label(title, systemImage: icon)
-                .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
-                )
-                .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                Text(title)
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.35) : Color.clear, lineWidth: 1)
+            )
+            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

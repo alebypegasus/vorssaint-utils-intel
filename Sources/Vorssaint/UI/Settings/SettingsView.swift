@@ -142,6 +142,11 @@ struct SettingsView: View {
         case .shelf: ShelfSettings()
         case .equalizer: EqualizerSettings()
         case .shortcuts: ShortcutsSettings()
+        case .startup: StartupManagerView()
+        case .organizer: FileAutoOrganizerView()
+        case .privacy: PrivacyAuditorView()
+        case .network: NetworkOptimizerView()
+        case .optimizer: SystemAdvisorView()
         case .advanced: AdvancedSettings()
         case .about: AboutSettings()
         case .releaseNotes: ReleaseNotesSettings()
@@ -436,8 +441,73 @@ struct EnergySettings: View {
     @AppStorage(DefaultsKey.keepAwakeActiveIcon) private var keepAwakeActiveIcon = KeepAwakeActiveIcon.vorssaint.rawValue
     @AppStorage(DefaultsKey.keepAwakeMouseJiggleEnabled) private var keepAwakeMouseJiggle = false
     @AppStorage(DefaultsKey.keepAwakeMouseJiggleInterval) private var keepAwakeMouseJiggleInterval = 5
+    @State private var selectedTab = SubTab.general
+
+    private enum SubTab: String, CaseIterable {
+        case general, battery, turbo
+    }
+
+    private var tenStrings: TenFeaturesExtendedStrings {
+        TenFeaturesExtendedStrings.localized(l10n.language)
+    }
 
     var body: some View {
+        VStack(spacing: 0) {
+            tabBar
+            Divider()
+
+            switch selectedTab {
+            case .general:
+                generalForm
+            case .battery:
+                BatteryHealthGuardView()
+            case .turbo:
+                TurboBoostView()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var tabBar: some View {
+        HStack(spacing: 8) {
+            tabButton(title: l10n.s.tabEnergy, icon: "bolt.fill", tab: .general)
+            tabButton(title: tenStrings.titleBatteryGuard, icon: "battery.100.bolt", tab: .battery)
+            tabButton(title: tenStrings.titleTurboBoost, icon: "flame.fill", tab: .turbo)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .background(Color(NSColor.controlBackgroundColor))
+    }
+
+    private func tabButton(title: String, icon: String, tab: SubTab) -> some View {
+        let isSelected = selectedTab == tab
+        return Button {
+            selectedTab = tab
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
+                Text(title)
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.04))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.35) : Color.clear, lineWidth: 1)
+            )
+            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var generalForm: some View {
         Form {
             if AppFeature.keepAwake.isAvailable {
                 Section(l10n.s.sessionSection) {

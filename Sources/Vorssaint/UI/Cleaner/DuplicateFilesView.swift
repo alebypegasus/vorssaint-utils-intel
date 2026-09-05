@@ -178,6 +178,7 @@ struct DuplicateFilesView: View {
                         .font(.system(size: 11, weight: .medium))
                 }
                 .menuStyle(.borderlessButton)
+                .fixedSize()
 
                 Spacer()
 

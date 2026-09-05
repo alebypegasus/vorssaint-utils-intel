@@ -23,6 +23,7 @@
 
 <p align="center">
   <a href="https://github.com/alebypegasus/vorssaint-utils/releases"><img src="https://img.shields.io/github/v/release/alebypegasus/vorssaint-utils?label=release&color=4c8dff" alt="Latest release"></a>
+  <a href="https://github.com/alebypegasus/vorssaint-utils/releases/tag/preview"><img src="https://img.shields.io/badge/preview%20build-download%20.dmg-orange" alt="Download Preview DMG"></a>
   <a href="https://github.com/alebypegasus/vorssaint-utils/releases"><img src="https://img.shields.io/github/downloads/alebypegasus/vorssaint-utils/total?color=4c8dff" alt="Downloads"></a>
   <a href="https://github.com/alebypegasus/vorssaint-utils/actions/workflows/ci.yml"><img src="https://github.com/alebypegasus/vorssaint-utils/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
   <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%2B%20Universal%20(Apple%20Silicon%20%26%20Intel)-black" alt="macOS 14 and newer, Apple Silicon & Intel"></a>
@@ -33,6 +34,7 @@
 > **Vorssaint Utils** is an independent utility edition maintained by [@alebypegasus](https://github.com/alebypegasus/vorssaint-utils). It provides universal support for Apple Silicon and Intel Mac architectures / Hackintoshes (SMC core/die temperature keys, CPU package power in Watts, clock speed discovery, dynamic Metal EDR / Brightness boost, and streamlined passwordless background execution).
 >
 > 💖 **Special Thanks & Credit**: Massive appreciation to the original [Vorssaint](https://github.com/vorssaintapp/vorssaint-utils) team (@vorssaintapp / @vorssaint) for creating the wonderful foundation and core macOS utilities.
+>
 
 <p align="center">
   <a href="https://discord.gg/M6BwWH4BJp">

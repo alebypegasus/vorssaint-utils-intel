@@ -104,24 +104,11 @@ struct MonitorSettings: View {
             }
             if AppFeature.fanControl.isAvailable {
                 let fanStrings = FeatureStrings.fanControl(l10n.language)
-                Section {
+                Section(fanStrings.title) {
                     Toggle(fanStrings.showInPanel, isOn: $showFanControl)
                     Text(fanStrings.settingsCaption)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(l10n.s.betaFeatureWarning)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } header: {
-                    HStack(spacing: 6) {
-                        Text(fanStrings.title)
-                        Text(l10n.s.betaBadge)
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(Color.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 1)
-                            .background(Capsule().fill(Color.accentColor))
-                    }
                 }
                 .settingsSectionAnchor(.fanControl)
             }
@@ -148,6 +135,16 @@ struct MonitorSettings: View {
                     }
                 }
                 Text(l10n.s.monitorGraphsCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            let tenStrings = TenFeaturesExtendedStrings.localized(l10n.language)
+            Section(tenStrings.titleMiniHUD) {
+                Toggle(tenStrings.titleMiniHUD, isOn: Binding<Bool>(
+                    get: { MiniHUDService.shared.isHUDVisible },
+                    set: { MiniHUDService.shared.isHUDVisible = $0 }
+                ))
+                Text(tenStrings.captionMiniHUD)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -492,13 +489,9 @@ struct PanelOrderEditor: View {
                                                                  order: $order,
                                                                  dragging: $dragging))
 
-                        // Fan Control is governed by its own toggle on Monitor, so
-                        // it has no separate show/hide here.
-                        if id != .fanControl {
-                            SectionVisibilityEye(id: id,
-                                                 canHide: visibleCount > 1,
-                                                 onChange: { visibilityChanges += 1 })
-                        }
+                        SectionVisibilityEye(id: id,
+                                             canHide: visibleCount > 1,
+                                             onChange: { visibilityChanges += 1 })
                     }
                     .frame(height: 32)
 
@@ -514,7 +507,7 @@ struct PanelOrderEditor: View {
     }
 
     private var editableOrder: [PanelSectionID] {
-        order.filter { ($0 != .fanControl || showFanControl) && $0.isAvailable }
+        order.filter { $0.isAvailable }
     }
 
     private func isShown(_ id: PanelSectionID) -> Bool {

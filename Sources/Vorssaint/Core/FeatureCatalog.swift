@@ -293,7 +293,7 @@ extension AppFeature {
     static var availabilityDefaults: [String: Any] {
         Dictionary(uniqueKeysWithValues: allCases.map {
             ($0.availabilityKey,
-             $0 != .focusFollowsMouse && $0 != .fanControl && $0 != .diskImageInstaller
+             $0 != .focusFollowsMouse && $0 != .diskImageInstaller
                 && $0 != .killProcess)
         })
     }
