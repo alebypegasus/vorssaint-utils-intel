@@ -5,11 +5,12 @@
   </picture>
 </p>
 
-<h1 align="center">Vorssaint</h1>
+<h1 align="center">Vorssaint Utils</h1>
 
 <p align="center">
   One menu bar icon doing the job of a dozen paid Mac apps.<br>
-  Install only what you use.
+  <strong>Universal Edition (Apple Silicon &amp; Intel)</strong> · Maintained by <a href="https://github.com/alebypegasus">@alebypegasus</a>.<br>
+  Free, open source, and everything runs locally on your Mac.
 </p>
 
 <p align="center">
@@ -23,12 +24,17 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/vorssaint/vorssaint-utils/releases"><img src="https://img.shields.io/github/v/release/vorssaint/vorssaint-utils?label=release&color=4c8dff" alt="Latest release"></a>
-  <a href="https://github.com/vorssaint/vorssaint-utils/releases"><img src="https://img.shields.io/github/downloads/vorssaint/vorssaint-utils/total?color=4c8dff" alt="Downloads"></a>
-  <a href="https://github.com/vorssaint/vorssaint-utils/actions/workflows/ci.yml"><img src="https://github.com/vorssaint/vorssaint-utils/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
-  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%2B%20Apple%20Silicon-black" alt="macOS 14 and newer, Apple Silicon"></a>
+  <a href="https://github.com/alebypegasus/vorssaint-utils-intel/releases"><img src="https://img.shields.io/github/v/release/alebypegasus/vorssaint-utils-intel?label=release&color=4c8dff" alt="Latest release"></a>
+  <a href="https://github.com/alebypegasus/vorssaint-utils-intel/releases"><img src="https://img.shields.io/github/downloads/alebypegasus/vorssaint-utils-intel/total?color=4c8dff" alt="Downloads"></a>
+  <a href="https://github.com/alebypegasus/vorssaint-utils-intel/actions/workflows/ci.yml"><img src="https://github.com/alebypegasus/vorssaint-utils-intel/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
+  <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%2B%20Universal%20(Apple%20Silicon%20%26%20Intel)-black" alt="macOS 14 and newer, Apple Silicon & Intel"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License GPL 3.0 or later"></a>
 </p>
+
+> [!NOTE]
+> **Vorssaint Utils (Universal Edition)** provides full native universal support for **Apple Silicon (`arm64`)** and **Intel (`x86_64`)** Macs. It includes SMC temperature sensor mapping for Intel CPU cores (`TC0C`-`TCFC`, `TC0D`-`TC3D`, `TC0P`), Intel CPU package/system power fallbacks (`PCPC`, `PCPG`, `PCPT`), and HDR headroom support.
+>
+> Special thanks to the upstream [Vorssaint](https://github.com/vorssaint/vorssaint-utils) team for the foundation.
 
 <p align="center">
   <a href="https://buymeacoffee.com/vorssaint">

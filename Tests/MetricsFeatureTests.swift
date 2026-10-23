@@ -649,6 +649,23 @@ enum MetricsFeatureTests {
         ) == nil, "A18 Pro remains unavailable when no CPU sensor answers")
         suite.expect(TemperatureSensorSelector.platform(brandString: "Generic CPU") == .generic,
                "other processors keep the generic CPU sensor path")
+        suite.expect(TemperatureSensorSelector.platform(brandString: "Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz") == .intelFamily,
+               "Intel Core processor uses the mapped Intel CPU family")
+        suite.expect(TemperatureSensorSelector.platform(brandString: "Intel Xeon W-3275M") == .intelFamily,
+               "Intel Xeon processor uses the mapped Intel CPU family")
+        suite.expect(TemperatureSensorSelector.hasCPUCoreSet(platform: .intelFamily),
+               "Intel platform carries a core sensor set")
+        suite.expect(TemperatureSensorSelector.isCPUCoreKey("TC0C", platform: .intelFamily),
+               "TC0C is an Intel CPU core key")
+        suite.expect(TemperatureSensorSelector.isCPUTemperatureKey("TC0D", platform: .intelFamily),
+               "TC0D is an Intel CPU temperature key")
+        let intelSensors: [(key: String, value: Double)] = [
+            ("TC0C", 52.0), ("TC1C", 58.0), ("TC0P", 55.0),
+            ("TG0D", 45.0), ("TB0T", 28.0)
+        ]
+        suite.expectClose(TemperatureSensorSelector.displayedCPUTemperature(
+            readings: intelSensors, platform: .intelFamily
+        ) ?? -1, 58.0, "Intel platform selects the hottest CPU core sensor reading")
         suite.expect(TemperatureSensorSelector.isCPUTemperatureKey("Tf4E", platform: .appleM3Family)
                 && !TemperatureSensorSelector.isCPUTemperatureKey("Tf4E", platform: .appleM4Family)
                 && TemperatureSensorSelector.isCPUTemperatureKey("Tp01", platform: .appleM4Family),

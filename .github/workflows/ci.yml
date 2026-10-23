@@ -32,6 +32,12 @@ jobs:
       - name: Build
         run: ./build.sh
 
+      - name: Verify Universal 2 Binary (arm64 & x86_64)
+        run: |
+          lipo -info build/Vorssaint | grep "x86_64" | grep "arm64"
+          lipo -info build/com.vorssaint.utils.fan-control | grep "x86_64" | grep "arm64"
+          lipo -info build/libVorssaintNowPlaying.dylib | grep "x86_64" | grep "arm64"
+
       - name: Selftest
         run: ./build/Vorssaint --selftest
 
@@ -49,6 +55,12 @@ jobs:
 
       - name: Build
         run: ./build.sh
+
+      - name: Verify Universal 2 Binary (arm64 & x86_64)
+        run: |
+          lipo -info build/Vorssaint | grep "x86_64" | grep "arm64"
+          lipo -info build/com.vorssaint.utils.fan-control | grep "x86_64" | grep "arm64"
+          lipo -info build/libVorssaintNowPlaying.dylib | grep "x86_64" | grep "arm64"
 
       - name: Selftest
         run: ./build/Vorssaint --selftest

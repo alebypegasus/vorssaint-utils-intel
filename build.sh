@@ -62,7 +62,8 @@ FAN_HELPER_ID="$APP_BUNDLE_ID.fan-control"
 # Sources/NowPlayingAdapter. Staged under Contents/Frameworks, signed on its own.
 NOW_PLAYING_ADAPTER_ID="$APP_BUNDLE_ID.now-playing"
 NOW_PLAYING_ADAPTER="libVorssaintNowPlaying.dylib"
-TARGET="arm64-apple-macosx14.0"
+HOST_ARCH="$(uname -m)"
+TARGET="${HOST_ARCH}-apple-macosx14.0"
 ENTITLEMENTS="Resources/Vorssaint.entitlements"
 LEGACY_IDENTITY="Vorssaint Utils Signing"
 
@@ -207,8 +208,20 @@ fi
 SDK_COMPAT_FLAGS=()
 VM_STATISTICS_COMPAT_FLAGS=(-I Sources/VMStatisticsCompat)
 HID_EVENT_SYSTEM_FLAGS=(-I Sources/HIDEventSystem)
-if [[ "$SDK" == "$PINNED_SDK" ]]; then
-    # Swift 6.4 can read the SDK 26 interfaces when given their compiler version.
+mkdir -p build/module-cache
+MODULE_CACHE_FLAGS=(-module-cache-path build/module-cache)
+
+if [[ -d "$SDK/usr/lib/swift" ]]; then
+    iface="$(find "$SDK/usr/lib/swift/Swift.swiftmodule" -name "*.swiftinterface" 2>/dev/null | head -1 || true)"
+    if [[ -n "$iface" ]]; then
+        iface_ver="$(grep -m1 "interface-compiler-version" "$iface" 2>/dev/null | sed -E 's/.*interface-compiler-version ([0-9.]+).*/\1/' || true)"
+        if [[ -n "$iface_ver" ]]; then
+            SDK_COMPAT_FLAGS=(-Xfrontend -interface-compiler-version -Xfrontend "$iface_ver")
+        fi
+    fi
+fi
+if [[ ${#SDK_COMPAT_FLAGS[@]} -eq 0 && "$SDK" == "$PINNED_SDK" ]]; then
+    # Fallback if interface scanning didn't trigger
     SDK_COMPAT_FLAGS=(-Xfrontend -interface-compiler-version -Xfrontend 6.3.2)
 fi
 
@@ -577,7 +590,7 @@ if (( TEST )); then
     echo "▸ Building & running tests against $(basename "$SDK")…"
     swiftc -Onone -incremental -enable-batch-mode -j "$(sysctl -n hw.logicalcpu)" \
         -module-name VorssaintTests -output-file-map "$TEST_OUTPUT_FILE_MAP" \
-        -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" \
+        -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${MODULE_CACHE_FLAGS[@]}" \
         "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${TEST_SOURCES[@]}" -o build/metrics-tests
     test_status=0
     ./build/metrics-tests "${TEST_ARGS[@]}" || test_status=$?
@@ -599,43 +612,90 @@ if (( ! DEV )); then
     # changed since, and a fresh checkout has none.
     find build -mindepth 1 -maxdepth 1 ! -name objects -exec rm -rf {} + 2>/dev/null || true
 fi
-APP_OBJECT_DIR="build/objects/$EXECUTABLE"
-mkdir -p build "$APP_OBJECT_DIR"
-APP_OUTPUT_FILE_MAP="$APP_OBJECT_DIR/output-file-map.json"
-write_swift_output_file_map "$APP_OUTPUT_FILE_MAP" "$APP_OBJECT_DIR" "${APP_SOURCES[@]}"
-# Without -j the driver compiles one file at a time, and without batch mode
-# each file's compiler parses the whole module again: a clean release took a
-# quarter of an hour. Batches share that work and run on every core, and the
-# optimization stays per file, as before.
-swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -incremental -enable-batch-mode -j "$(sysctl -n hw.logicalcpu)" \
-    -output-file-map "$APP_OUTPUT_FILE_MAP" \
-    -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${HID_EVENT_SYSTEM_FLAGS[@]}" \
-    "${BUILD_VARIANT_FLAGS[@]}" \
-    "${APP_SOURCES[@]}" -o "build/$EXECUTABLE"
+
+if (( DEV )); then
+    APP_OBJECT_DIR="build/objects/$EXECUTABLE"
+    mkdir -p build "$APP_OBJECT_DIR"
+    APP_OUTPUT_FILE_MAP="$APP_OBJECT_DIR/output-file-map.json"
+    write_swift_output_file_map "$APP_OUTPUT_FILE_MAP" "$APP_OBJECT_DIR" "${APP_SOURCES[@]}"
+    swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -incremental -enable-batch-mode -j "$(sysctl -n hw.logicalcpu)" \
+        -output-file-map "$APP_OUTPUT_FILE_MAP" \
+        -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${MODULE_CACHE_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${HID_EVENT_SYSTEM_FLAGS[@]}" \
+        "${BUILD_VARIANT_FLAGS[@]}" \
+        "${APP_SOURCES[@]}" -o "build/$EXECUTABLE"
+else
+    echo "▸ Compiling arm64 slice…"
+    APP_OBJECT_DIR_ARM64="build/objects/${EXECUTABLE}_arm64"
+    mkdir -p build "$APP_OBJECT_DIR_ARM64"
+    APP_OUTPUT_FILE_MAP_ARM64="$APP_OBJECT_DIR_ARM64/output-file-map.json"
+    write_swift_output_file_map "$APP_OUTPUT_FILE_MAP_ARM64" "$APP_OBJECT_DIR_ARM64" "${APP_SOURCES[@]}"
+    swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -incremental -enable-batch-mode -j "$(sysctl -n hw.logicalcpu)" \
+        -output-file-map "$APP_OUTPUT_FILE_MAP_ARM64" \
+        -target "arm64-apple-macosx14.0" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${MODULE_CACHE_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${HID_EVENT_SYSTEM_FLAGS[@]}" \
+        "${BUILD_VARIANT_FLAGS[@]}" \
+        "${APP_SOURCES[@]}" -o "build/${EXECUTABLE}_arm64"
+
+    echo "▸ Compiling x86_64 slice…"
+    APP_OBJECT_DIR_X86="build/objects/${EXECUTABLE}_x86_64"
+    mkdir -p build "$APP_OBJECT_DIR_X86"
+    APP_OUTPUT_FILE_MAP_X86="$APP_OBJECT_DIR_X86/output-file-map.json"
+    write_swift_output_file_map "$APP_OUTPUT_FILE_MAP_X86" "$APP_OBJECT_DIR_X86" "${APP_SOURCES[@]}"
+    swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -incremental -enable-batch-mode -j "$(sysctl -n hw.logicalcpu)" \
+        -output-file-map "$APP_OUTPUT_FILE_MAP_X86" \
+        -target "x86_64-apple-macosx14.0" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${MODULE_CACHE_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${HID_EVENT_SYSTEM_FLAGS[@]}" \
+        "${BUILD_VARIANT_FLAGS[@]}" \
+        "${APP_SOURCES[@]}" -o "build/${EXECUTABLE}_x86_64"
+
+    echo "▸ Creating Universal 2 binary…"
+    lipo -create -output "build/$EXECUTABLE" "build/${EXECUTABLE}_arm64" "build/${EXECUTABLE}_x86_64"
+    echo "✓ Universal binary created: x86_64 + arm64"
+fi
 
 echo "▸ Compiling protected fan helper…"
-swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
-    Sources/Vorssaint/Services/FanControl/FanControlSupport.swift \
-    Sources/Vorssaint/Services/FanControl/FanControlXPC.swift \
-    Sources/Vorssaint/Services/SystemMonitor/SMCClient.swift \
-    Sources/Vorssaint/Services/Metrics/TemperatureSensorSelector.swift \
-    Sources/Vorssaint/Services/FanControl/FanControlHardware.swift \
-    Sources/FanControlHelper/main.swift \
-    -o "build/$FAN_HELPER_ID"
+HELPER_SOURCES=(
+    Sources/Vorssaint/Services/FanControl/FanControlSupport.swift
+    Sources/Vorssaint/Services/FanControl/FanControlXPC.swift
+    Sources/Vorssaint/Services/SystemMonitor/SMCClient.swift
+    Sources/Vorssaint/Services/Metrics/TemperatureSensorSelector.swift
+    Sources/Vorssaint/Services/FanControl/FanControlHardware.swift
+    Sources/FanControlHelper/main.swift
+)
+if (( DEV )); then
+    swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${MODULE_CACHE_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
+        "${HELPER_SOURCES[@]}" -o "build/$FAN_HELPER_ID"
+else
+    swiftc -O -target "arm64-apple-macosx14.0" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${MODULE_CACHE_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
+        "${HELPER_SOURCES[@]}" -o "build/${FAN_HELPER_ID}_arm64"
+    swiftc -O -target "x86_64-apple-macosx14.0" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${MODULE_CACHE_FLAGS[@]}" "${BUILD_VARIANT_FLAGS[@]}" \
+        "${HELPER_SOURCES[@]}" -o "build/${FAN_HELPER_ID}_x86_64"
+    lipo -create -output "build/$FAN_HELPER_ID" "build/${FAN_HELPER_ID}_arm64" "build/${FAN_HELPER_ID}_x86_64"
+fi
 "build/$FAN_HELPER_ID" --selftest
 
 echo "▸ Compiling Now Playing adapter…"
-swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" -emit-library \
-    -module-name VorssaintNowPlaying \
-    Sources/NowPlayingAdapter/NowPlayingAdapter.swift \
-    Sources/NowPlayingAdapter/NowPlayingQueue.swift \
-    Sources/NowPlayingAdapter/NowPlayingSelection.swift \
-    Sources/Vorssaint/Services/Notch/NotchPlaybackSource.swift \
-    Sources/Vorssaint/Services/Notch/NotchPlaybackCommand.swift \
-    -o "build/$NOW_PLAYING_ADAPTER"
+NOW_PLAYING_SOURCES=(
+    Sources/NowPlayingAdapter/NowPlayingAdapter.swift
+    Sources/NowPlayingAdapter/NowPlayingQueue.swift
+    Sources/NowPlayingAdapter/NowPlayingSelection.swift
+    Sources/Vorssaint/Services/Notch/NotchPlaybackSource.swift
+    Sources/Vorssaint/Services/Notch/NotchPlaybackCommand.swift
+)
+if (( DEV )); then
+    swiftc -O -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${MODULE_CACHE_FLAGS[@]}" -emit-library \
+        -module-name VorssaintNowPlaying \
+        "${NOW_PLAYING_SOURCES[@]}" -o "build/$NOW_PLAYING_ADAPTER"
+else
+    swiftc -O -target "arm64-apple-macosx14.0" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${MODULE_CACHE_FLAGS[@]}" -emit-library \
+        -module-name VorssaintNowPlaying \
+        "${NOW_PLAYING_SOURCES[@]}" -o "build/${NOW_PLAYING_ADAPTER}_arm64"
+    swiftc -O -target "x86_64-apple-macosx14.0" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${MODULE_CACHE_FLAGS[@]}" -emit-library \
+        -module-name VorssaintNowPlaying \
+        "${NOW_PLAYING_SOURCES[@]}" -o "build/${NOW_PLAYING_ADAPTER}_x86_64"
+    lipo -create -output "build/$NOW_PLAYING_ADAPTER" "build/${NOW_PLAYING_ADAPTER}_arm64" "build/${NOW_PLAYING_ADAPTER}_x86_64"
+fi
 
 echo "▸ Generating app icon…"
-swift Tools/MakeIcon.swift build/AppIcon.iconset
+swift "${MODULE_CACHE_FLAGS[@]}" "${SDK_COMPAT_FLAGS[@]}" Tools/MakeIcon.swift build/AppIcon.iconset
 xattr -c -r build/AppIcon.iconset build/AppIcon.icns build/MenuBarIcon.png build/MenuBarIcon@2x.png build/BrandMark.png 2>/dev/null || true
 ACTOOL_BIN="$(xcrun --find actool 2>/dev/null || true)"
 ICON_TMP="$(mktemp -d)"

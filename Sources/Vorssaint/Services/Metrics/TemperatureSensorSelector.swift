@@ -11,6 +11,7 @@ enum CPUTemperaturePlatform: Equatable {
     case appleM4Family
     case appleM4ProFamily
     case appleM5Family
+    case intelFamily
     case unmappedAppleSilicon
     case generic
 }
@@ -23,6 +24,12 @@ struct CachedSensorReading {
 
 enum TemperatureSensorSelector {
     static let minimumChipTemperature = 10.0
+
+    private static let intelCPUCoreKeys: Set<String> = [
+        "TC0C", "TC1C", "TC2C", "TC3C", "TC4C", "TC5C", "TC6C", "TC7C",
+        "TC8C", "TC9C", "TCAC", "TCBC", "TCCC", "TCDC", "TCEC", "TCFC",
+        "TC0D", "TC1D", "TC2D", "TC3D", "TC0P", "TC0E", "TC0F", "TCXC", "TCSA"
+    ]
 
     private static let appleM1CPUCoreKeys: Set<String> = [
         "Tp09", "Tp0T",
@@ -73,6 +80,7 @@ enum TemperatureSensorSelector {
         // Preserve the established Tp/Te reading path for this supported chip
         // until a verified per-core map is available.
         if brand == "Apple A18 Pro" { return .generic }
+        if isIntelProcessor(in: brand) { return .intelFamily }
         switch appleSiliconGeneration(in: brand) {
         case 1: return .appleM1Family
         case 2: return .appleM2Family
@@ -86,11 +94,11 @@ enum TemperatureSensorSelector {
     static func currentPlatform() -> CPUTemperaturePlatform {
         var size = 0
         guard sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0) == 0, size > 0 else {
-            return .unmappedAppleSilicon
+            return .generic
         }
         var buffer = [CChar](repeating: 0, count: size)
         guard sysctlbyname("machdep.cpu.brand_string", &buffer, &size, nil, 0) == 0 else {
-            return .unmappedAppleSilicon
+            return .generic
         }
         return platform(brandString: String(cString: buffer))
     }
@@ -116,7 +124,7 @@ enum TemperatureSensorSelector {
     static func hasCPUCoreSet(platform: CPUTemperaturePlatform) -> Bool {
         switch platform {
         case .appleM1Family, .appleM2Family, .appleM3Family, .appleM4Family,
-             .appleM4ProFamily, .appleM5Family:
+             .appleM4ProFamily, .appleM5Family, .intelFamily:
             return true
         case .unmappedAppleSilicon, .generic: return false
         }
@@ -124,6 +132,8 @@ enum TemperatureSensorSelector {
 
     static func isCPUCoreKey(_ key: String, platform: CPUTemperaturePlatform) -> Bool {
         switch platform {
+        case .intelFamily:
+            return intelCPUCoreKeys.contains(key)
         case .appleM1Family:
             return appleM1CPUCoreKeys.contains(key)
         case .appleM2Family:
@@ -143,7 +153,7 @@ enum TemperatureSensorSelector {
 
     static func isCPUTemperatureKey(_ key: String,
                                     platform: CPUTemperaturePlatform) -> Bool {
-        if key.hasPrefix("Tp") || key.hasPrefix("Te") { return true }
+        if key.hasPrefix("Tp") || key.hasPrefix("Te") || key.hasPrefix("TC") { return true }
         return platform == .appleM3Family && key.hasPrefix("Tf")
     }
 
@@ -174,6 +184,14 @@ enum TemperatureSensorSelector {
         let afterGeneration = remainder.dropFirst()
         guard afterGeneration.isEmpty || afterGeneration.first == " " else { return nil }
         return generation
+    }
+
+    private static func isIntelProcessor(in brand: String) -> Bool {
+        brand.localizedCaseInsensitiveContains("Intel")
+            || brand.localizedCaseInsensitiveContains("Core")
+            || brand.localizedCaseInsensitiveContains("Xeon")
+            || brand.localizedCaseInsensitiveContains("Pentium")
+            || brand.localizedCaseInsensitiveContains("Celeron")
     }
 
     private static func isPlausibleTemperature(_ value: Double) -> Bool {

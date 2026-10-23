@@ -37,7 +37,19 @@ VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$APP/C
 OUT="dist/Vorssaint-$VERSION.dmg"
 
 echo "▸ Rendering installer background…"
-swift Tools/MakeDMGBackground.swift build/dmg-background.png
+SDK_COMPAT_FLAGS=()
+SDK="$(xcrun --show-sdk-path 2>/dev/null || true)"
+if [[ -n "$SDK" && -d "$SDK/usr/lib/swift" ]]; then
+    iface="$(find "$SDK/usr/lib/swift/Swift.swiftmodule" -name "*.swiftinterface" 2>/dev/null | head -1 || true)"
+    if [[ -n "$iface" ]]; then
+        iface_ver="$(grep -m1 "interface-compiler-version" "$iface" 2>/dev/null | sed -E 's/.*interface-compiler-version ([0-9.]+).*/\1/' || true)"
+        if [[ -n "$iface_ver" ]]; then
+            SDK_COMPAT_FLAGS=(-Xfrontend -interface-compiler-version -Xfrontend "$iface_ver")
+        fi
+    fi
+fi
+mkdir -p build/module-cache
+swift -module-cache-path build/module-cache "${SDK_COMPAT_FLAGS[@]}" Tools/MakeDMGBackground.swift build/dmg-background.png
 
 echo "▸ Staging DMG contents…"
 STAGING="$(mktemp -d)"
