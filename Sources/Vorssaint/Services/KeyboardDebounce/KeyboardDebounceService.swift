@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
+import ApplicationServices
 import Combine
 import CoreGraphics
 import Foundation
@@ -27,7 +28,9 @@ final class KeyboardDebounceService: ObservableObject {
                                                 globalWindowMs: Defaults.defaultKeyboardDebounceWindowMs,
                                                 keyWindows: [:])
 
-    private init() {}
+    private init() {
+        SessionActivity.shared.onChange { [weak self] _ in self?.syncWithPreferences() }
+    }
 
     func syncWithPreferences() {
         let nextConfig = KeyboardDebounceConfig(
@@ -44,7 +47,9 @@ final class KeyboardDebounceService: ObservableObject {
             config = nextConfig
         }
 
-        if nextConfig.enabled, Permissions.shared.accessibility {
+        if SessionActivitySupport.tapShouldRun(featureWanted: nextConfig.enabled,
+                                               accessibilityGranted: AXIsProcessTrusted(),
+                                               sessionIsActive: SessionActivity.shared.isActive) {
             start()
         } else {
             stop()
@@ -109,6 +114,7 @@ final class KeyboardDebounceService: ObservableObject {
 
         if let tap = snapshot.tap {
             CGEvent.tapEnable(tap: tap, enable: false)
+            CFMachPortInvalidate(tap)
         }
         if let runLoop = snapshot.runLoop {
             CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue) {
@@ -186,6 +192,7 @@ final class KeyboardDebounceService: ObservableObject {
 
             CGEvent.tapEnable(tap: tap, enable: false)
             CFRunLoopRemoveSource(runLoop, source, .commonModes)
+            CFMachPortInvalidate(tap)
             eventLock.withLock {
                 state.reset()
             }
@@ -230,20 +237,28 @@ final class KeyboardDebounceService: ObservableObject {
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            let currentTap = lifecycleLock.withLock {
-                tap
+            // stop() switches the tap off itself, and that can still be
+            // reported here like a disable by the system. A stop under way
+            // has nothing to recover: syncing would start the tap again under
+            // a suspend(), which Cleaning Mode counts on.
+            let currentTap = lifecycleLock.withLock { shouldStopTapThread ? nil : tap }
+            if SessionActivity.shared.isActive, AXIsProcessTrusted(), let currentTap {
+                CGEvent.tapEnable(tap: currentTap, enable: true)
+            } else if currentTap != nil {
+                DispatchQueue.main.async { [weak self] in self?.syncWithPreferences() }
             }
-            if let currentTap { CGEvent.tapEnable(tap: currentTap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
 
-        guard type == .keyDown || type == .keyUp else {
+        // Keys this app posts (a Quit Protection confirmation, text a snippet
+        // retypes) follow a real press on purpose and are not chatter.
+        guard type == .keyDown || type == .keyUp, !OwnKeyEvent.isPosted(event) else {
             return Unmanaged.passUnretained(event)
         }
 
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
         let isRepeat = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
-        let timestamp = UInt64(event.timestamp)
+        let timestamp = EventTimestamp.nanoseconds(of: event)
         let eventKind: KeyboardDebounceState.EventKind = type == .keyDown ? .keyDown : .keyUp
         let shouldSuppress = eventLock.withLock {
             state.shouldSuppress(keyCode: keyCode,

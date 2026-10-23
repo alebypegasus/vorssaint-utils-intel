@@ -161,13 +161,199 @@ struct MixerRefreshCoordinator {
 }
 
 enum MixerRoutingSupport {
+    static func observationNeeds(isAvailable: (AppFeature) -> Bool)
+        -> (devices: Bool, processes: Bool) {
+        let mixer = isAvailable(.mixer)
+        return (mixer || isAvailable(.audioPriority) || isAvailable(.soundOutputSwitcher), mixer)
+    }
+
     static let systemDefaultSelectionID = "__system_default__"
     static let finderBundleIdentifier = "com.apple.finder"
 
     private static let forbiddenScalars = CharacterSet.controlCharacters.union(.newlines)
 
+    /// The whole percent a slider position is shown as. A device can report a
+    /// level that is not a number, and converting that to an integer traps, so
+    /// it reads as 0% here instead of taking the app down.
+    static func displayPercent(forVolume volume: Double) -> Int {
+        guard volume.isFinite else { return 0 }
+        // Bound the value so an absurdly large finite level cannot overflow Int.
+        return Int((min(max(volume, -1000), 1000) * 100).rounded())
+    }
+
     static func isUnity(_ volume: Double) -> Bool {
         abs(volume - 1) < 0.005
+    }
+
+    /// The gain an app's slider position is played at.
+    ///
+    /// Loudness is heard on a logarithmic scale, so a slider used as the gain
+    /// itself keeps nearly all of its audible range in the bottom fifth: 50%
+    /// was only 6 dB down and hardly sounded quieter. Squaring the position
+    /// puts 50% at -12 dB and 25% at -24 dB, with silence still at 0 and an
+    /// untouched level at 100%. The boost range stays linear, so 200% is the
+    /// same +6 dB it always was.
+    static func gain(forVolume volume: Double) -> Float {
+        // Squaring would turn a level below zero into a positive gain. Such a
+        // level is silence, and one that is not a number plays the app
+        // untouched, the same reading a saved volume gets.
+        guard volume.isFinite else { return 1 }
+        let level = max(volume, 0)
+        return Float(level < 1 ? level * level : level)
+    }
+
+    /// The slider position that plays `gain`, the inverse of the curve above.
+    /// Volumes saved before the sliders followed perceived loudness were the
+    /// gain itself, and move here once so the update never changes how loud
+    /// an app plays, only where its slider sits.
+    static func volume(forGain gain: Double) -> Double {
+        guard gain.isFinite else { return 1 }
+        let level = max(gain, 0)
+        return level < 1 ? level.squareRoot() : level
+    }
+
+    /// The most a tap is ever turned back up: four channel pairs, the widest
+    /// loss anyone has measured. Past it the correction would be a guess, and
+    /// a guess that is too large plays the app louder than it ever was.
+    static let maximumTapLevelCompensation: Double = 4
+
+    /// How much louder a tapped app has to be played to sound as it does
+    /// untouched.
+    ///
+    /// The stereo mixdown tap divides what it hears by the number of channel
+    /// pairs of the output an app plays to, a known system issue
+    /// (FB13479345). On an eight channel output, like a TV over HDMI or an
+    /// audio interface, the app reached the mixer at a quarter of its level,
+    /// so 95% sounded far quieter than 100% and even 200% stayed below it. A
+    /// stereo output loses nothing, and neither does an aggregate of stereo
+    /// devices, because each device inside it is divided on its own.
+    ///
+    /// `streamChannels` hold, for each output the app plays to right now,
+    /// the width of the stream carrying its stereo pair. Only that stream
+    /// counts, not every stream of the device. Nobody has measured a device
+    /// with several streams, and the narrower count is the safer guess. A
+    /// silent app plays nowhere and has nothing to correct. An app on several
+    /// outputs gets the smallest correction, since a larger one would lift
+    /// the others above their own level. An output that cannot be read (nil)
+    /// counts as stereo, so it can only lower the correction, never lift it.
+    static func tapLevelCompensation(streamChannels: [Int?]) -> Double {
+        guard let fewest = streamChannels.map({ $0 ?? 2 }).filter({ $0 > 0 }).min() else { return 1 }
+        return min(max(Double(fewest) / 2, 1), maximumTapLevelCompensation)
+    }
+
+    /// What a watch stores before it reads how wide the outputs of a tapped
+    /// app are, or nil to keep the correction it has.
+    ///
+    /// A move stores no correction first. A new output can be slow to answer
+    /// while it starts, and no correction is the level that is never too
+    /// loud. A silent app keeps its correction while the default output is
+    /// still among its last outputs, so it resumes there at the right level
+    /// from its first buffer. Otherwise it may resume somewhere else, and no
+    /// correction is the safe level again. `defaultOutputDevices` lists the
+    /// devices inside the default output when it is an aggregate, the way an
+    /// app's own outputs list them, and is empty when it cannot be read.
+    static func tapLevelBeforeReading(devices: Set<AudioObjectID>,
+                                      lastDevices: Set<AudioObjectID>,
+                                      defaultOutputDevices: Set<AudioObjectID>) -> Double? {
+        if devices.isEmpty {
+            guard !defaultOutputDevices.isEmpty,
+                  defaultOutputDevices.isSubset(of: lastDevices) else { return 1 }
+            return nil
+        }
+        return devices == lastDevices ? nil : 1
+    }
+
+    /// How long the mixer's own pass waits between two reads of a watch.
+    /// The pass only backs up the announced moves, and a slider drag runs it
+    /// on every step.
+    static let tapLevelBackstopInterval: Double = 1
+
+    static func tapLevelReadIsDue(immediately: Bool, sinceLastRead: Double) -> Bool {
+        immediately || sinceLastRead >= tapLevelBackstopInterval
+    }
+
+    /// How long a rising correction takes to cross its whole range. Long
+    /// enough that the level never jumps between two short buffers.
+    static let tapLevelRampDuration: Double = 0.03
+    /// How long a falling correction takes to cross it. Much shorter, since
+    /// until it lands the app plays louder than it should, but still long
+    /// enough not to step the level inside a waveform.
+    static let tapLevelDropDuration: Double = 0.005
+
+    /// The correction the audio thread applies in a cycle of `seconds`. It
+    /// eases at the same pace in time on every buffer size, quickly on the
+    /// way down and gently on the way up, so neither direction jumps the
+    /// level. A cycle longer than its ramp moves all the way. The first cycle
+    /// takes the value as it is. Each cycle takes the pace of the way it
+    /// moves now, with no memory of the last one. So when a move between two
+    /// outputs of the same width stores the provisional 1 of
+    /// `tapLevelBeforeReading` and the read puts the old value back, the
+    /// level dips only for the cycles the 1 lasted and then climbs back at
+    /// the gentle pace.
+    static func tapLevelRampStep(applied: Float?, target: Float, seconds: Double) -> Float {
+        guard let applied, applied > 0 else { return target }
+        let duration = target < applied ? tapLevelDropDuration : tapLevelRampDuration
+        let limit = Float(pow(maximumTapLevelCompensation, min(max(seconds, 0) / duration, 1)))
+        return min(max(target, applied / limit), applied * limit)
+    }
+
+    /// An output as an app's own outputs list it: the devices inside it for an
+    /// aggregate, down through any aggregate inside it, the device itself
+    /// otherwise. An aggregate none of whose devices can be found, or one
+    /// nested deeper than anyone builds, keeps its own ID, which no app
+    /// lists, so it can only drop a correction, never keep one.
+    static func outputDevices(of output: AudioObjectID,
+                              subDeviceUIDs: (AudioObjectID) -> [String],
+                              deviceForUID: (String) -> AudioObjectID?,
+                              depth: Int = 0) -> Set<AudioObjectID> {
+        let inside = subDeviceUIDs(output).compactMap(deviceForUID)
+        guard !inside.isEmpty, depth < 4 else { return [output] }
+        return inside.reduce(into: Set<AudioObjectID>()) { devices, device in
+            devices.formUnion(outputDevices(of: device, subDeviceUIDs: subDeviceUIDs,
+                                            deviceForUID: deviceForUID, depth: depth + 1))
+        }
+    }
+
+    /// The engines to read again at once when the audio environment changes:
+    /// those whose app still aims at the output they render to. The rest are
+    /// rebuilt for their new output and read their own, and a rebuild that
+    /// fails reads the engine it keeps.
+    static func enginesKeepingTheirOutput(engineOutputs: [String: String],
+                                          targets: [String: String]) -> Set<String> {
+        Set(engineOutputs.compactMap { id, output in targets[id] == output ? id : nil })
+    }
+
+    /// Which processes a level watch has to start and stop listening to so
+    /// it hears exactly `wanted`: only the difference, never one it already
+    /// hears.
+    static func listenerChanges<Object: Hashable>(listened: Set<Object>, wanted: Set<Object>)
+        -> (add: Set<Object>, remove: Set<Object>) {
+        (wanted.subtracting(listened), listened.subtracting(wanted))
+    }
+
+    /// Channels of the stream a stereo app plays into: the one holding the
+    /// output's preferred stereo pair, whose left channel counts from 1. A
+    /// pair outside every stream falls back to the first stream.
+    static func stereoStreamChannels(streamChannels: [Int], preferredLeftChannel: Int) -> Int? {
+        var firstChannel = 1
+        for channels in streamChannels where channels > 0 {
+            if preferredLeftChannel >= firstChannel, preferredLeftChannel < firstChannel + channels {
+                return channels
+            }
+            firstChannel += channels
+        }
+        return streamChannels.first { $0 > 0 }
+    }
+
+    /// Whether a level asked of the output also throws its mute switch, the
+    /// way the system's own volume keys and the Control Center slider do at
+    /// the bottom of the range, since some outputs still play there. A level
+    /// the percent labels show as 0% counts, the same half percent `isUnity`
+    /// allows at 100%: a key steps from the level the output reports, so a
+    /// coarse step down from a hair above one step lands just above zero.
+    /// The finest key step stays audible.
+    static func mutesOutput(atVolume volume: Double) -> Bool {
+        volume < 0.005
     }
 
     /// Inactive apps with a custom volume or output remain visible so hiding
@@ -180,7 +366,7 @@ enum MixerRoutingSupport {
         return isPlaying || !isUnity(volume) || selectedOutputDeviceUID != nil
     }
 
-    /// Turns the text entered beside a mixer slider into its gain. The field
+    /// Turns the text entered beside a mixer slider into its level. The field
     /// accepts the same optional percent sign it displays, while the caller
     /// supplies the limit (100 for the system output, 200 for an app row).
     static func volumeFraction(fromPercentageText text: String,
@@ -240,6 +426,57 @@ enum MixerRoutingSupport {
                                volumes: volumes)
     }
 
+    /// Vorssaint's own AirPlay entry, streamed through the system route picker.
+    /// Exact match only: real AirPlay devices macOS exposes are ordinary outputs
+    /// and route through the normal tap, and a device name or UID that merely
+    /// mentions AirPlay must never be mistaken for this entry.
+    static func isAirPlaySentinel(_ uid: String) -> Bool {
+        uid == AirPlayRouteManager.airPlaySentinelUID
+    }
+
+    /// Whether an app keeps the AirPlay stream from pausing for silence: it
+    /// is producing sound, and that sound goes to AirPlay now. An app that is
+    /// merely open does not count, nor does one set to AirPlay that plays on
+    /// the Mac while no speaker is picked.
+    static func playsOnAirPlay(isPlaying: Bool, effectiveOutputDeviceUID: String?) -> Bool {
+        isPlaying && effectiveOutputDeviceUID.map(isAirPlaySentinel) == true
+    }
+
+    /// The item in an app's output menu that opens the system's speaker list
+    /// for every app set to AirPlay, without changing this app's output.
+    static let airPlaySpeakerChoiceID = "vorssaint.output.airplay.choose"
+
+    /// Whether a running engine's output is still there to render to. The
+    /// AirPlay entry stays listed while no speaker is picked, but an engine
+    /// streaming to it then only mutes its app, exactly like one whose
+    /// device was unplugged, so it counts as gone. So does one whose clock,
+    /// the Mac output it was built on, is gone: its tap stops with it, and
+    /// the replacement is built on the output there now.
+    static func engineOutputIsPresent(_ uid: String, clockUID: String? = nil, listedUIDs: [String],
+                                      airPlayConnected: Bool) -> Bool {
+        guard listedUIDs.contains(uid) else { return false }
+        guard isAirPlaySentinel(uid) else { return true }
+        return airPlayConnected && clockUID.map(listedUIDs.contains) != false
+    }
+
+    /// Whether an app's output menu needs its own "Output unavailable" row for
+    /// the selected output. Only when that output is not listed anyway (an
+    /// unplugged device): a listed one keeps its own row selected, since two
+    /// rows sharing a tag would leave the menu ticking the wrong one.
+    static func needsUnavailableOutputRow(selectedUID: String?, isUnavailable: Bool,
+                                          listedUIDs: [String]) -> Bool {
+        guard let selectedUID, isUnavailable else { return false }
+        return !listedUIDs.contains(selectedUID)
+    }
+
+    /// Outputs an app's audio can go to right now. The AirPlay entry stays in
+    /// the list (choosing it opens the picker) but only carries audio while a
+    /// speaker is picked; otherwise the app falls back to the default output,
+    /// exactly like unplugged headphones.
+    static func routableOutputUIDs(_ uids: [String], airPlayConnected: Bool) -> Set<String> {
+        Set(uids.filter { airPlayConnected || !isAirPlaySentinel($0) })
+    }
+
     static func nextSelectedOutputDeviceUID(currentUID: String?,
                                             selectedUIDs: [String],
                                             availableUIDs: Set<String>) -> String? {
@@ -261,7 +498,16 @@ enum MixerRoutingSupport {
 
     static func outputLooksLikeHeadphones(name: String,
                                           uid: String,
-                                          dataSourceName: String?) -> Bool {
+                                          dataSourceName: String?,
+                                          terminalTypes: [UInt32] = []) -> Bool {
+        // Stream terminals describe the hardware independently of its model
+        // or user-assigned name. Generic or unavailable terminals still need
+        // the existing name/data-source recognition.
+        if terminalTypes.contains(kAudioStreamTerminalTypeHeadphones) { return true }
+        if terminalTypes.contains(where: {
+            $0 == kAudioStreamTerminalTypeSpeaker || $0 == kAudioStreamTerminalTypeLFESpeaker
+                || $0 == kAudioStreamTerminalTypeReceiverSpeaker
+        }) { return false }
         let haystack = [name, uid, dataSourceName ?? ""]
             .joined(separator: " ")
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
@@ -283,28 +529,52 @@ enum MixerRoutingSupport {
                                volume: Double,
                                selectedOutputDeviceUID: String?,
                                targetOutputDeviceUID: String?,
-                               defaultOutputDeviceUID: String?) -> Bool {
+                               defaultOutputDeviceUID: String?,
+                               universalOutputRouteUID: String? = nil) -> Bool {
         guard hasAudioObjects else { return false }
         guard let targetOutputDeviceUID else { return false }
         if !isUnity(volume) { return true }
-        guard let selectedOutputDeviceUID else { return false }
-        guard let defaultOutputDeviceUID else { return true }
-        return selectedOutputDeviceUID != defaultOutputDeviceUID
-            && targetOutputDeviceUID != defaultOutputDeviceUID
+        if let selectedOutputDeviceUID {
+            // An explicit route still matters when it happens to be the
+            // system default: a Wine game may keep its old device open.
+            return selectedOutputDeviceUID == targetOutputDeviceUID
+        }
+        return universalOutputRouteUID == targetOutputDeviceUID
+            && targetOutputDeviceUID == defaultOutputDeviceUID
     }
 
     /// The last gate before a tap is built: a row is tapped only when the user
-    /// actually adjusted it, either to a volume other than 100% or to an output
-    /// other than the system default. An app that is merely listed is never
-    /// part of any tap, so the mixer can neither mute it nor re-render its
-    /// sound.
+    /// adjusted its volume, chose its output, or asked to move all audio to an
+    /// output that this process did not follow. Merely listing an app never
+    /// makes it part of a tap.
     static func rowMayBeTapped(savedVolume: Double?,
                                savedRouteUID: String?,
-                               defaultOutputDeviceUID: String?) -> Bool {
+                               defaultOutputDeviceUID: String?,
+                               universalOutputRouteUID: String? = nil) -> Bool {
         if let savedVolume, !isUnity(savedVolume) { return true }
-        guard let savedRouteUID else { return false }
-        guard let defaultOutputDeviceUID else { return true }
-        return savedRouteUID != defaultOutputDeviceUID
+        if savedRouteUID != nil { return true }
+        guard let universalOutputRouteUID else { return false }
+        return universalOutputRouteUID == defaultOutputDeviceUID
+    }
+
+    /// A universal output choice normally needs only the system default to
+    /// change. Processes that keep another device open need a tap as well.
+    /// Empty device lists mean silence or an unavailable read, not evidence
+    /// that a previously routed process now follows the default. Keep that
+    /// route until its same audio objects report where they play again.
+    static func requiresUniversalOutputRouting(requestedUID: String?,
+                                                defaultUID: String?,
+                                                selectedUID: String?,
+                                                audioObjects: [AudioObjectID],
+                                                previouslyRoutedObjects: [AudioObjectID]?,
+                                                processDevices: Set<AudioObjectID>,
+                                                defaultDevices: Set<AudioObjectID>) -> Bool {
+        guard let requestedUID, requestedUID == defaultUID,
+              selectedUID == nil, !audioObjects.isEmpty, !defaultDevices.isEmpty else { return false }
+        if processDevices.isEmpty {
+            return previouslyRoutedObjects == audioObjects
+        }
+        return !processDevices.isSubset(of: defaultDevices)
     }
 
     /// Identity of a row: the bundle id when the app has one, otherwise a
@@ -357,10 +627,9 @@ enum MixerRoutingSupport {
     }
 
     enum EngineRenderVerdict: Equatable {
-        /// Remember this observation. With `recheckAfter` set the picture is
-        /// not conclusive yet (first look at this engine), so another look is
-        /// scheduled instead of waiting for the next audio event.
-        case note(EngineRenderObservation, recheckAfter: Double?)
+        /// Remember this observation and keep checking while the app plays.
+        /// A healthy engine can stall later without another audio event.
+        case note(EngineRenderObservation, recheckAfter: Double)
         /// The counter has not moved, but not for long enough to be sure;
         /// keep the previous observation and look again after the remaining
         /// time.
@@ -392,7 +661,7 @@ enum MixerRoutingSupport {
             return .note(EngineRenderObservation(cycles: cycles, at: now), recheckAfter: window)
         }
         guard cycles == previous.cycles else {
-            return .note(EngineRenderObservation(cycles: cycles, at: now), recheckAfter: nil)
+            return .note(EngineRenderObservation(cycles: cycles, at: now), recheckAfter: window)
         }
         let elapsed = max(0, now - previous.at)
         guard elapsed >= window else { return .stalled(recheckAfter: window - elapsed) }
@@ -420,6 +689,14 @@ enum MixerRoutingSupport {
         return abs(currentVolume - appliedVolume) < 0.005
     }
 
+    /// Level 0 is still faintly audible on some speakers (built-in MacBook Pro
+    /// speakers sit near -63 dB there), so a headphone disconnect lowered to 0
+    /// also mutes the output. An output that is already muted, or has no mute
+    /// switch, is left alone, so only a mute this feature set is undone later.
+    static func shouldMuteOutputLoweredForDisconnect(lowerToPercent: Int, currentlyMuted: Bool?) -> Bool {
+        lowerToPercent <= 0 && currentlyMuted == false
+    }
+
     /// Pro audio hosts (DAWs and live rack hosts) own their output device,
     /// clock and latency chain; the mixer's stereo-mixdown tap mutes their
     /// real output and replays it elsewhere, which silences them outright
@@ -435,6 +712,7 @@ enum MixerRoutingSupport {
         "com.cockos.reaper",
         "com.steinberg.",        // Cubase, Nuendo, Dorico
         "com.presonus.",         // Studio One
+        "com.fender.studioapp",  // Studio Pro
         "com.bitwig.",
         "com.image-line.",       // FL Studio
         "com.motu.",             // Digital Performer
@@ -541,9 +819,107 @@ enum MixerRoutingSupport {
         return displayOrderedBefore(name: name, id: uid, otherName: otherName, otherID: otherUID)
     }
 
+    /// Returns the first UID from the ordered priority list that is
+    /// currently available. Nil if none are available or the list is empty.
+    /// Duplicates are skipped (first occurrence wins) and invalid UIDs are
+    /// filtered out — the policy is pure and testable without mocking audio
+    /// hardware.
+    static func firstAvailablePriorityDeviceUID(
+        orderedUIDs: [String],
+        availableUIDs: Set<String>
+    ) -> String? {
+        var seen = Set<String>()
+        for rawUID in orderedUIDs {
+            guard let uid = sanitizedDeviceUID(rawUID),
+                  seen.insert(uid).inserted,
+                  availableUIDs.contains(uid) else { continue }
+            return uid
+        }
+        return nil
+    }
+
+    /// Where a device goes in a priority list that has not ranked it yet.
+    /// Virtual and aggregate devices play or record nothing on their own, so
+    /// they never take the place of hardware.
+    enum PriorityTier: Int {
+        case builtIn, hardware, virtual
+
+        init(transportType: UInt32) {
+            switch transportType {
+            case kAudioDeviceTransportTypeBuiltIn: self = .builtIn
+            case kAudioDeviceTransportTypeVirtual, kAudioDeviceTransportTypeAggregate,
+                 kAudioDeviceTransportTypeAutoAggregate: self = .virtual
+            default: self = .hardware
+            }
+        }
+    }
+
+    /// The order a first-time list starts in: the device in use, then built-in
+    /// devices, where macOS itself falls back, then other hardware, and virtual
+    /// or aggregate devices last. Within a tier the available order is kept.
+    static func initialPriorityList(availableUIDs: [String],
+                                    currentUID: String?,
+                                    tier: (String) -> PriorityTier) -> [String] {
+        var seen = Set<String>()
+        let unique = availableUIDs.compactMap { sanitizedDeviceUID($0) }.filter { seen.insert($0).inserted }
+        let lead = unique.filter { $0 == currentUID }
+        let rest = unique.enumerated()
+            .filter { $0.element != currentUID }
+            .sorted { lhs, rhs in
+                let (a, b) = (tier(lhs.element).rawValue, tier(rhs.element).rawValue)
+                return a == b ? lhs.offset < rhs.offset : a < b
+            }
+            .map(\.element)
+        return lead + rest
+    }
+
+    /// Where a device the list has never seen joins it once macOS has settled
+    /// on it. The device in use goes first, since macOS or the user just picked
+    /// it; any other device goes above the virtual and aggregate entries, or
+    /// last when it is one itself. Stored entries keep their order.
+    static func placingNewPriorityDevice(_ rawUID: String,
+                                         in list: [String],
+                                         isCurrent: Bool,
+                                         tier: (String) -> PriorityTier) -> [String] {
+        guard let uid = sanitizedDeviceUID(rawUID), !list.contains(uid) else { return list }
+        if isCurrent { return [uid] + list }
+        guard tier(uid) != .virtual,
+              let firstVirtual = list.firstIndex(where: { tier($0) == .virtual }) else {
+            return list + [uid]
+        }
+        var placed = list
+        placed.insert(uid, at: firstVirtual)
+        return placed
+    }
+
+    /// Whether a CoreAudio write should be requested: only when the target
+    /// exists and differs from the current default. Avoids redundant writes
+    /// when the desired device is already active.
+    static func shouldSwitchToDevice(targetUID: String?, currentUID: String?) -> Bool {
+        guard let targetUID else { return false }
+        guard targetUID != currentUID else { return false }
+        return true
+    }
+
+    /// The first observed set establishes a baseline. Afterwards only an
+    /// eligible UID entering or leaving is a priority event; changing the
+    /// system default merely changes device metadata and must not count.
+    static func deviceAvailabilityChanged(previousUIDs: Set<String>?,
+                                          currentUIDs: Set<String>) -> Bool {
+        guard let previousUIDs else { return false }
+        return previousUIDs != currentUIDs
+    }
+
     static func resolveInputDevice(preferredUID: String?,
                                    availableUIDs: Set<String>,
-                                   currentUID: String?) -> MixerInputRouteResolution {
+                                   currentUID: String?,
+                                   priorityIsActive: Bool = false,
+                                   preferredInputIsActive: Bool = true) -> MixerInputRouteResolution {
+        if priorityIsActive || !preferredInputIsActive {
+            return MixerInputRouteResolution(effectiveUID: currentUID,
+                                             selectedUnavailable: false,
+                                             shouldApplyPreferred: false)
+        }
         guard let preferredUID else {
             return MixerInputRouteResolution(effectiveUID: currentUID,
                                              selectedUnavailable: false,
@@ -559,6 +935,12 @@ enum MixerRoutingSupport {
                                          shouldApplyPreferred: preferredUID != currentUID)
     }
 
+    static func selectedInputDeviceUID(preferredUID: String?,
+                                       currentUID: String?,
+                                       priorityIsActive: Bool) -> String? {
+        priorityIsActive ? currentUID : preferredUID
+    }
+
     private static func sanitizedAppID(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed.count <= 512 else { return nil }
@@ -566,5 +948,133 @@ enum MixerRoutingSupport {
             return nil
         }
         return trimmed
+    }
+}
+
+/// Presentation preferences use the same lasting identity as saved volumes.
+/// Missing apps retain their slots; refreshing audio never rewrites this list.
+struct MixerAppArrangement: Codable, Equatable {
+    private(set) var order: [String] = []
+    private(set) var pinned: [String] = []
+
+    init(rawValue: String = "") {
+        if let decoded = try? JSONDecoder().decode(Self.self, from: Data(rawValue.utf8)) {
+            order = Self.unique(decoded.order)
+            pinned = Self.unique(decoded.pinned)
+        }
+    }
+
+    var rawValue: String {
+        guard let data = try? JSONEncoder().encode(self) else { return "" }
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    func isPinned(_ id: String?) -> Bool {
+        id.map { pinned.contains($0) } ?? false
+    }
+
+    func ordered<T>(_ items: [T], identity: (T) -> String?) -> [T] {
+        let ranks = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($0.element, $0.offset) })
+        return items.enumerated().sorted { lhs, rhs in
+            let left = identity(lhs.element), right = identity(rhs.element)
+            if isPinned(left) != isPinned(right) { return isPinned(left) }
+            let leftRank = left.flatMap { ranks[$0] } ?? Int.max
+            let rightRank = right.flatMap { ranks[$0] } ?? Int.max
+            return leftRank == rightRank ? lhs.offset < rhs.offset : leftRank < rightRank
+        }.map(\.element)
+    }
+
+    mutating func togglePin(_ id: String) {
+        guard !id.isEmpty else { return }
+        if isPinned(id) { pinned.removeAll { $0 == id } }
+        else { pinned.append(id) }
+    }
+
+    func neighbor(of id: String, offset: Int, visibleIDs: [String]) -> String? {
+        let group = visibleIDs.filter { isPinned($0) == isPinned(id) }
+        guard let index = group.firstIndex(of: id), group.indices.contains(index + offset) else { return nil }
+        return group[index + offset]
+    }
+
+    mutating func move(_ id: String, offset: Int, visibleIDs: [String]) {
+        guard let neighbor = neighbor(of: id, offset: offset, visibleIDs: visibleIDs) else { return }
+        move(id, to: neighbor, after: offset > 0, visibleIDs: visibleIDs)
+    }
+
+    mutating func move(_ id: String, to target: String, after: Bool, visibleIDs: [String]) {
+        guard id != target, visibleIDs.contains(id), visibleIDs.contains(target),
+              isPinned(id) == isPinned(target) else { return }
+        var group = Self.unique(visibleIDs.filter { isPinned($0) == isPinned(id) })
+        group.removeAll { $0 == id }
+        guard let index = group.firstIndex(of: target) else { return }
+        group.insert(id, at: index + (after ? 1 : 0))
+        let moving = Set(group)
+        var reordered = group.makeIterator()
+        // Replace only this group's visible slots. Closed and hidden apps,
+        // and the other pin group, keep their remembered positions.
+        order = Self.unique(order + visibleIDs).map { moving.contains($0) ? reordered.next()! : $0 }
+    }
+
+    private static func unique(_ ids: [String]) -> [String] {
+        var seen = Set<String>()
+        return ids.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+}
+
+/// The correction as one IO proc applies it, eased by
+/// `MixerRoutingSupport.tapLevelRampStep`. Touched only by that IO proc.
+/// Each cycle is timed by the host clock, so a device that changes its rate
+/// under a running engine keeps the same ramp.
+final class TapLevelRamp {
+    private var applied: Float?
+    private var lastHostTime: UInt64?
+
+    func next(toward target: Float, hostTime: UInt64) -> Float {
+        let elapsed = lastHostTime.map { hostTime > $0 ? hostTime - $0 : 0 } ?? 0
+        lastHostTime = hostTime
+        let value = MixerRoutingSupport.tapLevelRampStep(
+            applied: applied, target: target,
+            seconds: Double(AudioConvertHostTimeToNanos(elapsed)) / 1_000_000_000)
+        applied = value
+        return value
+    }
+}
+
+/// Names Core Audio listener registrations by number.
+///
+/// A listener registered with a plain callback gets its client pointer back
+/// on a HAL thread, and a callback can still be on its way when its owner
+/// goes away. The pointer is a number looked up here, never an address, so a
+/// late callback finds nothing rather than freed memory, and the owner is
+/// held weakly, so a registration the HAL never gives back keeps nothing
+/// alive. A listener block is no way out: handing one back for removal is
+/// reported done while it keeps firing (measured 2026-10-07).
+enum AudioListenerClients {
+    private struct Entry {
+        weak var owner: AnyObject?
+    }
+
+    private static let lock = NSLock()
+    private static var entries: [UInt: Entry] = [:]
+    private static var counter: UInt = 0
+
+    /// A client pointer no other registration holds. Never dereferenced.
+    static func reserve(for owner: AnyObject) -> UnsafeMutableRawPointer {
+        lock.withLock {
+            counter &+= 1
+            if counter == 0 { counter = 1 }
+            entries[counter] = Entry(owner: owner)
+            // A counter that never reaches zero always makes a usable value.
+            return UnsafeMutableRawPointer(bitPattern: counter).unsafelyUnwrapped
+        }
+    }
+
+    static func owner(of client: UnsafeMutableRawPointer?) -> AnyObject? {
+        guard let client else { return nil }
+        return lock.withLock { entries[UInt(bitPattern: client)]?.owner }
+    }
+
+    static func forget(_ client: UnsafeMutableRawPointer) {
+        lock.withLock { entries[UInt(bitPattern: client)] = nil }
     }
 }

@@ -62,6 +62,51 @@ enum TextSnippetSupport {
     /// Characters that fire an afterDelimiter snippet.
     static let delimiters: Set<Character> = [" ", "\t", "\r", "\n"]
 
+    static let systemSoundsPath = "/System/Library/Sounds"
+
+    /// The file behind a name from `alertSoundNames`: the same directory the
+    /// picker was listed from, so what it offers is what plays.
+    static func soundFileURL(for name: String) -> URL {
+        URL(fileURLWithPath: systemSoundsPath)
+            .appendingPathComponent(name)
+            .appendingPathExtension("aiff")
+    }
+
+    /// The classic macOS alert sounds, used when the sounds directory
+    /// cannot be read.
+    static let fallbackAlertSoundNames = [
+        "Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse",
+        "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink"
+    ]
+
+    /// The sound names among `entries` (a directory listing), sorted for a
+    /// stable picker order. Falls back rather than returning nothing: an
+    /// empty picker would leave the preference unsettable.
+    static func alertSoundNames(from entries: [String]) -> [String] {
+        let names = entries
+            .filter { $0.lowercased().hasSuffix(".aiff") }
+            .map { String($0.dropLast(".aiff".count)) }
+            .sorted()
+        return names.isEmpty ? fallbackAlertSoundNames : names
+    }
+
+    /// The alert sounds the picker offers. Read from the directory rather
+    /// than hardcoded so a sound macOS adds shows up on its own.
+    static let alertSoundNames: [String] = alertSoundNames(
+        from: (try? FileManager.default.contentsOfDirectory(atPath: systemSoundsPath)) ?? [])
+
+    /// The sound to actually use for a stored preference. A name saved on
+    /// another Mac, or one this macOS no longer ships, would otherwise
+    /// leave the picker blank and the expansion silent while the toggle
+    /// still reads on.
+    static func resolvedSoundName(stored: String?,
+                                  available: [String] = alertSoundNames,
+                                  fallback: String = Defaults.defaultSnippetSoundName) -> String? {
+        if let stored, available.contains(stored) { return stored }
+        if available.contains(fallback) { return fallback }
+        return available.first
+    }
+
     /// Triggers cannot contain whitespace (the buffer resets on it) and stay
     /// within a sane length.
     static func sanitizedTrigger(_ raw: String) -> String {
@@ -103,6 +148,30 @@ enum TextSnippetSupport {
             .compare(trigger, options: .caseInsensitive) == .orderedSame
     }
 
+    /// The part of `trigger` the expansion's backspaces clear, as it was
+    /// typed: the end of `buffer` that completed it, less `swallowed`, the key
+    /// that completed an immediate trigger and never reached the field. The
+    /// stored trigger can differ in case, or in Unicode normalization when it
+    /// was pasted in, and so in UTF-16 length.
+    static func typedTrigger(_ trigger: String, buffer: String, swallowed: String = "") -> String {
+        String(buffer.suffix(trigger.count).dropLast(swallowed.count))
+    }
+
+    /// The snippet `buffer` just completed, with the backspaces that clear
+    /// its trigger and the text they clear, both decided by `swallowed` in
+    /// one place: the key that completed an immediate trigger, or "" after a
+    /// delimiter, which never enters the buffer.
+    static func expansionMatch(buffer: String,
+                               expansion: TextSnippet.Expansion,
+                               snippets: [TextSnippet],
+                               swallowed: String)
+        -> (snippet: TextSnippet, deleteCount: Int, typedTrigger: String)? {
+        guard let snippet = match(buffer: buffer, expansion: expansion, snippets: snippets) else { return nil }
+        return (snippet,
+                max(0, snippet.trigger.count - swallowed.count),
+                typedTrigger(snippet.trigger, buffer: buffer, swallowed: swallowed))
+    }
+
     /// Replaces the dynamic variables. Unknown {{tags}} pass through
     /// untouched, so a typo stays visible instead of vanishing silently.
     /// The one variable whose value comes from somewhere that can hang: the
@@ -111,6 +180,49 @@ enum TextSnippetSupport {
     /// this first, so a replacement without the variable pays nothing.
     static func needsClipboard(_ replacement: String) -> Bool {
         replacement.contains("{{clipboard}}")
+    }
+
+    static func requiresPaste(_ text: String) -> Bool {
+        text.contains(where: \.isNewline)
+    }
+
+    static func pastePayload(text: String, trailingText: String) -> String {
+        text + trailingText.replacingOccurrences(of: "\r", with: "\n")
+    }
+
+    /// The backspaces that clear the `deleteCount` characters of a trigger,
+    /// `typed`, from the focused text. A field that completes as you type
+    /// shows the rest selected after the caret: a browser's address bar turns
+    /// "gitgra" into "gitgra[ph]". The first backspace then removes only that
+    /// selection, so it takes one more, or the trigger keeps its first
+    /// character (issue #1377). Only a selection that starts after the
+    /// trigger and runs to the end of the text counts, measured in the UTF-16
+    /// units Accessibility counts in. A selection elsewhere is not where the
+    /// backspaces land: a terminal can keep one in its scrollback while you
+    /// type at the prompt.
+    ///
+    /// Such a selection is then checked against `textBefore`, the field's
+    /// text in the range right before it, which has to be the typed trigger:
+    /// keys can go to a launcher's panel that never activates its app, while
+    /// the field asked belongs to the app behind it. Compared without case,
+    /// since a field can capitalize what was typed. A field that does not say,
+    /// or does not answer in time, keeps the plain count: the extra backspace
+    /// would otherwise go out unchecked exactly when an app is slow. Without
+    /// `typed` there is nothing to check, so no selection counts.
+    static func triggerDeleteCount(_ deleteCount: Int,
+                                   typed: String,
+                                   focusedSelection: (range: NSRange, textLength: Int)?,
+                                   textBefore: (NSRange) -> String?) -> Int {
+        guard deleteCount > 0, !typed.isEmpty, let focusedSelection else { return deleteCount }
+        let range = focusedSelection.range
+        let typedLength = typed.utf16.count
+        guard range.length > 0,
+              range.location >= typedLength,
+              NSMaxRange(range) == focusedSelection.textLength
+        else { return deleteCount }
+        guard let before = textBefore(NSRange(location: range.location - typedLength, length: typedLength))
+        else { return deleteCount }
+        return before.compare(typed, options: .caseInsensitive) == .orderedSame ? deleteCount + 1 : deleteCount
     }
 
     static func expand(_ replacement: String,

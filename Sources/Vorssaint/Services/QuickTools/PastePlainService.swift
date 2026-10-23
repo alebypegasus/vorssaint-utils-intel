@@ -3,7 +3,7 @@
 
 import AppKit
 import ApplicationServices
-import Carbon.HIToolbox
+import UniformTypeIdentifiers
 
 /// Pastes the clipboard as plain text on a global shortcut: strips fonts,
 /// colors and links, pastes, and quietly puts the original rich content back
@@ -16,16 +16,6 @@ final class PastePlainService: ObservableObject {
 
     private let hotkey = QuickToolHotkey(id: 10)
 
-    /// The rich content whose restore is still scheduled, keyed by the change
-    /// count of our own plain write. A second shortcut press inside that
-    /// window must reuse this snapshot — the pasteboard currently holds the
-    /// stripped text, and re-snapshotting it would lose the original for good.
-    private var pendingRestore: (snapshot: [NSPasteboardItem], plainChangeCount: Int)?
-    private var restoreWork: DispatchWorkItem?
-    /// A press is being carried out (possibly waiting for the user to release
-    /// the shortcut's modifier keys). Presses landing meanwhile are dropped:
-    /// the pasteboard already holds the plain text they would produce.
-    private var isPerforming = false
     /// The permission prompt fires at most once per launch, so a shortcut
     /// mashed without Accessibility nags once instead of five times.
     private var promptedForAccessibility = false
@@ -39,7 +29,8 @@ final class PastePlainService: ObservableObject {
             && UserDefaults.standard.bool(forKey: DefaultsKey.pastePlainEnabled)
         let shortcut = GlobalShortcut.saved(for: DefaultsKey.pastePlainShortcut,
                                             fallback: .pastePlainDefault)
-        shortcutRegistrationFailed = !hotkey.sync(enabled: enabled, shortcut: shortcut)
+        shortcutRegistrationFailed = !hotkey.sync(enabled: enabled, shortcut: shortcut,
+                                                  storageKey: DefaultsKey.pastePlainShortcut)
     }
 
     func suspend() {
@@ -59,10 +50,14 @@ final class PastePlainService: ObservableObject {
             }
             return
         }
-        guard !isPerforming else { return }
-        let pasteboard = NSPasteboard.general
-        guard let plain = Self.plainText(from: pasteboard), !plain.isEmpty else { return }
+        // Promised content renders when read, so a busy source app would hold
+        // the main thread here; the lane answers back on main when it can.
+        GeneralPasteboardAccess.shared.async({ Self.plainText(from: .general) }) { [weak self] plain in
+            self?.pastePlain(plain?.isEmpty == false ? plain : nil)
+        }
+    }
 
+    private func pastePlain(_ plain: String?) {
         // An app that ships its own matching-style paste does this better
         // than any synthesized ⌘V: the destination decides the typing
         // attributes (a stripped string pasted normally can leave the
@@ -71,82 +66,27 @@ final class PastePlainService: ObservableObject {
         // later pastes, and held modifier keys don't matter to a menu
         // press. The strip-and-restore dance below stays as the fallback
         // for every app without that command.
-        if pressNativeMatchStyleItem() { return }
+        if plain != nil, pressNativeMatchStyleItem() { return }
 
-        // Deep-copy the current content first: items can't be re-attached to
-        // the pasteboard once it is cleared. If the pasteboard still holds our
-        // own plain write from a press moments ago, keep that press's rich
-        // snapshot instead of photographing the stripped text.
-        let snapshot: [NSPasteboardItem]
-        if let pending = pendingRestore, pasteboard.changeCount == pending.plainChangeCount {
-            snapshot = pending.snapshot
-        } else {
-            snapshot = Self.snapshot(of: pasteboard)
-        }
-        restoreWork?.cancel()
-        restoreWork = nil
-
-        pasteboard.clearContents()
-        pasteboard.setString(plain, forType: .string)
-        let plainChangeCount = pasteboard.changeCount
-        ClipboardHistoryService.shared.ignoreNextChange(upTo: plainChangeCount)
-        pendingRestore = (snapshot, plainChangeCount)
-
-        // The user is still holding the shortcut's modifier keys at this
-        // point. Posting ⌘V now would merge with those held keys into a
-        // combination the target app does not treat as paste (and with the
-        // default ⌥⇧⌘V it can even re-trigger this very hotkey), so nothing
-        // would happen (issue #186). Wait for a clean keyboard first.
-        isPerforming = true
-        postPasteWhenModifiersReleased(attempt: 0) { [weak self] in
+        var releaseHotkey = false
+        let willPostShortcut = { [weak self] in
             guard let self else { return }
-            self.isPerforming = false
-            // Put the rich original back once the paste went through, unless
-            // the user copied something new in the meantime.
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.restoreWork = nil
-                self.pendingRestore = nil
-                guard pasteboard.changeCount == plainChangeCount, !snapshot.isEmpty else { return }
-                pasteboard.clearContents()
-                pasteboard.writeObjects(snapshot)
-                ClipboardHistoryService.shared.ignoreNextChange(upTo: pasteboard.changeCount)
-            }
-            self.restoreWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+            let shortcut = GlobalShortcut.saved(for: DefaultsKey.pastePlainShortcut,
+                                                fallback: .pastePlainDefault)
+            releaseHotkey = shortcut.isStandardPasteCommand
+            if releaseHotkey { self.hotkey.unregister() }
         }
-    }
-
-    /// Posts ⌘V once no modifier key is physically down, checking every 15 ms
-    /// for up to ~1.5 s. Someone who keeps the chord pressed longer than that
-    /// gets the paste anyway; by then the merge race is long over for most
-    /// hands, and never pasting would be worse. The extra beat after the keys
-    /// read clean matters: posted right on the release, the target app can
-    /// still see the stale modifier state and refuse the key equivalent.
-    private func postPasteWhenModifiersReleased(attempt: Int, completion: @escaping () -> Void) {
-        let held = CGEventSource.flagsState(.combinedSessionState)
-            .intersection([.maskCommand, .maskAlternate, .maskShift, .maskControl])
-        if held.isEmpty || attempt >= 100 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
-                let shortcut = GlobalShortcut.saved(for: DefaultsKey.pastePlainShortcut,
-                                                    fallback: .pastePlainDefault)
-                let mustReleaseHotkey = shortcut.isStandardPasteCommand
-                if mustReleaseHotkey {
-                    // Otherwise our global ⌘V catches the synthetic ⌘V below,
-                    // so the target app never receives a paste command.
-                    self.hotkey.unregister()
-                }
-                Self.postPasteShortcut {
-                    if mustReleaseHotkey {
-                        self.syncWithPreferences()
-                    }
-                    completion()
-                }
-            }
-            return
+        let didPostShortcut = { [weak self] in
+            if releaseHotkey { self?.syncWithPreferences() }
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.015) { [weak self] in
-            self?.postPasteWhenModifiersReleased(attempt: attempt + 1, completion: completion)
+        if let plain {
+            _ = TransientPaste.shared.paste(plain, willPostShortcut: willPostShortcut,
+                                           didPostShortcut: didPostShortcut)
+        } else {
+            // A global ⌘V registration already consumed the original press.
+            // Forward the paste without reading or replacing media payloads.
+            _ = TransientPaste.shared.pasteCurrentContents(willPostShortcut: willPostShortcut,
+                                                          didPostShortcut: didPostShortcut)
         }
     }
 
@@ -222,6 +162,36 @@ final class PastePlainService: ObservableObject {
     /// The clipboard's text without any formatting: the plain string when
     /// present, else the text of its RTF or HTML content.
     static func plainText(from pasteboard: NSPasteboard) -> String? {
+        // File copies advertise their name or path as text, and reading
+        // anything from a promise can make the source render its files.
+        let fileTypes: Set<String> = [
+            "NSFilenamesPboardType", "NSFileContentsPboardType",
+            "com.apple.NSFilePromiseItemMetaData", "Apple files promise pasteboard type",
+            "com.apple.pasteboard.promised-file-url",
+        ]
+        let types = pasteboard.types ?? []
+        guard !types.contains(where: { raw in
+            fileTypes.contains(raw.rawValue) || UTType(raw.rawValue)?.conforms(to: .fileURL) == true
+        }) else { return nil }
+        let carriesMedia = types.contains { raw in
+            guard let type = UTType(raw.rawValue) else { return false }
+            return type.conforms(to: .image) || type.conforms(to: .movie) || type.conforms(to: .video)
+                || type.conforms(to: .audio) || type.conforms(to: .pdf)
+        }
+        if carriesMedia {
+            // A picture or clip copied on its own may name its link or file
+            // as text, which is not text the user asked us to strip. Cells,
+            // slides and documents also carry a picture or PDF of what was
+            // copied, often with their rich text, and their text still
+            // pastes plain.
+            guard let plain = pasteboard.string(forType: .string),
+                  !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            let carriesRichText = types.contains { raw in
+                guard let type = UTType(raw.rawValue) else { return false }
+                return type.conforms(to: .rtf) || type.conforms(to: .rtfd) || type.conforms(to: .flatRTFD)
+            }
+            return carriesRichText || !QuickToolsSupport.isMediaTextFallback(plain) ? plain : nil
+        }
         if let plain = pasteboard.string(forType: .string) {
             return plain
         }
@@ -234,45 +204,5 @@ final class PastePlainService: ObservableObject {
             return attributed.string
         }
         return nil
-    }
-
-    private static func snapshot(of pasteboard: NSPasteboard) -> [NSPasteboardItem] {
-        (pasteboard.pasteboardItems ?? []).map { item in
-            let copy = NSPasteboardItem()
-            for type in item.types {
-                if let data = item.data(forType: type) {
-                    copy.setData(data, forType: type)
-                }
-            }
-            return copy
-        }
-    }
-
-    private static func postPasteShortcut(completion: @escaping () -> Void) {
-        // No explicit event source: an event tied to the HID state inherits
-        // whatever the hardware still reports, and right after the shortcut's
-        // own keys that can re-poison the flags this method just waited out.
-        guard let keyDown = CGEvent(keyboardEventSource: nil,
-                                    virtualKey: CGKeyCode(kVK_ANSI_V),
-                                    keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: nil,
-                                  virtualKey: CGKeyCode(kVK_ANSI_V),
-                                  keyDown: false)
-        else {
-            completion()
-            return
-        }
-        keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
-        // No keyboardSetUnicodeString here: a forced character string on the
-        // event breaks menu key equivalent dispatch (verified empirically),
-        // which is exactly the ⌘V we are trying to trigger.
-        keyDown.post(tap: .cghidEventTap)
-        // A beat between down and up mirrors a real key press; some apps skip
-        // equivalents delivered as a zero-length tap.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
-            keyUp.post(tap: .cghidEventTap)
-            completion()
-        }
     }
 }

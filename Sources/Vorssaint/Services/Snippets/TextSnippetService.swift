@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Vorssaint
 
 import AppKit
+import AudioToolbox
 import Carbon.HIToolbox
 import CoreGraphics
 
@@ -13,7 +14,7 @@ final class TextSnippetService {
     static let shared = TextSnippetService()
 
     /// Marks our own synthetic events so the tap never re-processes them.
-    private static let syntheticMarker: Int64 = 0x564F5253 // "VORS"
+    private static let syntheticMarker = OwnKeyEvent.textSnippetMarker
 
     // The tap callback and its mutable text state live off the main thread so
     // demanding foreground apps cannot turn a main-thread stall into queued
@@ -29,11 +30,16 @@ final class TextSnippetService {
     private var buffer = ""
     private var libraryVisible = false
     private var commandBarVisible = false
+    /// Registered once when the preferences change, so no expansion pays
+    /// for the file read. nil means no sound plays.
+    private var expansionSound: AlertSound?
     /// Split by expansion mode at load time; the tap callback only scans.
     private var immediateSnippets: [TextSnippet] = []
     private var delimiterSnippets: [TextSnippet] = []
 
-    private init() {}
+    private init() {
+        SessionActivity.shared.onChange { [weak self] _ in self?.syncWithPreferences() }
+    }
 
     var isRunning: Bool { tapLifecycleLock.withLock { tap != nil } }
 
@@ -44,7 +50,10 @@ final class TextSnippetService {
         let hasWork = inputLock.withLock {
             !(immediateSnippets.isEmpty && delimiterSnippets.isEmpty)
         }
-        if enabled, hasWork, Permissions.shared.accessibility {
+        syncExpansionSound(featureEnabled: enabled)
+        if SessionActivitySupport.tapShouldRun(featureWanted: enabled && hasWork,
+                                               accessibilityGranted: AXIsProcessTrusted(),
+                                               sessionIsActive: SessionActivity.shared.isActive) {
             let libraryIsVisible = SnippetLibraryService.shared.isVisible
             let commandBarIsVisible = AppFeature.commandBar.isAvailable
                 && CommandBarService.shared.isVisible
@@ -56,6 +65,41 @@ final class TextSnippetService {
         } else {
             stop()
         }
+    }
+
+    /// Plays the sound an expansion would play, for the picker's preview.
+    /// Plays the retained one, so the preview cannot demonstrate a sound
+    /// other than the one that will fire; it resolves for itself only
+    /// when nothing is retained, which is when the feature is off.
+    func previewExpansionSound() {
+        let retained = inputLock.withLock { expansionSound }
+        (retained ?? Self.preferredExpansionSound())?.play()
+    }
+
+    /// The sound the stored preference resolves to. Both the preview and
+    /// the armed sound come through here, so they cannot disagree about
+    /// which name wins when the stored one is not available.
+    private static func preferredExpansionSound() -> AlertSound? {
+        TextSnippetSupport.resolvedSoundName(
+            stored: UserDefaults.standard.string(forKey: DefaultsKey.snippetSoundName))
+            .flatMap { AlertSound(name: $0) }
+    }
+
+    /// Picks up a change to the sound preferences on their own. The picker
+    /// fires on every arrow-key move through the list, and going through
+    /// syncWithPreferences would reload every snippet and tear down and
+    /// rebuild the event tap each time.
+    ///
+    /// `featureEnabled` is whether text snippets are on at all. Passed in
+    /// by syncWithPreferences, which has already worked it out, so the two
+    /// cannot answer that question differently.
+    func syncExpansionSound(featureEnabled: Bool? = nil) {
+        let featureOn = featureEnabled ?? (AppFeature.textSnippets.isAvailable
+            && UserDefaults.standard.bool(forKey: DefaultsKey.textSnippetsEnabled))
+        let soundEnabled = featureOn
+            && UserDefaults.standard.bool(forKey: DefaultsKey.snippetSoundEnabled)
+        let sound = soundEnabled ? Self.preferredExpansionSound() : nil
+        inputLock.withLock { expansionSound = sound }
     }
 
     func suspend() { stop() }
@@ -201,7 +245,15 @@ final class TextSnippetService {
             forName: NSWorkspace.didActivateApplicationNotification,
             object: nil,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] note in
+            // Not when the Accessibility Keyboard itself comes forward: pressing
+            // one of its keys is typing into the app you were already in, so the
+            // buffer has to survive it. Otherwise this clears what the mouse-down
+            // branch above just took care to keep.
+            if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+               app.bundleIdentifier == AssistiveKeyboard.bundleID {
+                return
+            }
             self?.resetBuffer()
         }
     }
@@ -214,14 +266,24 @@ final class TextSnippetService {
 
     private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            // stop() switches the tap off itself, and that is reported here
+            // like a disable by the system. A stop under way has nothing to
+            // recover: syncing would start the tap again under a suspend().
             let currentTap = tapLifecycleLock.withLock { shouldStopTapThread ? nil : tap }
-            if let currentTap { CGEvent.tapEnable(tap: currentTap, enable: true) }
+            if SessionActivity.shared.isActive, AXIsProcessTrusted(), let currentTap {
+                CGEvent.tapEnable(tap: currentTap, enable: true)
+            } else if currentTap != nil {
+                DispatchQueue.main.async { [weak self] in self?.syncWithPreferences() }
+            }
             return Unmanaged.passUnretained(event)
         }
         // Clicks move the caret somewhere unknown; the half-typed trigger is
-        // no longer where the deletes would land.
+        // no longer where the deletes would land. A click on the Accessibility
+        // Keyboard is the exception: there the mouse is how a key is pressed,
+        // so the click types a character and leaves the caret alone. Window
+        // enumeration is skipped when the keyboard is not running.
         if type == .leftMouseDown || type == .rightMouseDown {
-            resetBuffer()
+            if !AssistiveKeyboard.ownsPoint(event.location) { resetBuffer() }
             return Unmanaged.passUnretained(event)
         }
         guard type == .keyDown else { return Unmanaged.passUnretained(event) }
@@ -270,56 +332,73 @@ final class TextSnippetService {
 
         if let first = typed.first, TextSnippetSupport.delimiters.contains(first) {
             // A delimiter can complete an afterDelimiter trigger. The typed
-            // delimiter is swallowed and re-posted after the replacement, so
-            // it lands where the user expects: right after the expanded text.
-            let matched = inputLock.withLock { () -> TextSnippet? in
-                let match = TextSnippetSupport.match(buffer: buffer,
-                                                     expansion: .afterDelimiter,
-                                                     snippets: delimiterSnippets)
+            // delimiter is swallowed and kept after the replacement, either
+            // in the same paste or as the original key after typed injection.
+            let matched = inputLock.withLock { () -> (snippet: TextSnippet, deleteCount: Int, typedTrigger: String)? in
+                let match = TextSnippetSupport.expansionMatch(buffer: buffer,
+                                                              expansion: .afterDelimiter,
+                                                              snippets: delimiterSnippets,
+                                                              swallowed: "")
                 buffer = ""
                 return match
             }
             if let matched {
-                expand(matched,
-                       deleteCount: matched.trigger.count,
-                       trailingKeyCode: CGKeyCode(keyCode),
-                       trailingFlags: event.flags)
-                return nil
+                return expand(matched.snippet,
+                              deleteCount: matched.deleteCount,
+                              typedTrigger: matched.typedTrigger,
+                              trailingKeyCode: CGKeyCode(keyCode),
+                              trailingFlags: event.flags,
+                              trailingText: typed,
+                              failureKeyCode: CGKeyCode(keyCode))
+                    ? nil
+                    : Unmanaged.passUnretained(event)
             }
             return Unmanaged.passUnretained(event)
         }
 
-        let matched = inputLock.withLock { () -> TextSnippet? in
+        let matched = inputLock.withLock { () -> (snippet: TextSnippet, deleteCount: Int, typedTrigger: String)? in
             buffer = TextSnippetSupport.bufferAppending(buffer, typed: typed)
-            let match = TextSnippetSupport.match(buffer: buffer,
-                                                 expansion: .immediate,
-                                                 snippets: immediateSnippets)
+            let match = TextSnippetSupport.expansionMatch(buffer: buffer,
+                                                          expansion: .immediate,
+                                                          snippets: immediateSnippets,
+                                                          swallowed: typed)
             if match != nil { buffer = "" }
             return match
         }
         if let matched {
-            // Suppress the final trigger event. The replacement is posted
-            // before this callback returns, so later typing cannot overtake it.
-            expand(matched,
-                   deleteCount: max(0, matched.trigger.count - typed.count),
-                   trailingKeyCode: nil,
-                   trailingFlags: [])
-            return nil
+            // Suppress the final trigger event once the replacement path has
+            // accepted it. A busy transient paste fails open to normal typing.
+            return expand(matched.snippet,
+                          deleteCount: matched.deleteCount,
+                          typedTrigger: matched.typedTrigger,
+                          trailingKeyCode: nil,
+                          trailingFlags: [],
+                          trailingText: "",
+                          failureKeyCode: CGKeyCode(keyCode),
+                          failureFlags: event.flags)
+                ? nil
+                : Unmanaged.passUnretained(event)
         }
         return Unmanaged.passUnretained(event)
     }
 
     // MARK: - Expansion
 
+    @discardableResult
     private func expand(_ snippet: TextSnippet,
                         deleteCount: Int,
+                        typedTrigger: String,
                         trailingKeyCode: CGKeyCode?,
-                        trailingFlags: CGEventFlags) {
-        let post = {
-            // The replacement has to be posted before this callback returns,
-            // so later typing cannot overtake it — the read cannot move off
-            // this thread. It can be skipped, though, and for every snippet
-            // that does not name the clipboard it now is.
+                        trailingFlags: CGEventFlags,
+                        trailingText: String,
+                        failureKeyCode: CGKeyCode?,
+                        failureFlags: CGEventFlags = []) -> Bool {
+        let didExpand = expansionSoundCue()
+        let post = { () -> Bool in
+            // Variable expansion is decided while the triggering event still
+            // belongs to this callback. Only an explicit clipboard variable
+            // pays for a synchronous read; the multiline write itself runs on
+            // the shared pasteboard lane.
             let clipboard = TextSnippetSupport.needsClipboard(snippet.replacement)
                 ? NSPasteboard.general.string(forType: .string)
                 : nil
@@ -328,24 +407,62 @@ final class TextSnippetService {
                 date: Date(),
                 clipboard: clipboard
             )
-            Self.postExpansion(deleteCount: deleteCount,
-                               text: text,
-                               trailingKeyCode: trailingKeyCode,
-                               trailingFlags: trailingFlags)
+            return Self.postExpansion(deleteCount: deleteCount,
+                                      typedTrigger: typedTrigger,
+                                      text: text,
+                                      trailingKeyCode: trailingKeyCode,
+                                      trailingFlags: trailingFlags,
+                                      trailingText: trailingText,
+                                      failureKeyCode: failureKeyCode,
+                                      failureFlags: failureFlags,
+                                      didExpand: didExpand)
         }
-        if Thread.isMainThread {
-            post()
-        } else {
-            DispatchQueue.main.sync(execute: post)
+        return Thread.isMainThread ? post() : DispatchQueue.main.sync(execute: post)
+    }
+
+    /// Hung off the replacement going out rather than off `postExpansion`'s
+    /// return value: a transient paste reports success as soon as it reaches
+    /// the pasteboard lane, so its return cannot tell a paste that went out
+    /// from one that failed open to typing. It also keeps the sound behind
+    /// the paste instead of ahead of it, since the shortcut waits for the
+    /// modifiers to come up.
+    ///
+    /// Nil when no sound is retained, which is when the feature is off.
+    private func expansionSoundCue() -> (() -> Void)? {
+        guard let sound = inputLock.withLock({ expansionSound }) else { return nil }
+        return {
+            // Async because the typed path calls this while the tap callback
+            // may still be blocked on the main queue, and asking the sound
+            // server to play is a round trip that must not sit inside the
+            // window macOS disables the tap for.
+            DispatchQueue.main.async { sound.play() }
         }
     }
 
+    /// Whether one of this app's windows takes the keys. A panel that never
+    /// activates the app, like the island's scratchpad, is key while the app
+    /// behind it stays frontmost, and that app's field is not where the
+    /// backspaces land. AppKit is read on the main thread, where both
+    /// expansion paths post their backspaces; anywhere else counts as ours,
+    /// so no other app is asked.
+    private static var ownWindowIsKey: Bool {
+        guard Thread.isMainThread else { return true }
+        return MainActor.assumeIsolated { NSApp.keyWindow != nil }
+    }
+
     /// Also the snippet library's insertion path (deleteCount 0): one typing
-    /// routine, one synthetic marker, one set of quirks.
+    /// routine, one synthetic marker, one set of quirks. `typedTrigger` is
+    /// the text the `deleteCount` backspaces clear.
+    @discardableResult
     static func postExpansion(deleteCount: Int,
+                              typedTrigger: String,
                               text: String,
                               trailingKeyCode: CGKeyCode?,
-                              trailingFlags: CGEventFlags) {
+                              trailingFlags: CGEventFlags,
+                              trailingText: String = "",
+                              failureKeyCode: CGKeyCode? = nil,
+                              failureFlags: CGEventFlags = [],
+                              didExpand: (() -> Void)? = nil) -> Bool {
         let source = CGEventSource(stateID: .hidSystemState)
         source?.userData = syntheticMarker
 
@@ -359,10 +476,37 @@ final class TextSnippetService {
                 post(event)
             }
         }
-
-        for _ in 0..<deleteCount {
-            postKey(CGKeyCode(kVK_Delete))
+        // Asked right before the backspaces go out, so the count covers a
+        // completion the field shows by then. Typing waits while the field
+        // answers, so every question, up to five for a selection that looks
+        // like a completion, shares one short time limit. Runs on the main
+        // thread on the typed and the pasted path alike.
+        func postDeletes() {
+            guard deleteCount > 0 else { return }
+            let app = ownWindowIsKey ? nil : NSWorkspace.shared.frontmostApplication
+            let selection = app.flatMap {
+                SelectedTextReader.focusedTextSelection(processID: $0.processIdentifier, timeout: 0.15)
+            }
+            let count = TextSnippetSupport.triggerDeleteCount(
+                deleteCount, typed: typedTrigger,
+                focusedSelection: selection.map { (range: $0.range, textLength: $0.textLength) }
+            ) { selection?.text(in: $0) }
+            for _ in 0..<count { postKey(CGKeyCode(kVK_Delete)) }
         }
+
+        if TextSnippetSupport.requiresPaste(text) {
+            let payload = TextSnippetSupport.pastePayload(text: text, trailingText: trailingText)
+            return TransientPaste.shared.paste(
+                payload,
+                willPostShortcut: { postDeletes() },
+                didPostShortcut: { didExpand?() },
+                didFail: {
+                    if let failureKeyCode { postKey(failureKeyCode, flags: failureFlags) }
+                }
+            )
+        }
+
+        postDeletes()
 
         // Typed injection instead of pasting: the clipboard stays untouched.
         // Keystroke events carry at most ~20 UTF-16 units reliably.
@@ -387,5 +531,33 @@ final class TextSnippetService {
         if let trailingKeyCode {
             postKey(trailingKeyCode, flags: trailingFlags)
         }
+        didExpand?()
+        return true
+    }
+}
+
+/// One alert sound file registered with the system sound server, so it
+/// plays the way the Mac's own alert sounds do: through the sound effects
+/// output device, at the alert volume, with the screen flash Accessibility
+/// can ask for in place of a sound. NSSound would play it on the default
+/// output device at the main volume, ignoring all three.
+private final class AlertSound {
+    private let soundID: SystemSoundID
+
+    init?(name: String) {
+        var soundID: SystemSoundID = 0
+        let url = TextSnippetSupport.soundFileURL(for: name) as CFURL
+        guard AudioServicesCreateSystemSoundID(url, &soundID) == noErr else { return nil }
+        self.soundID = soundID
+    }
+
+    deinit {
+        AudioServicesDisposeSystemSoundID(soundID)
+    }
+
+    func play() {
+        // The completion holds this instance until playback ends, so a
+        // preview that resolved its own sound is not disposed mid-note.
+        AudioServicesPlayAlertSoundWithCompletion(soundID) { withExtendedLifetime(self) {} }
     }
 }

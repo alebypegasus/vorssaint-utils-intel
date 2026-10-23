@@ -4,418 +4,329 @@
 import AppKit
 import SwiftUI
 
-/// Ultra-premium Liquid Glass Radial Menu for macOS with chronograph precision ticks,
-/// dynamic cursor light sweep, tactile 3D glass chips, and crystal core hub.
+/// The wheel itself: a glass disc with one chip per action, a highlight wedge
+/// under the pointed slice and a hub that names the selection or leads back.
 struct RadialMenuView: View {
     @ObservedObject private var service = RadialMenuService.shared
     @ObservedObject private var l10n = L10n.shared
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @AppStorage(DefaultsKey.liquidGlassEnabled) private var liquidGlassEnabled = true
+    @AppStorage(DefaultsKey.liquidGlassEnabled) private var liquidGlassEnabled = false
+
+    /// Where the highlight sits right now. Kept unwrapped past a full turn, so
+    /// the step from the last slice to the first is one step onward and not a
+    /// spin all the way back.
+    @State private var wedgeAngle = 0.0
+    @State private var wedgeSlice = Double.pi / 3
+    @State private var wedgeShown = false
+
+    /// The whole opening sweep lands inside this, however many slices there
+    /// are: a wheel of twelve must not take twice as long to draw itself as a
+    /// wheel of six.
+    private static let sweepDuration = 0.17
 
     private var text: RadialMenuFeatureStrings { FeatureStrings.radialMenu(l10n.language) }
     private var items: [RadialMenuItem] { service.stack.last ?? [] }
+    /// Reduce Motion is the only switch over this wheel: opening this way is
+    /// what the menu is now, not a preference.
+    private var animates: Bool { !reduceMotion }
     private var profileColor: Color {
-        service.activeProfile?.color.color(for: colorScheme) ?? Theme.LiquidGlass.cyanGlow
+        service.activeProfile?.color.color(for: colorScheme) ?? .accentColor
     }
 
     var body: some View {
         ZStack {
-            // 1. Ambient Outer Aura
-            Circle()
-                .fill(profileColor.opacity(colorScheme == .light ? 0.12 : 0.22))
-                .frame(width: RadialMenuLayout.wheelDiameter + 36, height: RadialMenuLayout.wheelDiameter + 36)
-                .blur(radius: 22)
-
-            // 2. Liquid Glass Multi-Layer Backplate Disc
             backplate
-
-            // 3. Chronometer Outer Perimeter Tick Marks
-            chronometerTicks
-
-            // 4. Spoke Sector Divider Lines
-            spokeDividers
-
-            // 5. Luminous Highlighted Wedge with Dynamic Light Sweep
-            if let index = service.highlightedIndex, items.indices.contains(index) {
-                highlightedWedge(for: index)
-            }
-
-            // 6. Action Chips Ring
+            wedge
             ring.id(service.stack.count)
-
-            // 7. Floating Crystal Core Hub
             hub
         }
         .frame(width: RadialMenuLayout.panelSize, height: RadialMenuLayout.panelSize)
+        // The whole panel is tappable; the service decides by distance, so a
+        // click on the transparent corners dismisses instead of dying.
         .contentShape(Rectangle())
         .onTapGesture { service.activatePointer() }
-        .scaleEffect(service.visible ? 1 : (reduceMotion ? 1 : 0.85))
-        .opacity(service.visible ? 1 : 0)
-        .animation(reduceMotion ? .easeOut(duration: 0.1) : .spring(response: 0.24, dampingFraction: 0.78),
+        // The wheel grows into the screen and settles back instead of being
+        // stamped onto it. The window's own fade carries the shadow and the
+        // material; this carries the size.
+        .scaleEffect(service.visible || !animates ? 1 : 0.9)
+        .animation(animates
+                   ? (service.visible
+                      ? .spring(response: 0.27, dampingFraction: 0.86)
+                      : .easeIn(duration: 0.13))
+                   : nil,
                    value: service.visible)
+        .onChange(of: service.highlightedIndex) { _, _ in syncWedge() }
+        .onChange(of: items.count) { _, _ in syncWedge() }
         .accessibilityLabel(text.pageTitle)
-        .onChange(of: service.highlightedIndex) { _, _ in
-            // Subtle haptic tick when moving between slices
-            NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+    }
+
+    /// One shape that sweeps to the slice under the pointer instead of a new
+    /// one being stamped over the old. Always present, so moving between
+    /// slices is a movement and not a swap.
+    private var wedge: some View {
+        RadialWedgeShape(centerAngle: wedgeAngle,
+                         sliceAngle: wedgeSlice,
+                         innerRadius: RadialMenuLayout.deadZoneRadius,
+                         outerRadius: RadialMenuLayout.wheelDiameter / 2 - 4)
+            // Strongest out at the chip, almost gone by the hub: the wedge
+            // points outward, the way the gesture does.
+            .fill(RadialGradient(colors: [profileColor.opacity(colorScheme == .light ? 0.05 : 0.08),
+                                          profileColor.opacity(colorScheme == .light ? 0.20 : 0.30)],
+                                 center: .center,
+                                 startRadius: RadialMenuLayout.deadZoneRadius,
+                                 endRadius: RadialMenuLayout.wheelDiameter / 2))
+            .opacity(wedgeShown ? 1 : 0)
+    }
+
+    private func syncWedge() {
+        let count = items.count
+        guard count > 0, let index = service.highlightedIndex, items.indices.contains(index) else {
+            guard wedgeShown else { return }
+            withAnimation(animates ? .easeOut(duration: 0.12) : nil) { wedgeShown = false }
+            return
+        }
+        let slice = 2 * Double.pi / Double(count)
+        var angle = slice * Double(index)
+        guard wedgeShown else {
+            // Nothing to sweep from: the highlight simply appears under the
+            // pointer that armed it.
+            var placement = Transaction()
+            placement.disablesAnimations = true
+            withTransaction(placement) {
+                wedgeAngle = angle
+                wedgeSlice = slice
+            }
+            withAnimation(animates ? .easeOut(duration: 0.12) : nil) { wedgeShown = true }
+            return
+        }
+        // The short way round, so the step from the last slice to the first
+        // crosses the top instead of unwinding the whole wheel. The remainder
+        // is signed and never past half a turn, which is exactly that step.
+        angle = wedgeAngle + (angle - wedgeAngle).remainder(dividingBy: 2 * Double.pi)
+        withAnimation(animates ? .spring(response: 0.2, dampingFraction: 0.86) : nil) {
+            wedgeAngle = angle
+            wedgeSlice = slice
         }
     }
 
-    // MARK: - Liquid Glass Backplate
+    private var backplate: some View {
+        discMaterial
+            // Glass is glass because of its edge: lit at the top, gone by the
+            // bottom. A flat stroke all the way round reads as cut paper.
+            .overlay(Circle().strokeBorder(PanelSurface.rimHighlight(for: colorScheme), lineWidth: 1.2))
+            .overlay(Circle().strokeBorder(PanelSurface.border(for: colorScheme), lineWidth: 0.8))
+            .overlay(sliceGuides)
+            .frame(width: RadialMenuLayout.wheelDiameter, height: RadialMenuLayout.wheelDiameter)
+            .shadow(color: .black.opacity(colorScheme == .light ? 0.22 : 0.55), radius: 24, y: 8)
+    }
 
     @ViewBuilder
-    private var backplate: some View {
-        let isLight = colorScheme == .light
-
-        ZStack {
-            // Base Frosted Backdrop
-            HUDBackdrop(cornerRadius: RadialMenuLayout.wheelDiameter / 2, contrast: isLight ? .standard : .high)
-                .frame(width: RadialMenuLayout.wheelDiameter, height: RadialMenuLayout.wheelDiameter)
-                .clipShape(Circle())
-
-            // Surface Tint
+    private var discMaterial: some View {
+#if compiler(>=6.2)
+        if #available(macOS 26.0, *), liquidGlassEnabled, !reduceTransparency {
             Circle()
-                .fill(
-                    RadialGradient(
-                        colors: isLight ? [
-                            Color.white.opacity(0.68),
-                            Color(red: 0.94, green: 0.96, blue: 0.99).opacity(0.78)
-                        ] : [
-                            Color(red: 0.08, green: 0.10, blue: 0.16).opacity(0.85),
-                            Color(red: 0.04, green: 0.05, blue: 0.09).opacity(0.92)
-                        ],
-                        center: .center,
-                        startRadius: 20,
-                        endRadius: RadialMenuLayout.wheelDiameter / 2
-                    )
-                )
-                .frame(width: RadialMenuLayout.wheelDiameter, height: RadialMenuLayout.wheelDiameter)
-
-            // Outer Specular Top Sheen
+                .fill(Color.clear)
+                .glassEffect(.regular, in: Circle())
+                .overlay(Circle().fill(PanelSurface.baseFill(for: colorScheme).opacity(colorScheme == .light ? 0.35 : 0.45)))
+        } else {
             Circle()
-                .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.45))
-                .frame(width: RadialMenuLayout.wheelDiameter, height: RadialMenuLayout.wheelDiameter)
-
-            // Inner Ring Accent Track
-            Circle()
-                .strokeBorder(
-                    Color.primary.opacity(0.06),
-                    lineWidth: 1
-                )
-                .frame(width: RadialMenuLayout.ringRadius * 2, height: RadialMenuLayout.ringRadius * 2)
-
-            // Dual Perimeter Glass Bevel Borders
-            Circle()
-                .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme, glow: profileColor.opacity(0.5)), lineWidth: 1.2)
-                .frame(width: RadialMenuLayout.wheelDiameter, height: RadialMenuLayout.wheelDiameter)
-
-            Circle()
-                .strokeBorder(Color.white.opacity(isLight ? 0.6 : 0.15), lineWidth: 0.7)
-                .frame(width: RadialMenuLayout.wheelDiameter - 3, height: RadialMenuLayout.wheelDiameter - 3)
+                .fill(.regularMaterial)
+                .overlay(Circle().fill(PanelSurface.baseFill(for: colorScheme)))
         }
-        .shadow(color: Color.black.opacity(isLight ? 0.16 : 0.55), radius: 24, y: 8)
+#else
+        Circle()
+            .fill(.regularMaterial)
+            .overlay(Circle().fill(PanelSurface.baseFill(for: colorScheme)))
+#endif
     }
 
-    // MARK: - Chronometer Perimeter Ticks
-
-    private var chronometerTicks: some View {
-        Canvas { context, size in
-            let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            let radius = RadialMenuLayout.wheelDiameter / 2 - 4
-            let totalTicks = 48
-            let isLight = colorScheme == .light
-
-            for i in 0..<totalTicks {
-                let angle = Double(i) * (2.0 * .pi / Double(totalTicks)) - .pi / 2
-                let isMajor = i % (totalTicks / max(items.count, 1)) == 0
-                let length: CGFloat = isMajor ? 5.0 : 2.5
-                let opacity = isMajor ? (isLight ? 0.35 : 0.45) : (isLight ? 0.12 : 0.18)
-
-                let p1 = CGPoint(
-                    x: center.x + CGFloat(cos(angle)) * (radius - length),
-                    y: center.y + CGFloat(sin(angle)) * (radius - length)
-                )
-                let p2 = CGPoint(
-                    x: center.x + CGFloat(cos(angle)) * radius,
-                    y: center.y + CGFloat(sin(angle)) * radius
-                )
-
-                var path = Path()
-                path.move(to: p1)
-                path.addLine(to: p2)
-
-                context.stroke(
-                    path,
-                    with: .color((isMajor ? profileColor : (isLight ? Color.black : Color.white)).opacity(opacity)),
-                    lineWidth: isMajor ? 1.5 : 0.8
-                )
-            }
-        }
-        .frame(width: RadialMenuLayout.panelSize, height: RadialMenuLayout.panelSize)
-    }
-
-    // MARK: - Sector Spoke Dividers
-
-    private var spokeDividers: some View {
-        Canvas { context, size in
-            let count = items.count
-            guard count > 1 else { return }
-
-            let center = CGPoint(x: size.width / 2, y: size.height / 2)
-            let innerR = RadialMenuLayout.deadZoneRadius + 6
-            let outerR = RadialMenuLayout.wheelDiameter / 2 - 7
-            let step = 2.0 * .pi / Double(count)
-
-            let strokeColor = (colorScheme == .light ? Color.black : Color.white).opacity(0.08)
-
-            for i in 0..<count {
-                let angle = Double(i) * step - .pi / 2 + (step / 2)
-                let p1 = CGPoint(
-                    x: center.x + CGFloat(cos(angle)) * innerR,
-                    y: center.y + CGFloat(sin(angle)) * innerR
-                )
-                let p2 = CGPoint(
-                    x: center.x + CGFloat(cos(angle)) * outerR,
-                    y: center.y + CGFloat(sin(angle)) * outerR
-                )
-
-                var path = Path()
-                path.move(to: p1)
-                path.addLine(to: p2)
-
-                context.stroke(path, with: .color(strokeColor), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-            }
-        }
-        .frame(width: RadialMenuLayout.panelSize, height: RadialMenuLayout.panelSize)
-    }
-
-    // MARK: - Highlighted Wedge
-
-    private func highlightedWedge(for index: Int) -> some View {
+    /// A hairline between one slice and the next. Almost invisible on its own,
+    /// but it is what turns a ring of buttons into a wheel with directions:
+    /// the eye reads the whole wedge as the target, not just the icon.
+    private var sliceGuides: some View {
         let count = items.count
-        let centerAngle = 2 * .pi * Double(index) / Double(count)
-        let sliceAngle = 2 * .pi / Double(count)
-        let innerR = RadialMenuLayout.deadZoneRadius + 2
-        let outerR = RadialMenuLayout.wheelDiameter / 2 - 2
-
         return ZStack {
-            // 1. Radial Glow Fill
-            RadialWedgeShape(
-                centerAngle: centerAngle,
-                sliceAngle: sliceAngle,
-                innerRadius: innerR,
-                outerRadius: outerR
-            )
-            .fill(
-                RadialGradient(
-                    colors: [
-                        profileColor.opacity(colorScheme == .light ? 0.35 : 0.42),
-                        profileColor.opacity(colorScheme == .light ? 0.15 : 0.22),
-                        profileColor.opacity(0.02)
-                    ],
-                    center: .center,
-                    startRadius: innerR,
-                    endRadius: outerR
-                )
-            )
-
-            // 2. Glowing Outer Arc Rim
-            RadialArcRimShape(
-                centerAngle: centerAngle,
-                sliceAngle: sliceAngle,
-                radius: outerR - 1
-            )
-            .stroke(
-                LinearGradient(
-                    colors: [
-                        profileColor.opacity(0.2),
-                        profileColor,
-                        profileColor.opacity(0.2)
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                ),
-                lineWidth: 3
-            )
-            .shadow(color: profileColor.opacity(0.85), radius: 6)
-        }
-        .animation(.spring(response: 0.2, dampingFraction: 0.75), value: index)
-    }
-
-    // MARK: - Action Chips Ring
-
-    private var ring: some View {
-        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-            let unit = RadialMenuGeometry.unitPosition(index: index, itemCount: items.count)
-            RadialChipView(
-                item: item,
-                name: item.displayName(text, nowPlayingState: service.nowPlayingState),
-                nowPlayingState: service.nowPlayingState,
-                highlighted: service.highlightedIndex == index,
-                reduceMotion: reduceMotion,
-                profileColor: profileColor
-            )
-            .offset(x: unit.dx * RadialMenuLayout.ringRadius,
-                    y: -unit.dyUp * RadialMenuLayout.ringRadius)
-            .accessibilityLabel(item.displayName(text, nowPlayingState: service.nowPlayingState))
-        }
-    }
-
-    // MARK: - Floating Crystal Core Hub
-
-    private var hub: some View {
-        let isLight = colorScheme == .light
-
-        return ZStack {
-            // Core Lens Glass Disc
-            Circle()
-                .fill(
-                    isLight
-                        ? Color.white.opacity(0.85)
-                        : Color(red: 0.07, green: 0.09, blue: 0.14).opacity(0.92)
-                )
-                .overlay(
-                    Circle()
-                        .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.5))
-                )
-                .overlay(
-                    Circle()
-                        .strokeBorder(
-                            service.highlightedIndex != nil
-                                ? Theme.LiquidGlass.borderGradient(for: colorScheme, glow: profileColor)
-                                : Theme.LiquidGlass.borderGradient(for: colorScheme),
-                            lineWidth: 1.2
-                        )
-                )
-                .shadow(color: Color.black.opacity(isLight ? 0.12 : 0.4), radius: 10, y: 3)
-
-            // Core Content
-            if let index = service.highlightedIndex, items.indices.contains(index) {
-                let item = items[index]
-                VStack(spacing: 2) {
-                    // Category Badge
-                    Text(itemCategoryBadge(item))
-                        .font(.system(size: 8, weight: .heavy, design: .rounded))
-                        .foregroundStyle(profileColor)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1.5)
-                        .background(profileColor.opacity(0.15))
-                        .clipShape(Capsule())
-
-                    // Action Name
-                    Text(item.displayName(text, nowPlayingState: service.nowPlayingState))
-                        .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                        .foregroundStyle(isLight ? Color.primary : Color.white)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.75)
-                        .padding(.horizontal, 6)
-                }
-                .transition(.scale(scale: 0.9).combined(with: .opacity))
-            } else if let parent = service.trail.last {
-                VStack(spacing: 2) {
-                    Image(systemName: "arrow.backward.circle.fill")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(profileColor)
-                    Text(parent.isEmpty ? text.kindSubmenu : parent)
-                        .font(.system(size: 9.5, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 6)
-                }
-                .accessibilityLabel(text.backButton)
-            } else {
-                // Idle Brand Orb
-                ZStack {
-                    Circle()
-                        .fill(profileColor.opacity(0.12))
-                        .frame(width: 44, height: 44)
-                        .blur(radius: 6)
-                    BrandMark(width: 32, tint: isLight ? Color(red: 0.1, green: 0.12, blue: 0.18) : Color.white)
+            if count > 1 {
+                ForEach(0..<count, id: \.self) { index in
+                    Capsule()
+                        .fill(Color.primary.opacity(colorScheme == .light ? 0.07 : 0.09))
+                        .frame(width: 1, height: RadialMenuLayout.wheelDiameter / 2
+                               - RadialMenuLayout.deadZoneRadius - 14)
+                        .offset(y: -(RadialMenuLayout.deadZoneRadius
+                                     + (RadialMenuLayout.wheelDiameter / 2
+                                        - RadialMenuLayout.deadZoneRadius - 14) / 2 + 7))
+                        .rotationEffect(.radians(2 * Double.pi * (Double(index) + 0.5) / Double(count)))
                 }
             }
         }
-        .frame(width: RadialMenuLayout.hubDiameter + 6, height: RadialMenuLayout.hubDiameter + 6)
-        .animation(.spring(response: 0.2, dampingFraction: 0.75), value: service.highlightedIndex)
     }
 
-    private func itemCategoryBadge(_ item: RadialMenuItem) -> String {
-        switch item.kind {
-        case .app: return "APP"
-        case .file: return "FILE"
-        case .url: return "WEB"
-        case .shortcut: return "HOTKEY"
-        case .tool: return "TOOL"
-        case .quickToggle: return "TOGGLE"
-        case .windowLayout: return "LAYOUT"
-        case .media: return "MEDIA"
-        case .submenu: return "MENU"
+    /// The chips are thrown out of the hub one after another, clockwise from
+    /// twelve o'clock, so the wheel draws itself around the pointer instead of
+    /// landing on it whole. A submenu is a new set of chips and draws itself
+    /// the same way.
+    private var ring: some View {
+        let count = items.count
+        return ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+            RadialChipView(item: item,
+                           name: item.displayName(text, nowPlayingState: service.nowPlayingState),
+                           nowPlayingState: service.nowPlayingState,
+                           highlighted: service.highlightedIndex == index,
+                           animates: animates,
+                           profileColor: profileColor,
+                           direction: RadialMenuGeometry.unitPosition(index: index, itemCount: count),
+                           openDelay: Self.openDelay(index: index, count: count),
+                           open: service.visible)
+                .accessibilityLabel(item.displayName(text, nowPlayingState: service.nowPlayingState))
+        }
+    }
+
+    private static func openDelay(index: Int, count: Int) -> Double {
+        guard count > 1 else { return 0 }
+        return sweepDuration * Double(index) / Double(count - 1)
+    }
+
+    // No disc behind the hub: the label, the back hint and the brand mark sit
+    // straight on the wheel's glass, quiet and centered. What it says changes
+    // with every slice the pointer crosses, so it changes by crossing over
+    // rather than by being replaced between two frames.
+    private var hub: some View {
+        ZStack {
+            // The dead zone is a target: it steps back out of a submenu and
+            // it is where the pointer rests without arming anything. A plate
+            // this faint is not decoration, it is the only thing that says so.
+            Circle()
+                .fill(Color.primary.opacity(colorScheme == .light ? 0.045 : 0.075))
+                .frame(width: RadialMenuLayout.hubDiameter, height: RadialMenuLayout.hubDiameter)
+            hubFace
+                .id(hubFaceKey)
+                .transition(.opacity.combined(with: .scale(scale: 0.92)))
+        }
+        .frame(width: RadialMenuLayout.hubDiameter, height: RadialMenuLayout.hubDiameter)
+        .animation(animates ? .easeOut(duration: 0.14) : nil, value: hubFaceKey)
+    }
+
+    /// What the hub is saying right now. A change here is a change of face,
+    /// which is what the cross-fade is keyed on.
+    private var hubFaceKey: String {
+        if let index = service.highlightedIndex, items.indices.contains(index) {
+            return "item.\(items[index].id)"
+        }
+        if let parent = service.trail.last { return "back.\(parent)" }
+        return "brand"
+    }
+
+    @ViewBuilder
+    private var hubFace: some View {
+        if let index = service.highlightedIndex, items.indices.contains(index) {
+            Text(items[index].displayName(text, nowPlayingState: service.nowPlayingState))
+                .font(.system(size: 11, weight: .semibold))
+                .multilineTextAlignment(.center)
+                .lineLimit(3)
+                .minimumScaleFactor(0.8)
+                .padding(.horizontal, 8)
+        } else if let parent = service.trail.last {
+            VStack(spacing: 3) {
+                Image(systemName: "chevron.backward")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text(parent.isEmpty ? text.kindSubmenu : parent)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+            }
+            .accessibilityLabel(text.backButton)
+        } else {
+            // Black on the light theme, white on the dark one: the owner
+            // wants the mark clearly readable at the center.
+            BrandMark(width: 34, tint: Color.primary)
         }
     }
 }
-
-// MARK: - Tactile Liquid Glass Action Chip
 
 private struct RadialChipView: View {
     let item: RadialMenuItem
     let name: String
     let nowPlayingState: RadialNowPlayingState
     let highlighted: Bool
-    let reduceMotion: Bool
+    let animates: Bool
     let profileColor: Color
+    /// Where on the ring this chip belongs, and when its turn comes in the
+    /// opening sweep.
+    let direction: (dx: CGFloat, dyUp: CGFloat)
+    let openDelay: Double
+    /// The wheel's own state. Chips fly out of the hub when it opens and fold
+    /// back into it when it closes, so the wheel gathers itself up on the way
+    /// out instead of simply going dark.
+    let open: Bool
     @Environment(\.colorScheme) private var colorScheme
+    @State private var settled = false
 
     var body: some View {
-        let isLight = colorScheme == .light
-
         ZStack {
-            // Chip Glass Orb Body
             Circle()
-                .fill(
-                    highlighted
-                        ? AnyShapeStyle(
-                            LinearGradient(
-                                colors: [
-                                    profileColor,
-                                    profileColor.opacity(0.85)
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        : AnyShapeStyle(
-                            isLight
-                                ? Color.white.opacity(0.85)
-                                : Color(red: 0.12, green: 0.15, blue: 0.22).opacity(0.85)
-                        )
-                )
-                .overlay(
-                    Circle()
-                        .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(highlighted ? 0.6 : 0.35))
-                )
-                .overlay(
-                    Circle()
-                        .strokeBorder(
-                            highlighted
-                                ? Color.white.opacity(0.9)
-                                : Color.white.opacity(isLight ? 0.7 : 0.15),
-                            lineWidth: highlighted ? 1.5 : 0.85
-                        )
-                )
-                .shadow(
-                    color: highlighted ? profileColor.opacity(0.85) : Color.black.opacity(isLight ? 0.12 : 0.35),
-                    radius: highlighted ? 10 : 5,
-                    y: highlighted ? 0 : 2
-                )
-
-            // High-Resolution Icon Content
+                .fill(highlighted ? AnyShapeStyle(profileColor)
+                                  : AnyShapeStyle(PanelSurface.raisedFill(for: colorScheme)))
+                .overlay(Circle().strokeBorder(highlighted
+                                               ? Color.clear
+                                               : PanelSurface.raisedBorder(for: colorScheme),
+                                               lineWidth: 0.8))
+                // Its own shadow is what puts the chip ON the glass instead of
+                // in it, the way the system's own round toggles sit on theirs.
+                // Pointed at, that shadow takes the wheel's colour, so which
+                // one is armed is never only a change of tint.
+                .shadow(color: highlighted ? profileColor.opacity(0.45)
+                                           : PanelSurface.raisedShadow(for: colorScheme),
+                        radius: highlighted ? 13 : 5,
+                        y: highlighted ? 4 : 2)
             icon
         }
         .frame(width: RadialMenuLayout.chipSize, height: RadialMenuLayout.chipSize)
-        .scaleEffect(highlighted && !reduceMotion ? 1.18 : 1)
-        .animation(reduceMotion ? nil : .spring(response: 0.22, dampingFraction: 0.72), value: highlighted)
+        .scaleEffect(highlighted && animates ? 1.14 : 1)
+        .animation(animates ? .spring(response: 0.24, dampingFraction: 0.72) : nil, value: highlighted)
+        // The opening sweep rides outside the highlight's own animation, so
+        // pointing at a chip mid-flight does not fight with its arrival.
+        .scaleEffect(settled || !animates ? 1 : 0.35)
+        .opacity(settled || !animates ? 1 : 0)
+        .offset(x: direction.dx * reach, y: -direction.dyUp * reach)
+        // A chip born into an open wheel is a submenu arriving, and draws
+        // itself in the same sweep the wheel itself did.
+        .onAppear { if open { bloom() } else { settled = false } }
+        .onChange(of: open) { _, isOpen in
+            if isOpen { bloom() } else { fold() }
+        }
+    }
+
+    /// How far out the chip sits: folded into the hub to begin with, then out
+    /// to its place on the ring.
+    private var reach: CGFloat {
+        settled || !animates ? RadialMenuLayout.ringRadius : RadialMenuLayout.deadZoneRadius * 0.2
+    }
+
+    private func bloom() {
+        guard animates else {
+            settled = true
+            return
+        }
+        withAnimation(.spring(response: 0.36, dampingFraction: 0.75).delay(openDelay)) {
+            settled = true
+        }
+    }
+
+    /// Folding in is tighter than opening out: what is being dismissed should
+    /// not be waited for.
+    private func fold() {
+        guard animates else {
+            settled = false
+            return
+        }
+        withAnimation(.easeIn(duration: 0.1).delay(openDelay * 0.25)) {
+            settled = false
+        }
     }
 
     @ViewBuilder
@@ -426,48 +337,52 @@ private struct RadialChipView: View {
                 Image(nsImage: icon)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: 32, height: 32)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .frame(width: 34, height: 34)
             } else {
                 Image(systemName: "music.note")
-                    .font(.system(size: 20, weight: .bold))
-                    .foregroundStyle(highlighted ? Color.white : profileColor)
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(highlighted ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
             }
         } else if item.symbolName.isEmpty, let customImage = RadialMenuIconStore.customIcon(for: item) {
             Image(nsImage: customImage)
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 32, height: 32)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .frame(width: 34, height: 34)
         } else if item.usesFileIcon {
             Image(nsImage: RadialMenuIconStore.fileIcon(for: item.payload))
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 32, height: 32)
+                .frame(width: 34, height: 34)
         } else {
             Image(systemName: item.effectiveSymbolName)
-                .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(
-                    highlighted
-                        ? AnyShapeStyle(Color.white)
-                        : (colorScheme == .light ? AnyShapeStyle(Color(red: 0.1, green: 0.14, blue: 0.22)) : AnyShapeStyle(Color.white.opacity(0.9)))
-                )
-                .shadow(color: highlighted ? Color.black.opacity(0.3) : Color.clear, radius: 2)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(highlighted ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
         }
     }
 }
 
-// MARK: - Radial Geometric Shapes
-
 /// A slice-shaped highlight between the hub and the wheel border.
 struct RadialWedgeShape: Shape {
-    let centerAngle: Double
-    let sliceAngle: Double
+    var centerAngle: Double
+    var sliceAngle: Double
     let innerRadius: CGFloat
     let outerRadius: CGFloat
 
+    /// The angle and the width are what move, so the highlight sweeps to the
+    /// slice under the pointer, and re-fits when a submenu holds a different
+    /// number of them.
+    var animatableData: AnimatablePair<Double, Double> {
+        get { AnimatablePair(centerAngle, sliceAngle) }
+        set {
+            centerAngle = newValue.first
+            sliceAngle = newValue.second
+        }
+    }
+
     func path(in rect: CGRect) -> Path {
         let center = CGPoint(x: rect.midX, y: rect.midY)
+        // Screen angles: 0 at +x, growing clockwise (flipped y); our slice
+        // angles run clockwise from 12 o'clock, so shift by a quarter turn.
         let start = Angle(radians: centerAngle - sliceAngle / 2 - .pi / 2)
         let end = Angle(radians: centerAngle + sliceAngle / 2 - .pi / 2)
         var path = Path()
@@ -478,23 +393,10 @@ struct RadialWedgeShape: Shape {
     }
 }
 
-/// An outer glowing arc rim for the active slice.
-struct RadialArcRimShape: Shape {
-    let centerAngle: Double
-    let sliceAngle: Double
-    let radius: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let start = Angle(radians: centerAngle - sliceAngle / 2 - .pi / 2)
-        let end = Angle(radians: centerAngle + sliceAngle / 2 - .pi / 2)
-        var path = Path()
-        path.addArc(center: center, radius: radius, startAngle: start, endAngle: end, clockwise: false)
-        return path
-    }
-}
-
-/// Real icons and display names for slices that point at the disk.
+/// Real icons and display names for slices that point at the disk, cached so
+/// the wheel never touches the file system while the pointer is tracked (a
+/// dead network mount would otherwise stall every highlight change).
+/// Configurations are tiny (a wheel holds 12 items), so entries accumulate.
 enum RadialMenuIconStore {
     private static var icons: [String: NSImage] = [:]
     private static var names: [String: String] = [:]
@@ -504,7 +406,7 @@ enum RadialMenuIconStore {
         if let cached = icons[payload] { return cached }
         let path = (payload as NSString).expandingTildeInPath
         let icon = NSWorkspace.shared.icon(forFile: path)
-        icon.size = NSSize(width: 32, height: 32)
+        icon.size = NSSize(width: 34, height: 34)
         icons[payload] = icon
         return icon
     }
@@ -513,7 +415,7 @@ enum RadialMenuIconStore {
         guard let data = item.customIconData else { return nil }
         if let cached = customIcons[item.id] { return cached }
         guard let image = NSImage(data: data) else { return nil }
-        image.size = NSSize(width: 32, height: 32)
+        image.size = NSSize(width: 34, height: 34)
         customIcons[item.id] = image
         return image
     }
@@ -538,7 +440,8 @@ enum RadialMenuIconStore {
     }
 }
 
-/// Name resolution shared by the wheel and the Settings editor.
+/// Name resolution shared by the wheel and the Settings editor: a custom name
+/// wins, everything else derives from the target in the user's language.
 extension RadialMenuItem {
     func displayName(_ text: RadialMenuFeatureStrings,
                      nowPlayingState: RadialNowPlayingState? = nil) -> String {

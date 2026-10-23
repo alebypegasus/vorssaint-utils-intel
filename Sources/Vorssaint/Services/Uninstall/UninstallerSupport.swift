@@ -1,18 +1,140 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
+import Darwin
 import Foundation
 
-/// Pure ownership rules for the Uninstaller. Every deeper location is derived
-/// from a verified bundle identifier; display names never become paths.
+/// Pure ownership and leftover-matching rules for the Uninstaller. Bundle
+/// identifiers never become paths by concatenation with a display name;
+/// names are only compared against directory listings that already exist.
 enum UninstallerSupport {
     enum Kind: Equatable {
-        case support, caches
+        case support, caches, preferences, containers, logs, state, other
     }
 
-    struct Candidate: Equatable {
+    struct FileIdentity: Equatable, Hashable {
+        let device: UInt64
+        let inode: UInt64
+    }
+
+    /// An app the uninstaller has agreed to take: its verified bundle
+    /// identifier, its standardized path, and the identities that later
+    /// prove the bundle on disk is still the one that was selected.
+    struct Selection {
+        let bundleID: String
+        let url: URL
+        let identity: FileIdentity
+        let infoIdentity: FileIdentity
+    }
+
+    /// Why the uninstaller turned an app down. A refused drop springs back,
+    /// so the empty state names the rule instead of staying silent (#1582).
+    enum Refusal: Error, Equatable {
+        /// A web link, a document or a folder rather than an app.
+        case notAnApp
+        /// Part of macOS: protected by the system, with live OS state as its data.
+        case systemApp
+        /// Apple's apps and components other apps embed: their identifiers
+        /// also name data that macOS or those apps still use.
+        case sharedIdentifier
+        /// Shipped inside another app, which needs it.
+        case insideAnotherApp
+        /// Vorssaint itself, which removes itself from Advanced settings.
+        case thisApp
+        /// A link to an app kept somewhere else, never its destination.
+        case link
+        /// No Info.plist or bundle identifier that says which app it is.
+        case unidentified
+    }
+
+    /// An app the uninstaller turned down, named the way the drop zone says it.
+    struct RefusedApp: Equatable {
+        let name: String
+        let refusal: Refusal
+
+        func message(_ strings: Strings) -> String {
+            switch refusal {
+            case .notAnApp: return strings.uninstallerRefusedNotApp
+            case .systemApp: return String(format: strings.uninstallerRefusedSystemFormat, name)
+            case .sharedIdentifier: return String(format: strings.uninstallerRefusedSharedFormat, name)
+            case .insideAnotherApp: return String(format: strings.uninstallerRefusedNestedFormat, name)
+            case .thisApp: return String(format: strings.uninstallerRefusedSelfFormat, strings.tabAdvanced)
+            case .link: return String(format: strings.uninstallerRefusedLinkFormat, name)
+            case .unidentified: return String(format: strings.uninstallerRefusedUnidentifiedFormat, name)
+            }
+        }
+    }
+
+    /// Tokens that identify one selected app. Bundle identifiers stay exact;
+    /// display names are compared after stripping punctuation so "App Name"
+    /// and "AppName.plist" can meet without turning the name into a path.
+    struct Identity: Equatable {
+        var bundleIDs: Set<String>
+        var nameTokens: Set<String>
+        var teamIDs: Set<String>
+        var groupIDs: Set<String>
+    }
+
+    enum LeftoverMatch: Equatable {
+        case none
+        /// Signed group or owned bundle identifier. Starts checked.
+        case exact
+        /// Related by a longer name fragment or team prefix. Starts unchecked.
+        case related
+    }
+
+    struct DirListing: Equatable {
+        let name: String
+        let children: [DirListing]
+        let bundleIdentifier: String?
+
+        init(name: String, children: [DirListing], bundleIdentifier: String? = nil) {
+            self.name = name
+            self.children = children
+            self.bundleIdentifier = bundleIdentifier
+        }
+    }
+
+    struct Hit: Equatable {
+        let path: String
+        let confidence: LeftoverMatch
+        let bundleIdentifier: String?
+    }
+
+    struct SearchFolder: Equatable {
         let url: URL
         let kind: Kind
+        /// Unmatched directories are opened this many levels to catch
+        /// vendor/app nesting such as Application Support/Vendor/App.
+        let extraChildDepth: Int
+        let crashReporter: Bool
+        let readsContainerMetadata: Bool
+        /// Display names are useful but ambiguous. Sensitive and Unix-style
+        /// roots only accept signed group or bundle identifiers.
+        let allowsNameMatches: Bool
+        /// Shared group containers require an exact group from the selected
+        /// app's valid signature; its bundle identifier alone is not proof.
+        let requiresSignedGroup: Bool
+    }
+
+    /// Cancellation for one leftover scan. The main thread cancels it; the
+    /// scan's background work reads it between steps and stops early instead
+    /// of walking every folder for a result nobody is waiting for.
+    final class ScanCancellation {
+        private let lock = NSLock()
+        private var cancelled = false
+
+        var isCancelled: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return cancelled
+        }
+
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            lock.unlock()
+        }
     }
 
     /// The symbol a finished removal shows. A tick is for a removal that took
@@ -22,11 +144,166 @@ enum UninstallerSupport {
         hasLeftovers ? "exclamationmark.triangle.fill" : "checkmark.circle.fill"
     }
 
+    /// Whether Full Disk Access could have changed a failed removal. Only
+    /// sandboxed container data is gated by that permission; an item kept
+    /// back for ownership or identity reasons would fail exactly the same
+    /// with it granted, so offering the permission there misleads.
+    static func failureNeedsFullDiskAccess(paths: [String]) -> Bool {
+        let protected = ["/Library/Containers/", "/Library/Group Containers/",
+                         "/Library/Application Scripts/"]
+        return paths.contains { path in protected.contains { path.contains($0) } }
+    }
+
     static func verifiedBundleID(_ rawValue: String?) -> String? {
         guard let rawValue,
               CleanerSupport.looksLikeBundleID(rawValue),
               !CleanerSupport.isProtectedBundleID(rawValue) else { return nil }
         return rawValue
+    }
+
+    /// The one answer for "will the uninstaller take this app": the picker
+    /// offers only what this accepts, and a drop of anything else is refused.
+    static func selection(for appURL: URL) -> Selection? {
+        try? evaluate(appURL).get()
+    }
+
+    /// The selection, or the rule that refused it.
+    static func evaluate(_ appURL: URL) -> Result<Selection, Refusal> {
+        // Browser links are not bundles on disk and must be refused before loading one.
+        guard appURL.isFileURL else { return .failure(.notAnApp) }
+        // An app inside another app's bundle, a tool it ships or a helper,
+        // belongs to that app: removing it alone would break the app.
+        guard !appURL.standardizedFileURL.pathComponents.dropLast().contains(where: {
+            $0.lowercased().hasSuffix(".app")
+        }) else { return .failure(.insideAnotherApp) }
+        // Something named like an app that does not read as one is still
+        // reported as an app, never as a stray document.
+        let unreadable: Refusal = appURL.pathExtension.lowercased() == "app" ? .unidentified : .notAnApp
+        guard let bundle = Bundle(url: appURL) else { return .failure(unreadable) }
+        // System apps are SIP-protected and their support data is live OS
+        // state; removing either would be wrong, so refuse the selection.
+        guard !InstalledApps.isSystemApplication(at: appURL) else { return .failure(.systemApp) }
+        // Only a verified bundle identifier becomes a path component. A
+        // display name is presentation only and can never claim user data.
+        guard let rawBundleID = bundle.bundleIdentifier,
+              CleanerSupport.looksLikeBundleID(rawBundleID) else { return .failure(unreadable) }
+        guard let bundleID = verifiedBundleID(rawBundleID) else {
+            return .failure(isOwnBundleID(rawBundleID) ? .thisApp : .sharedIdentifier)
+        }
+        let selectedURL = appURL.standardizedFileURL
+        guard selectedURL == selectedURL.resolvingSymlinksInPath() else { return .failure(.link) }
+        guard selectedURL != Bundle.main.bundleURL.standardizedFileURL else { return .failure(.thisApp) }
+        guard !isSymbolicLink(appURL) else { return .failure(.link) }
+        guard let selectedIdentity = fileIdentity(at: selectedURL) else { return .failure(unreadable) }
+        let infoURL = infoPlistURL(in: selectedURL)
+        guard let selectedInfoIdentity = fileIdentity(at: infoURL),
+              removalPathIsSafe(infoURL, within: selectedURL) else { return .failure(.unidentified) }
+        return .success(Selection(bundleID: bundleID, url: selectedURL,
+                                  identity: selectedIdentity, infoIdentity: selectedInfoIdentity))
+    }
+
+    /// The Info.plist that holds the identifier a selection verified. A Mac
+    /// app keeps it in Contents. An iPhone or iPad app installed on a Mac
+    /// with Apple silicon is a wrapper instead: the real bundle sits in its
+    /// Wrapper folder with the Info.plist at the top, and Bundle reads it
+    /// through the WrappedBundle link even when a Contents folder exists too.
+    static func infoPlistURL(in appURL: URL) -> URL {
+        guard let wrapped = wrappedBundleURL(in: appURL) else {
+            return appURL.appendingPathComponent("Contents/Info.plist")
+        }
+        let contents = wrapped.appendingPathComponent("Contents", isDirectory: true)
+        return fileIdentity(at: contents) == nil
+            ? wrapped.appendingPathComponent("Info.plist")
+            : contents.appendingPathComponent("Info.plist")
+    }
+
+    /// The bundle a wrapper's WrappedBundle link names. Bundle follows only a
+    /// relative link to an app inside the Wrapper folder, and only with a
+    /// lowercase .app, so nothing else counts as a wrapper here either.
+    static func wrappedBundleURL(in appURL: URL) -> URL? {
+        let link = appURL.appendingPathComponent("WrappedBundle")
+        guard isSymbolicLink(link),
+              let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path),
+              !destination.hasPrefix("/"), !destination.hasSuffix("/") else { return nil }
+        let wrapper = appURL.appendingPathComponent("Wrapper", isDirectory: true).standardizedFileURL
+        let bundle = appURL.appendingPathComponent(destination, isDirectory: true).standardizedFileURL
+        guard bundle.path.hasPrefix(wrapper.path + "/"),
+              bundle.pathExtension == "app" else { return nil }
+        return bundle
+    }
+
+    /// Whether the app at url is still the one a selection verified: the same
+    /// bundle and the same Info.plist, found the way the selection found it,
+    /// so a wrapper stays selected once its scan ends.
+    static func applicationIdentityMatches(
+        _ url: URL,
+        appIdentity: FileIdentity?,
+        infoIdentity: FileIdentity?
+    ) -> Bool {
+        guard let appIdentity, let infoIdentity,
+              fileIdentity(at: url) == appIdentity else { return false }
+        let infoURL = infoPlistURL(in: url)
+        return fileIdentity(at: infoURL) == infoIdentity
+            && removalPathIsSafe(infoURL, within: url)
+    }
+
+    /// The name the uninstaller shows for an app, without its extension.
+    static func appName(at url: URL) -> String {
+        var name = url.isFileURL
+            ? FileManager.default.displayName(atPath: url.path) : url.lastPathComponent
+        if name.hasSuffix(".app") { name.removeLast(4) }
+        return name
+    }
+
+    /// What the pickers list. An app that selection(for:) would refuse is
+    /// left out rather than offered and then silently turned down.
+    static func offeredApplications() -> [InstalledApps.InstalledApp] {
+        InstalledApps.installedApplications().filter { selection(for: $0.url) != nil }
+    }
+
+    /// The listed apps the same check accepts, for a list built on the main
+    /// thread. Each check reads the disk, so it runs once with the
+    /// background scan that found the apps.
+    static func acceptedApplicationIDs(_ apps: [InstalledApps.InstalledApp]) -> Set<String> {
+        Set(apps.lazy.filter { !$0.isSystem && selection(for: $0.url) != nil }.map(\.id))
+    }
+
+    static func fileIdentity(at url: URL) -> FileIdentity? {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return nil }
+        return FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
+    }
+
+    /// A missing entry or ancestor is absence; an unreadable or invalid path
+    /// is not. Use the same lookup for both the entry and its error so an
+    /// earlier directory listing cannot turn lost access into success.
+    /// Unlike stat, lstat also sees dangling links as existing entries.
+    static func isConfirmedAbsent(at url: URL) -> Bool {
+        var info = stat()
+        guard lstat(url.path, &info) != 0 else { return false }
+        return errno == ENOENT
+    }
+
+    /// A removal path must still exist below the root that produced it and no
+    /// component from the item through that root may have become a symlink.
+    static func removalPathIsSafe(_ url: URL, within root: URL) -> Bool {
+        var current = url.standardizedFileURL
+        let root = root.standardizedFileURL
+        guard current.path.hasPrefix(root.path + "/") else { return false }
+        while current.path.count >= root.path.count {
+            guard fileIdentity(at: current) != nil, !isSymbolicLink(current) else { return false }
+            if current.path == root.path { return true }
+            let parent = current.deletingLastPathComponent().standardizedFileURL
+            guard parent.path != current.path else { return false }
+            current = parent
+        }
+        return false
+    }
+
+    static func isSymbolicLink(_ url: URL) -> Bool {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return false }
+        return (info.st_mode & S_IFMT) == S_IFLNK
     }
 
     static func isNestedBundle(_ candidateURL: URL?, in appURL: URL) -> Bool {
@@ -42,7 +319,7 @@ enum UninstallerSupport {
         let selectedPath = selectedURL.resolvingSymlinksInPath().standardizedFileURL.path
         return !knownApplications.contains { application in
             let applicationPath = application.url.resolvingSymlinksInPath().standardizedFileURL.path
-            return application.bundleID == bundleID
+            return application.bundleID.caseInsensitiveCompare(bundleID) == .orderedSame
                 && applicationPath != selectedPath
                 && !applicationPath.hasPrefix(selectedPath + "/")
         }
@@ -67,38 +344,494 @@ enum UninstallerSupport {
         return roots.contains { path.hasPrefix($0 + "/") }
     }
 
-    static func exactDeepCandidates(home: URL,
-                                    bundleIDs: Set<String>,
-                                    darwinCache: URL?,
-                                    darwinTemp: URL?) -> [Candidate] {
-        var result: [Candidate] = []
-        for id in bundleIDs.sorted() {
-            result.append(Candidate(url: home.appendingPathComponent(".config/").appendingPathComponent(id),
-                                    kind: .support))
-            result.append(Candidate(url: home.appendingPathComponent(".cache/").appendingPathComponent(id),
-                                    kind: .caches))
-            result.append(Candidate(url: home.appendingPathComponent(".local/share/").appendingPathComponent(id),
-                                    kind: .support))
-            if let darwinCache {
-                result.append(Candidate(url: darwinCache.appendingPathComponent(id), kind: .caches))
-            }
-            if let darwinTemp {
-                result.append(Candidate(url: darwinTemp.appendingPathComponent(id), kind: .caches))
+    static func strippedAppName(_ raw: String) -> String {
+        var name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.lowercased().hasSuffix(".app") {
+            name.removeLast(4)
+        }
+        return name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func displayNames(localizedName: String,
+                             fileName: String,
+                             bundleName: String?,
+                             bundleDisplayName: String?) -> [String] {
+        [localizedName, fileName, bundleName, bundleDisplayName]
+            .compactMap { $0 }
+            .map(strippedAppName)
+            .filter { !$0.isEmpty && !$0.contains("$") && !$0.contains("/") && !$0.contains("..") }
+    }
+
+    /// Lowercased letters and digits only, so "Example App 2" and "exampleapp2"
+    /// compare as the same token. Punctuation never becomes a path.
+    static func normalizedToken(_ raw: String) -> String {
+        String(strippedAppName(raw).lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) })
+    }
+
+    static func identity(primaryBundleID: String? = nil,
+                         bundleIDs: Set<String>,
+                         displayNames: [String],
+                         teamIDs: Set<String> = [],
+                         groupIDs: Set<String> = []) -> Identity {
+        var names = Set<String>()
+        for name in displayNames {
+            let token = normalizedToken(name)
+            if token.count >= 3, !ignoredLastComponents.contains(token) { names.insert(token) }
+            let withoutVersion = normalizedToken(nameWithoutTrailingVersion(name))
+            if withoutVersion.count >= 3, !ignoredLastComponents.contains(withoutVersion) { names.insert(withoutVersion) }
+        }
+        let primary = primaryBundleID ?? (bundleIDs.count == 1 ? bundleIDs.first : nil)
+        if let primary, let last = primary.split(separator: ".").last {
+            let token = normalizedToken(String(last))
+            if token.count >= 4, !ignoredLastComponents.contains(token) {
+                names.insert(token)
             }
         }
+        let teams = Set(teamIDs.map { $0.uppercased() }.filter(CleanerSupport.isTeamIdentifier))
+        return Identity(bundleIDs: bundleIDs, nameTokens: names, teamIDs: teams, groupIDs: groupIDs)
+    }
+
+    static func technicalIdentity(_ identity: Identity) -> Identity {
+        Identity(bundleIDs: identity.bundleIDs, nameTokens: [],
+                 teamIDs: identity.teamIDs, groupIDs: identity.groupIDs)
+    }
+
+    static func leftoverMatch(_ rawName: String,
+                              identity: Identity,
+                              crashReporter: Bool = false) -> LeftoverMatch {
+        guard !rawName.hasPrefix("."),
+              !rawName.contains(".."),
+              !rawName.contains("/") else { return .none }
+        let stripped = stripKnownSuffix(rawName)
+        if identity.groupIDs.contains(stripped) || identity.groupIDs.contains(rawName) {
+            return .exact
+        }
+        let lowerRaw = rawName.lowercased()
+        let lowerStripped = stripped.lowercased()
+        for id in identity.bundleIDs {
+            let lowerID = id.lowercased()
+            if lowerStripped == lowerID || lowerRaw == lowerID { return .exact }
+            if byHostPreference(rawName, belongsTo: id) { return .exact }
+            if hasTeamPrefix(stripped, remainder: id, teamIDs: identity.teamIDs)
+                || hasTeamPrefix(rawName, remainder: id, teamIDs: identity.teamIDs) {
+                return .exact
+            }
+        }
+        for id in identity.bundleIDs {
+            let lowerID = id.lowercased()
+            if lowerStripped.hasPrefix(lowerID + ".") || lowerRaw.hasPrefix(lowerID + ".") {
+                return .related
+            }
+        }
+        let normalizedStripped = normalizedToken(stripped)
+        if normalizedStripped.count >= 3, identity.nameTokens.contains(normalizedStripped) {
+            return .related
+        }
+        let normalizedRaw = normalizedToken(rawName)
+        if normalizedRaw.count >= 3, identity.nameTokens.contains(normalizedRaw) {
+            return .related
+        }
+        if crashReporter {
+            let prefix = rawName.split { $0 == "_" || $0 == "-" }.first.map(String.init) ?? ""
+            let prefixToken = normalizedToken(prefix)
+            if prefixToken.count >= 3, identity.nameTokens.contains(prefixToken) { return .related }
+            if identity.bundleIDs.contains(where: { rawName.hasPrefix($0) }) { return .exact }
+        }
+        // A reverse-DNS name is never claimed by a display-name fragment:
+        // com.vendor.editor2 must not follow from uninstalling Editor.
+        // Crash dumps are handled only in crash-reporter folders, by prefix.
+        let looksLikeIdentifier = CleanerSupport.looksLikeBundleID(stripped)
+            || CleanerSupport.looksLikeBundleID(rawName)
+        let looksLikeCrashDump = rawName.range(of: #"_\d{4}-\d{2}-\d{2}"#, options: .regularExpression) != nil
+            || rawName.range(of: #"-\d{4}-\d{2}-\d{2}"#, options: .regularExpression) != nil
+        if !looksLikeIdentifier, !looksLikeCrashDump {
+            for token in identity.nameTokens where token.count >= 5 {
+                if normalizedStripped.hasPrefix(token) || normalizedRaw.hasPrefix(token) {
+                    return .related
+                }
+            }
+        }
+        for team in identity.teamIDs {
+            let upperStripped = stripped.uppercased()
+            let upperRaw = rawName.uppercased()
+            if upperStripped == team
+                || upperStripped.hasPrefix(team + ".")
+                || upperRaw.hasPrefix(team + ".") {
+                return .related
+            }
+        }
+        return .none
+    }
+
+    static func matchingGroupID(_ rawName: String, identity: Identity) -> String? {
+        let stripped = stripKnownSuffix(rawName)
+        return identity.groupIDs.first { $0 == rawName || $0 == stripped }
+    }
+
+    static func leftoverEntryMatches(_ rawName: String,
+                                     identity: Identity,
+                                     crashReporter: Bool = false) -> Bool {
+        leftoverMatch(rawName, identity: identity, crashReporter: crashReporter) != .none
+    }
+
+    static func containerMetadataMatches(_ identifier: String, identity: Identity) -> LeftoverMatch {
+        let match = leftoverMatch(identifier, identity: identity)
+        if match != .none { return match }
+        if let owner = CleanerSupport.bundleIDCandidate(fromEntryName: identifier) {
+            return leftoverMatch(owner, identity: identity)
+        }
+        return .none
+    }
+
+    /// The most specific owned identifier that claims this entry, or the
+    /// shortest identifier when only a display name matched.
+    static func ownerBundleID(for entry: String,
+                              identity: Identity,
+                              crashReporter: Bool = false) -> String? {
+        let byLength = identity.bundleIDs.sorted { $0.count > $1.count }
+        for id in byLength {
+            if leftoverEntryMatches(entry,
+                                    identity: Identity(bundleIDs: [id], nameTokens: [],
+                                                       teamIDs: [], groupIDs: []),
+                                    crashReporter: crashReporter) {
+                return id
+            }
+        }
+        guard leftoverEntryMatches(entry, identity: identity, crashReporter: crashReporter) else {
+            return nil
+        }
+        return identity.bundleIDs.min(by: { $0.count < $1.count })
+    }
+
+    /// Relative leftover names from one folder listing. Extra depth records
+    /// `Vendor/App` when the vendor folder itself is not a match.
+    static func leftoverHitRecords(listings: [DirListing],
+                                   identity: Identity,
+                                   extraChildDepth: Int,
+                                   crashReporter: Bool = false,
+                                   prefix: String = "") -> [Hit] {
+        var hits: [Hit] = []
+        for listing in listings {
+            let path = prefix.isEmpty ? listing.name : prefix + "/" + listing.name
+            let identifierMatch = listing.bundleIdentifier.map {
+                leftoverMatch($0, identity: identity, crashReporter: crashReporter)
+            } ?? .none
+            let nameMatch = leftoverMatch(listing.name, identity: identity,
+                                          crashReporter: crashReporter)
+            let match: LeftoverMatch
+            if identifierMatch == .exact || nameMatch == .exact {
+                match = .exact
+            } else if identifierMatch == .related || nameMatch == .related {
+                match = .related
+            } else {
+                match = .none
+            }
+            if match == .related, extraChildDepth > 0, !listing.children.isEmpty {
+                let nested = leftoverHitRecords(
+                    listings: listing.children,
+                    identity: identity,
+                    extraChildDepth: extraChildDepth - 1,
+                    crashReporter: crashReporter,
+                    prefix: path)
+                if !nested.isEmpty {
+                    hits.append(contentsOf: nested)
+                    continue
+                }
+            }
+            if match != .none {
+                hits.append(Hit(path: path, confidence: match,
+                                bundleIdentifier: identifierMatch == .none
+                                    ? nil : listing.bundleIdentifier))
+                continue
+            }
+            if extraChildDepth > 0 {
+                hits.append(contentsOf: leftoverHitRecords(
+                    listings: listing.children,
+                    identity: identity,
+                    extraChildDepth: extraChildDepth - 1,
+                    crashReporter: crashReporter,
+                    prefix: path))
+            }
+        }
+        return hits
+    }
+
+    static func searchFolders(home: URL,
+                              darwinCache: URL?,
+                              darwinTemp: URL?) -> [SearchFolder] {
+        var result: [SearchFolder] = []
+        let userLibrary = home.appendingPathComponent("Library", isDirectory: true)
+        let systemLibrary = URL(fileURLWithPath: "/Library", isDirectory: true)
+        for spec in sharedLibraryFolders {
+            result.append(folder(spec, under: userLibrary))
+            result.append(folder(spec, under: systemLibrary))
+        }
+        for spec in userLibraryFolders {
+            result.append(folder(spec, under: userLibrary))
+        }
+        for spec in systemLibraryFolders {
+            result.append(folder(spec, under: systemLibrary))
+        }
+        result.append(SearchFolder(url: home.appendingPathComponent(".config", isDirectory: true),
+                                   kind: .support, extraChildDepth: 0, crashReporter: false,
+                                   readsContainerMetadata: false, allowsNameMatches: false,
+                                   requiresSignedGroup: false))
+        result.append(SearchFolder(url: home.appendingPathComponent(".cache", isDirectory: true),
+                                   kind: .caches, extraChildDepth: 0, crashReporter: false,
+                                   readsContainerMetadata: false, allowsNameMatches: false,
+                                   requiresSignedGroup: false))
+        result.append(SearchFolder(
+            url: home.appendingPathComponent(".local", isDirectory: true)
+                .appendingPathComponent("share", isDirectory: true),
+            kind: .support, extraChildDepth: 0, crashReporter: false,
+            readsContainerMetadata: false, allowsNameMatches: false,
+            requiresSignedGroup: false))
+        if let darwinCache {
+            result.append(SearchFolder(url: darwinCache, kind: .caches,
+                                       extraChildDepth: 0, crashReporter: false,
+                                       readsContainerMetadata: false, allowsNameMatches: false,
+                                       requiresSignedGroup: false))
+        }
+        if let darwinTemp {
+            result.append(SearchFolder(url: darwinTemp, kind: .caches,
+                                       extraChildDepth: 0, crashReporter: false,
+                                       readsContainerMetadata: false, allowsNameMatches: false,
+                                       requiresSignedGroup: false))
+        }
+        result.append(SearchFolder(url: URL(fileURLWithPath: "/private/var/db/receipts",
+                                            isDirectory: true),
+                                   kind: .other, extraChildDepth: 0, crashReporter: false,
+                                   readsContainerMetadata: false, allowsNameMatches: false,
+                                   requiresSignedGroup: false))
+        result.append(SearchFolder(
+            url: URL(fileURLWithPath: "/Users/Shared/Library/Application Support", isDirectory: true),
+            kind: .support, extraChildDepth: 2, crashReporter: false,
+            readsContainerMetadata: false, allowsNameMatches: true,
+            requiresSignedGroup: false))
         return result
     }
 
-    static func matchesByHostPreference(_ name: String, bundleIDs: Set<String>) -> Bool {
-        guard name.hasSuffix(".plist"), CleanerSupport.containsUUIDComponent(name) else { return false }
-        return bundleIDs.contains { name.hasPrefix("\($0).") }
+    /// Spotlight query scoped later to Library-like roots. Bundle identifiers
+    /// and display-name tokens match as prefixes so `.plist` siblings and
+    /// app containers come back. Never queries personal folders.
+    static func leftoverSpotlightExpression(identity: Identity) -> String? {
+        var clauses: [String] = []
+        for id in identity.bundleIDs.sorted() {
+            clauses.append("kMDItemFSName == \"\(spotlightEscape(id))*\"cd")
+            if clauses.count >= 16 { break }
+        }
+        for token in identity.nameTokens.sorted() where token.count >= 4 {
+            clauses.append("kMDItemFSName == \"\(spotlightEscape(token))*\"cd")
+            if clauses.count >= 24 { break }
+        }
+        guard !clauses.isEmpty else { return nil }
+        return clauses.joined(separator: " || ")
     }
 
-    static func matchesGroupContainer(_ name: String, bundleIDs: Set<String>) -> Bool {
-        bundleIDs.contains(name) || bundleIDs.contains { name == "group.\($0)" }
+    static func leftoverSpotlightPathIsAllowed(_ path: String, roots: [URL]) -> Bool {
+        let forbidden = ["/Desktop/", "/Documents/", "/Downloads/",
+                         "/Movies/", "/Music/", "/Pictures/", "/Public/"]
+        if forbidden.contains(where: { path.contains($0) }) { return false }
+        let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+        guard let matchingRoot = roots.first(where: { standardized.hasPrefix($0.path + "/") }) else { return false }
+        let relative = String(standardized.dropFirst(matchingRoot.path.count + 1))
+        let components = relative.split(separator: "/")
+        // Leftovers never live deeper than a vendor/app folder or root entry
+        return components.count <= 2
     }
 
-    static func matchesLaunchItem(_ name: String, bundleIDs: Set<String>) -> Bool {
-        bundleIDs.contains { name == "\($0).plist" }
+    /// Spotlight spans the whole Library and must preserve the stricter rules
+    /// used by direct scans for shared containers and privileged locations.
+    static func spotlightIdentity(for path: String, identity: Identity) -> Identity {
+        if path.contains("/Group Containers/") {
+            return Identity(bundleIDs: [], nameTokens: [], teamIDs: [],
+                            groupIDs: identity.groupIDs)
+        }
+        let technicalSegments = [
+            "/Application Scripts/", "/Containers/", "/Preferences/ByHost/",
+            "/SyncedPreferences/", "/LaunchAgents/", "/LaunchDaemons/",
+            "/PrivilegedHelperTools/", "/Extensions/", "/StartupItems/",
+        ]
+        if technicalSegments.contains(where: path.contains) {
+            return technicalIdentity(identity)
+        }
+        return identity
+    }
+
+    static func nameWithoutTrailingVersion(_ raw: String) -> String {
+        let stripped = strippedAppName(raw)
+        let suffixes = #"\d+(\.\d+)*|nightly|beta|alpha|dev|canary|preview|insider|stable|release|rc|lts|developer edition|technology preview"#
+        guard let regex = try? NSRegularExpression(
+            pattern: "\\s+(?:\(suffixes))\\s*$", options: [.caseInsensitive]) else {
+            return stripped
+        }
+        let range = NSRange(stripped.startIndex..., in: stripped)
+        return regex.stringByReplacingMatches(in: stripped, range: range, withTemplate: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - Private
+
+    private struct LibraryFolderSpec: Equatable {
+        let relative: String
+        let kind: Kind
+        let extraChildDepth: Int
+        let crashReporter: Bool
+        let readsContainerMetadata: Bool
+        let allowsNameMatches: Bool
+        let requiresSignedGroup: Bool
+    }
+
+    /// Last bundle-id components that name a role, not the app. Matching
+    /// those as folder names would claim helpers that belong to everyone.
+    private static let ignoredLastComponents: Set<String> = [
+        "app", "mac", "macos", "osx", "helper", "agent", "daemon", "service",
+        "desktop", "client", "launcher", "plugin", "extension", "web", "free",
+        "pro", "lite", "plus", "ui", "xpc", "login", "updater", "installer",
+        "renderer", "gpu", "worker", "crashpad", "broker", "utility", "alert",
+        "network", "audio", "server", "shared", "core", "common", "framework",
+        "bundle", "process", "handler", "tool", "runtime", "electron", "java",
+        "python", "node", "mono", "wine",
+    ]
+
+    private static let leftoverSuffixes = [
+        ".plist", ".savedState", ".binarycookies", ".prefPane", ".qlgenerator",
+        ".mdimporter", ".service", ".appex", ".plugin", ".webplugin", ".saver",
+        ".colorPicker", ".wdgt", ".bundle", ".sfl", ".sfl2", ".sfl3", ".bom",
+        ".action", ".workflow", ".app", ".framework", ".component", ".vst",
+        ".vst3", ".clap", ".dpm", ".aaxplugin", ".dictionary", ".safariextz",
+        ".mailbundle",
+    ]
+
+    private static let sharedLibraryFolders: [LibraryFolderSpec] = [
+        spec("Application Support", .support, depth: 2),
+        spec("Application Support/CrashReporter", .logs, crash: true),
+        spec("Caches", .caches, depth: 1),
+        spec("Preferences", .preferences),
+        spec("Logs", .logs, depth: 1),
+        spec("Logs/DiagnosticReports", .logs, crash: true),
+        spec("LaunchAgents", .other, names: false),
+        spec("PreferencePanes", .other),
+        spec("Internet Plug-Ins", .other),
+        spec("Services", .other),
+        spec("QuickLook", .other),
+        spec("Spotlight", .other),
+        spec("Input Methods", .other),
+        spec("Screen Savers", .other),
+        spec("ColorPickers", .other),
+        spec("Audio/Plug-Ins", .other, depth: 1),
+        spec("PrivilegedHelperTools", .other, names: false),
+        spec("Frameworks", .other),
+        spec("Automator", .other),
+        spec("CoreImage", .other),
+        spec("Dictionaries", .other),
+        spec("Components", .other),
+    ]
+
+    private static let userLibraryFolders: [LibraryFolderSpec] = [
+        spec("Preferences/ByHost", .preferences, names: false),
+        spec("Saved Application State", .state),
+        spec("Autosave Information", .state),
+        spec("SyncedPreferences", .preferences, names: false),
+        spec("HTTPStorages", .caches),
+        spec("WebKit", .caches),
+        spec("WebKit/com.apple.WebKit.WebContent", .caches, names: false),
+        spec("Containers", .containers, metadata: true, names: false),
+        spec("Group Containers", .containers, metadata: true, names: false, signedGroup: true),
+        spec("Application Scripts", .containers, names: false),
+        spec("Application Support/FileProvider", .support, names: false),
+        spec("Caches/com.apple.nsurlsessiond/Downloads", .caches, names: false),
+        spec("Cookies", .caches),
+        spec("Widgets", .other),
+        spec("Address Book Plug-Ins", .other),
+        spec("Contextual Menu Items", .other),
+        spec("Safari/Extensions", .other),
+        spec("Accessibility", .other),
+        spec("Mail/Bundles", .other),
+        spec("Workflows", .other),
+        spec("Application Support/com.apple.sharedfilelist/com.apple.LSSharedFileList.ApplicationRecentDocuments",
+             .preferences),
+    ]
+
+    private static let systemLibraryFolders: [LibraryFolderSpec] = [
+        spec("LaunchDaemons", .other, names: false),
+        spec("Extensions", .other, names: false),
+        spec("StartupItems", .other, names: false),
+    ]
+
+    private static func spec(_ relative: String,
+                             _ kind: Kind,
+                             depth: Int = 0,
+                             crash: Bool = false,
+                             metadata: Bool = false,
+                             names: Bool = true,
+                             signedGroup: Bool = false) -> LibraryFolderSpec {
+        LibraryFolderSpec(relative: relative, kind: kind, extraChildDepth: depth,
+                          crashReporter: crash, readsContainerMetadata: metadata,
+                          allowsNameMatches: names, requiresSignedGroup: signedGroup)
+    }
+
+    private static func folder(_ spec: LibraryFolderSpec, under root: URL) -> SearchFolder {
+        SearchFolder(url: url(root, spec.relative),
+                     kind: spec.kind,
+                     extraChildDepth: spec.extraChildDepth,
+                     crashReporter: spec.crashReporter,
+                     readsContainerMetadata: spec.readsContainerMetadata,
+                     allowsNameMatches: spec.allowsNameMatches,
+                     requiresSignedGroup: spec.requiresSignedGroup)
+    }
+
+    private static func url(_ root: URL, _ relative: String) -> URL {
+        relative.split(separator: "/").reduce(root) {
+            $0.appendingPathComponent(String($1), isDirectory: true)
+        }
+    }
+
+    /// Vorssaint's own identifiers, among the protected ones.
+    private static func isOwnBundleID(_ id: String) -> Bool {
+        let lowered = id.lowercased()
+        return lowered == "com.vorssaint" || lowered.hasPrefix("com.vorssaint.")
+            || lowered.hasPrefix("vorss.")
+    }
+
+    private static func stripKnownSuffix(_ rawName: String) -> String {
+        let lowered = rawName.lowercased()
+        for suffix in leftoverSuffixes where lowered.hasSuffix(suffix.lowercased()) {
+            return String(rawName.dropLast(suffix.count))
+        }
+        return rawName
+    }
+
+    private static func hasTeamPrefix(_ rawName: String,
+                                      remainder: String,
+                                      teamIDs: Set<String>) -> Bool {
+        guard let dot = rawName.firstIndex(of: ".") else { return false }
+        let prefix = String(rawName[..<dot])
+        let suffix = String(rawName[rawName.index(after: dot)...])
+        return CleanerSupport.isTeamIdentifier(prefix)
+            && teamIDs.contains(where: { $0.caseInsensitiveCompare(prefix) == .orderedSame })
+            && suffix.caseInsensitiveCompare(remainder) == .orderedSame
+    }
+
+    private static func byHostPreference(_ rawName: String, belongsTo bundleID: String) -> Bool {
+        guard rawName.lowercased().hasSuffix(".plist") else { return false }
+        let withoutPlist = String(rawName.dropLast(".plist".count))
+        guard let dot = withoutPlist.lastIndex(of: ".") else { return false }
+        let owner = String(withoutPlist[..<dot])
+        let host = String(withoutPlist[withoutPlist.index(after: dot)...])
+        return host.count == 36
+            && CleanerSupport.containsUUIDComponent(host)
+            && owner.caseInsensitiveCompare(bundleID) == .orderedSame
+    }
+
+    private static func spotlightEscape(_ word: String) -> String {
+        var result = ""
+        for character in word {
+            if character == "\\" || character == "\"" || character == "*" || character == "?" {
+                result.append("\\")
+            }
+            result.append(character)
+        }
+        return result
     }
 }

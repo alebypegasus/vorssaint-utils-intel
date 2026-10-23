@@ -10,11 +10,11 @@ struct CutPasteSettings: View {
     @AppStorage(DefaultsKey.finderCutPasteEnabled) private var enabled = false
     @AppStorage(DefaultsKey.finderCutPasteShowHUD) private var showHUD = true
     @AppStorage(DefaultsKey.finderRenameEnabled) private var renameEnabled = false
-    @AppStorage(DefaultsKey.finderDeleteShortcutsEnabled) private var deleteShortcutsEnabled = true
     @AppStorage(DefaultsKey.finderRenameShortcut) private var renameShortcutRaw =
         GlobalShortcut.finderRenameDefault.storageValue
     @State private var renameError: String?
     @State private var recordingRename = false
+    @State private var pendingRenameTakeOver: GlobalShortcut?
 
     private var renameText: FinderRenameFeatureStrings {
         FeatureStrings.finderRename(l10n.language)
@@ -27,7 +27,6 @@ struct CutPasteSettings: View {
     private var needsAccessibility: Bool {
         (AppFeature.finderCutPaste.isAvailable && enabled)
             || (AppFeature.finderRename.isAvailable && renameEnabled)
-            || (AppFeature.finderDeleteShortcuts.isAvailable && deleteShortcutsEnabled)
     }
 
     var body: some View {
@@ -56,7 +55,7 @@ struct CutPasteSettings: View {
                             .foregroundStyle(.green)
                     }
                 }
-                .settingsSectionAnchor(.finderCutPaste)
+                .settingsFormSectionAnchor(.finderCutPaste)
 
                 Section(l10n.s.cutPasteHowTitle) {
                     howRow(keys: ["⌘", "X"], text: l10n.s.cutPasteStep1)
@@ -64,20 +63,6 @@ struct CutPasteSettings: View {
                     Text(l10n.s.cutPasteTextNote)
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                }
-            }
-
-            if AppFeature.finderDeleteShortcuts.isAvailable {
-                Section {
-                    Toggle("Atalhos de Teclado no Finder (Delete / Desfazer)", isOn: $deleteShortcutsEnabled)
-                        .onChange(of: deleteShortcutsEnabled) { _, _ in
-                            FinderDeleteShortcuts.shared.syncWithPreferences()
-                        }
-                    Text("Permite apagar arquivos selecionados no Finder usando a tecla Backspace/Delete, e desfazer com Shift+Delete.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } header: {
-                    Text("Lixeira e Ações no Finder")
                 }
             }
 
@@ -94,13 +79,16 @@ struct CutPasteSettings: View {
                         Text(renameText.shortcutLabel)
                         Spacer()
                         ShortcutRecorderButton(
-                            shortcut: renameShortcut,
+                            shortcut: pendingRenameTakeOver ?? renameShortcut,
                             isEnabled: renameEnabled,
                             waitingTitle: l10n.s.shortcutPressKeys,
                             notCapturedAction: { renameError = l10n.s.shortcutNotCaptured },
                             recordingChanged: { recording in
                                 recordingRename = recording
-                                if recording { renameError = nil }
+                                if recording {
+                                    renameError = nil
+                                    pendingRenameTakeOver = nil
+                                }
                             },
                             invalidAction: { renameError = l10n.s.shortcutInvalid },
                             captureAction: saveRenameShortcut
@@ -110,6 +98,8 @@ struct CutPasteSettings: View {
                         Button(l10n.s.shortcutReset) {
                             renameShortcutRaw = GlobalShortcut.finderRenameDefault.storageValue
                             renameError = nil
+                            pendingRenameTakeOver = nil
+                            SystemShortcutTakeover.setTakeOver(DefaultsKey.finderRenameShortcut, false)
                             FinderRenameService.shared.syncWithPreferences()
                         }
                         .disabled(!renameEnabled || renameShortcut == .finderRenameDefault)
@@ -123,10 +113,25 @@ struct CutPasteSettings: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    if let pendingRenameTakeOver {
+                        SystemShortcutTakeOverOffer(
+                            shortcut: pendingRenameTakeOver,
+                            onAccept: {
+                                renameShortcutRaw = pendingRenameTakeOver.storageValue
+                                SystemShortcutTakeover.setTakeOver(DefaultsKey.finderRenameShortcut, true)
+                                self.pendingRenameTakeOver = nil
+                                FinderRenameService.shared.syncWithPreferences()
+                            },
+                            onDismiss: {
+                                self.pendingRenameTakeOver = nil
+                                renameError = String(format: l10n.s.shortcutConflictFormat, "macOS")
+                            }
+                        )
+                    }
                 } header: {
                     Text(renameText.hubTitle)
                 }
-                .settingsSectionAnchor(.finderRename)
+                .settingsFormSectionAnchor(.finderRename)
             }
 
             if needsAccessibility, !permissions.accessibility {
@@ -159,16 +164,26 @@ struct CutPasteSettings: View {
             renameError = String(format: l10n.s.shortcutConflictFormat, conflict.title(l10n.s))
             return
         }
-        if shortcut.conflictsWithSystemShortcut {
-            renameError = String(format: l10n.s.shortcutConflictFormat, "macOS")
-            return
-        }
         if let conflict = WindowLayoutService.shared.shortcutConflictTitle(shortcut) {
             renameError = String(format: l10n.s.shortcutConflictFormat, conflict)
             return
         }
-        renameShortcutRaw = shortcut.storageValue
-        renameError = nil
+        // The offer is the last word on a combination: every other check has
+        // already passed, so accepting it writes exactly what a save writes.
+        switch SystemShortcutTakeoverSupport.recorderDecision(
+            shortcut: shortcut,
+            conflictsWithMacOS: SystemShortcutTakeover.conflictsWithMacOS(shortcut, for: .finderRename),
+            takenOver: SystemShortcutTakeover.isTakenOver(DefaultsKey.finderRenameShortcut),
+            current: GlobalShortcut(storageValue: renameShortcutRaw)) {
+        case .offer:
+            pendingRenameTakeOver = shortcut
+            renameError = nil
+            return
+        case .save(let clearTakeOver):
+            renameShortcutRaw = shortcut.storageValue
+            renameError = nil
+            if clearTakeOver { SystemShortcutTakeover.setTakeOver(DefaultsKey.finderRenameShortcut, false) }
+        }
         FinderRenameService.shared.syncWithPreferences()
     }
 }

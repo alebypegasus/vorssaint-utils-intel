@@ -36,6 +36,23 @@ enum SpaceWindowBridge {
         return unsafeBitCast(symbol, to: GetWindowTagsFunction.self)
     }()
 
+    private typealias WindowIsOrderedInFunction =
+        @convention(c) (ConnectionID, CGWindowID, UnsafeMutablePointer<UInt8>) -> CGError
+    private static let windowIsOrderedIn: WindowIsOrderedInFunction? = {
+        guard let symbol = symbol("CGSWindowIsOrderedIn") else { return nil }
+        return unsafeBitCast(symbol, to: WindowIsOrderedInFunction.self)
+    }()
+
+    /// Unlike on-screen visibility, ordering survives a move to another desktop.
+    /// A dismissed surface can retain its desktop assignment without being ordered.
+    /// Keep an unavailable query distinct from an explicit ordered-out answer.
+    static func isWindowOrderedIn(_ windowID: CGWindowID) -> Bool? {
+        guard connection != 0, let windowIsOrderedIn else { return nil }
+        var ordered: UInt8 = 0
+        guard windowIsOrderedIn(connection, windowID, &ordered) == .success else { return nil }
+        return ordered != 0
+    }
+
     // MARK: - Space membership
 
     private typealias CopySpacesFunction =
@@ -78,7 +95,17 @@ enum SpaceWindowBridge {
         struct DisplayInfo {
             let displayID: CGDirectDisplayID?
             let spaces: [UInt64]
+            let fullscreenSpaces: Set<UInt64>
             let currentSpace: UInt64?
+        }
+
+        /// With separate Spaces, only the island's display controls visibility.
+        /// A shared Space applies to every display even if its UUID is absent.
+        func isFullscreen(on displayID: CGDirectDisplayID, separateSpaces: Bool) -> Bool {
+            let candidates = separateSpaces ? displays.filter { $0.displayID == displayID } : displays
+            return candidates.contains { display in
+                display.currentSpace.map { display.fullscreenSpaces.contains($0) } == true
+            }
         }
 
         /// Displays in order.
@@ -87,37 +114,57 @@ enum SpaceWindowBridge {
         var orderedSpacesPerDisplay: [[UInt64]] { displays.map(\.spaces) }
         /// The Space currently showing on each display.
         var visibleSpaces: Set<UInt64> { Set(displays.compactMap(\.currentSpace)) }
+        /// Native fullscreen Spaces. Managed-display dictionaries use type 4
+        /// for these and type 0 for ordinary desktops on current macOS.
+        var fullscreenSpaces: Set<UInt64> {
+            displays.reduce(into: []) { $0.formUnion($1.fullscreenSpaces) }
+        }
     }
 
+    /// Captures AppKit's display identity while the caller is on main. The
+    /// resulting values are safe to carry to window-enumeration workers.
+    static func displayIDsByUUID() -> [String: CGDirectDisplayID] {
+        var map: [String: CGDirectDisplayID] = [:]
+        for screen in NSScreen.screens {
+            guard let screenNum = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value,
+                  let uuid = CGDisplayCreateUUIDFromDisplayID(screenNum)?.takeRetainedValue(),
+                  let uuidStr = CFUUIDCreateString(nil, uuid) as String?
+            else { continue }
+            map[uuidStr] = screenNum
+        }
+        return map
+    }
+
+    /// Main-thread callers can keep using the AppKit-backed display mapping.
     static func topology() -> Topology? {
+        topology(displayIDsByUUID: displayIDsByUUID())
+    }
+
+    /// Resolves Space topology using display values captured by the caller.
+    /// This overload does not access AppKit and is safe for worker queues.
+    static func topology(displayIDsByUUID: [String: CGDirectDisplayID]) -> Topology? {
         guard connection != 0, let copyManagedDisplaySpaces,
               let displayDicts = copyManagedDisplaySpaces(connection)?
                 .takeRetainedValue() as? [[String: Any]],
               !displayDicts.isEmpty
         else { return nil }
 
-        let screenMap: [String: CGDirectDisplayID] = {
-            var map: [String: CGDirectDisplayID] = [:]
-            for screen in NSScreen.screens {
-                guard let screenNum = (screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value,
-                      let uuid = CGDisplayCreateUUIDFromDisplayID(screenNum)?.takeRetainedValue(),
-                      let uuidStr = CFUUIDCreateString(nil, uuid) as String?
-                else { continue }
-                map[uuidStr] = screenNum
-            }
-            return map
-        }()
-
         var displays: [Topology.DisplayInfo] = []
         for display in displayDicts {
-            let row = (display["Spaces"] as? [[String: Any]])?
-                .compactMap { ($0["id64"] as? NSNumber)?.uint64Value } ?? []
+            let spaceDictionaries = display["Spaces"] as? [[String: Any]] ?? []
+            let row = spaceDictionaries
+                .compactMap { ($0["id64"] as? NSNumber)?.uint64Value }
             guard !row.isEmpty else { continue }
+            let fullscreenSpaces = Set(spaceDictionaries.compactMap { space -> UInt64? in
+                guard (space["type"] as? NSNumber)?.intValue == 4 else { return nil }
+                return (space["id64"] as? NSNumber)?.uint64Value
+            })
             let current = (display["Current Space"] as? [String: Any])?["id64"] as? NSNumber
             let uuidStr = display["Display Identifier"] as? String
-            let displayID = uuidStr.flatMap { screenMap[$0] }
+            let displayID = uuidStr.flatMap { displayIDsByUUID[$0] }
             displays.append(Topology.DisplayInfo(displayID: displayID,
                                                  spaces: row,
+                                                 fullscreenSpaces: fullscreenSpaces,
                                                  currentSpace: current?.uint64Value))
         }
         guard !displays.isEmpty else { return nil }
@@ -136,7 +183,7 @@ enum SpaceWindowBridge {
     /// on without moving anything rather than guessing at a destination.
     static func visibleSpace(near pointer: CGPoint) -> UInt64? {
         guard let topology = topology() else { return nil }
-        let screen = NSScreen.screens.first { $0.frame.contains(pointer) } ?? NSScreen.main
+        let screen = NSScreen.screens.first { NSMouseInRect(pointer, $0.frame, false) } ?? NSScreen.main
         if let number = (screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?
             .uint32Value,
            let display = topology.displays.first(where: { $0.displayID == number }) {
@@ -168,9 +215,68 @@ enum SpaceWindowBridge {
                                                      visibleSpaces: visible)
     }
 
-    /// False when the private query is unavailable, preserving the existing
+    // MARK: - Window tags
+
+    // The last argument is a set of options, not a window count. Bit 0 asks
+    // for titles, which nothing here reads.
+    private typealias WindowQueryFunction =
+        @convention(c) (ConnectionID, CFArray, UInt64) -> Unmanaged<CFTypeRef>?
+    private typealias WindowQueryResultFunction = @convention(c) (CFTypeRef) -> Unmanaged<CFTypeRef>?
+    private typealias IteratorAdvanceFunction = @convention(c) (CFTypeRef) -> Bool
+    private typealias IteratorWindowIDFunction = @convention(c) (CFTypeRef) -> UInt32
+    private typealias IteratorTagsFunction = @convention(c) (CFTypeRef) -> UInt64
+
+    private struct WindowQuery {
+        let query: WindowQueryFunction
+        let windows: WindowQueryResultFunction
+        let advance: IteratorAdvanceFunction
+        let windowID: IteratorWindowIDFunction
+        let tags: IteratorTagsFunction
+    }
+
+    private static let windowQuery: WindowQuery? = {
+        guard let query = symbol("SLSWindowQueryWindows"),
+              let windows = symbol("SLSWindowQueryResultCopyWindows"),
+              let advance = symbol("SLSWindowIteratorAdvance"),
+              let windowID = symbol("SLSWindowIteratorGetWindowID"),
+              let tags = symbol("SLSWindowIteratorGetTags")
+        else { return nil }
+        return WindowQuery(query: unsafeBitCast(query, to: WindowQueryFunction.self),
+                           windows: unsafeBitCast(windows, to: WindowQueryResultFunction.self),
+                           advance: unsafeBitCast(advance, to: IteratorAdvanceFunction.self),
+                           windowID: unsafeBitCast(windowID, to: IteratorWindowIDFunction.self),
+                           tags: unsafeBitCast(tags, to: IteratorTagsFunction.self))
+    }()
+
+    /// The window server's tags for each window among `windowIDs` that still
+    /// exists. On macOS 27 `CGSGetWindowTags` reads zeros for any window of
+    /// another app, so the tags come from one batched window query, which
+    /// still answers for every app. Nil when that query is missing.
+    private static func windowTags(of windowIDs: [CGWindowID]) -> [CGWindowID: UInt64]? {
+        guard connection != 0, let windowQuery else { return nil }
+        // An empty list would answer with unrelated windows.
+        guard !windowIDs.isEmpty else { return [:] }
+        guard let query = windowQuery.query(connection, windowIDs.map { NSNumber(value: $0) } as CFArray,
+                                            0)?.takeRetainedValue(),
+              let iterator = windowQuery.windows(query)?.takeRetainedValue()
+        else { return nil }
+        var tags: [CGWindowID: UInt64] = [:]
+        while windowQuery.advance(iterator) {
+            tags[windowQuery.windowID(iterator)] = windowQuery.tags(iterator)
+        }
+        return tags
+    }
+
+    /// False when the window server cannot answer, preserving the existing
     /// cross-Space behavior instead of hiding a legitimate window on a guess.
     static func isExcludedFromWindowCycle(_ windowID: CGWindowID) -> Bool {
+        if let tags = windowTags(of: [windowID])?[windowID], tags != 0 {
+            return SpaceHopSupport.isExcludedFromWindowCycle(windowTags: tags)
+        }
+        // The batched query was measured on macOS 27 only. Without its
+        // answer, or with one of zeros, the per-window read keeps the flag
+        // where it answered before; on macOS 27 it reads zeros for other
+        // apps, so nothing hides.
         guard connection != 0, let getWindowTags else { return false }
         var tags = [UInt32](repeating: 0, count: 2)
         return tags.withUnsafeMutableBufferPointer { buffer in
@@ -178,8 +284,53 @@ enum SpaceWindowBridge {
                   getWindowTags(connection, windowID, base,
                                 MemoryLayout<UnsafeRawPointer>.size * 8) == .success
             else { return false }
-            return SpaceHopSupport.isExcludedFromWindowCycle(windowTagsLow: buffer[0])
+            return SpaceHopSupport.isExcludedFromWindowCycle(
+                windowTags: UInt64(buffer[0]) | UInt64(buffer[1]) << 32)
         }
+    }
+
+    /// The windows among `windowIDs` that the window server hid along with
+    /// their app. Nil when the window query is missing or answers without any
+    /// tag, and before macOS 26, where the tag has not been observed, so
+    /// callers keep their earlier behavior.
+    static func windowsHiddenWithApp(among windowIDs: [CGWindowID]) -> Set<CGWindowID>? {
+        guard #available(macOS 26.0, *), let tags = windowTags(of: windowIDs) else { return nil }
+        return SpaceHopSupport.windowsHiddenWithApp(windowTags: tags)
+    }
+
+    /// Whether the window server holds the window minimized in the Dock, even
+    /// for an app Accessibility cannot read. False when the window query is
+    /// missing, and before macOS 26, where the tag has not been observed.
+    static func isMinimized(_ windowID: CGWindowID) -> Bool {
+        guard #available(macOS 26.0, *), let tags = windowTags(of: [windowID])?[windowID] else { return false }
+        return SpaceHopSupport.isMinimized(windowTags: tags)
+    }
+
+    // MARK: - Child windows
+
+    private typealias IteratorParentIDFunction = @convention(c) (CFTypeRef) -> UInt32
+    private static let iteratorParentID: IteratorParentIDFunction? = {
+        guard let symbol = symbol("SLSWindowIteratorGetParentID") else { return nil }
+        return unsafeBitCast(symbol, to: IteratorParentIDFunction.self)
+    }()
+
+    /// The window `windowID` is attached to as a child window, such as the
+    /// browser window under its address bar suggestions or the window a
+    /// popover hangs from. Accessibility lists a child window as one more
+    /// window of the app and cannot tell the two apart. Nil for a window
+    /// attached to nothing, and when the window server cannot answer.
+    static func parentWindowID(of windowID: CGWindowID) -> CGWindowID? {
+        guard connection != 0, let windowQuery, let iteratorParentID,
+              let query = windowQuery.query(connection, [NSNumber(value: windowID)] as CFArray,
+                                            0)?.takeRetainedValue(),
+              let iterator = windowQuery.windows(query)?.takeRetainedValue()
+        else { return nil }
+        while windowQuery.advance(iterator) {
+            guard windowQuery.windowID(iterator) == windowID else { continue }
+            let parentID = iteratorParentID(iterator)
+            return parentID == kCGNullWindowID ? nil : parentID
+        }
+        return nil
     }
 
     // MARK: - Fronting a specific window
@@ -209,25 +360,89 @@ enum SpaceWindowBridge {
     /// window as the one that comes up front, marked as user-initiated. Older
     /// macOS also travels to the window's Space; current macOS ignores the
     /// Space part, which is why SpaceHop verifies the outcome and escalates.
-    /// The follow-up record pair makes the window key without clicking any of
-    /// its content (the synthetic click points just outside the frame).
-    static func frontWindow(_ windowID: CGWindowID, ownerPID: pid_t) {
-        guard let setFrontProcess, let processForPID else { return }
+    /// Native apps also receive a lone press to make the window key, aimed
+    /// far past the bottom-right of any window. Wine must never receive this
+    /// press: a game capturing the mouse treats it as a button held down. A
+    /// point just outside the frame lands on the invisible resize border, and
+    /// the repeated focus pass then finished a resize that dragged the
+    /// window's top-left corner to the screen's own. An all-ones (NaN) point
+    /// is turned back into (0, 0) by some apps, which then click whatever sits
+    /// at their top-left corner; a far positive point keeps any such fallback
+    /// on the opposite corner.
+    /// Returns false when the window server did not take the request, so the
+    /// caller can fall back to app-level activation.
+    @discardableResult
+    static func frontWindow(_ windowID: CGWindowID, ownerPID: pid_t) -> Bool {
+        guard let setFrontProcess, let processForPID else { return false }
+        let app = NSRunningApplication(processIdentifier: ownerPID)
+        let usesClick = SwitcherSupport.usesActivationClick(executablePath: app?.executableURL?.path,
+                                                          localizedName: app?.localizedName)
+        guard !usesClick || postEventRecord != nil else { return false }
         var psn = ProcessSerialNumber()
-        guard processForPID(ownerPID, &psn) == noErr else { return }
+        guard processForPID(ownerPID, &psn) == noErr else { return false }
         let userGenerated: UInt32 = 0x200
-        guard setFrontProcess(&psn, windowID, userGenerated) == .success else { return }
-        guard let postEventRecord else { return }
+        guard setFrontProcess(&psn, windowID, userGenerated) == .success else { return false }
+        guard usesClick else { return true }
+        guard let postEventRecord else { return false }
         var targetID = windowID
-        var clickPoint = CGPoint(x: -1, y: -1)
         var record = [UInt8](repeating: 0, count: 0x100)
         record[0x04] = 0xf8 // declared record length
         record[0x3a] = 0x10
         withUnsafeBytes(of: &targetID) { record.replaceSubrange(0x3c..<0x3c + $0.count, with: $0) }
-        withUnsafeBytes(of: &clickPoint) { record.replaceSubrange(0x20..<0x20 + $0.count, with: $0) }
-        record[0x08] = 0x01 // left mouse down…
-        _ = postEventRecord(&psn, &record)
-        record[0x08] = 0x02 // …then up: the pair makes the window key
+        // Window-relative location, far past the bottom-right of any window.
+        var farPoint = CGPoint(x: 300_000, y: 300_000)
+        withUnsafeBytes(of: &farPoint) { record.replaceSubrange(0x20..<0x20 + $0.count, with: $0) }
+        record[0x08] = 0x01 // left mouse down alone makes the window key
+        return postEventRecord(&psn, &record) == .success
+    }
+
+    /// Hands the keyboard to a window and leaves the stacking order alone,
+    /// with the focus handoff window managers use for this. Within the app
+    /// already in front, the window server moves focus only once the old
+    /// window hears it lost focus and the new one that it gained it. Some apps
+    /// miss the pair when it arrives at once, so the second half waits 40 ms
+    /// without blocking the main thread. If the hover is no longer current
+    /// when it ends, the old window gets its focus back only if it still
+    /// verifiably holds it.
+    static func focusWithoutRaise(_ windowID: CGWindowID, ownerPID: pid_t,
+                                  replacing focusedWindowID: CGWindowID?,
+                                  while isCurrent: @escaping () -> Bool,
+                                  completion: @escaping (Bool) -> Void) {
+        guard isCurrent() else {
+            completion(false)
+            return
+        }
+        guard let focusedWindowID else {
+            completion(frontWindow(windowID, ownerPID: ownerPID))
+            return
+        }
+        postFocusRecord(focusedWindowID, ownerPID: ownerPID, gained: false)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
+            guard isCurrent() else {
+                if FocusFollowsMouseSupport.shouldRestoreFocus(
+                    to: focusedWindowID,
+                    reportedFocusedWindowID: WindowActivator.focusedWindowID(for: ownerPID),
+                    appIsFrontmost: NSWorkspace.shared.frontmostApplication?.processIdentifier == ownerPID) {
+                    postFocusRecord(focusedWindowID, ownerPID: ownerPID, gained: true)
+                }
+                completion(false)
+                return
+            }
+            postFocusRecord(windowID, ownerPID: ownerPID, gained: true)
+            completion(frontWindow(windowID, ownerPID: ownerPID))
+        }
+    }
+
+    private static func postFocusRecord(_ windowID: CGWindowID, ownerPID: pid_t, gained: Bool) {
+        guard let processForPID, let postEventRecord else { return }
+        var psn = ProcessSerialNumber()
+        guard processForPID(ownerPID, &psn) == noErr else { return }
+        var targetID = windowID
+        var record = [UInt8](repeating: 0, count: 0x100)
+        record[0x04] = 0xf8 // declared record length
+        record[0x08] = 0x0d
+        record[0x8a] = gained ? 0x01 : 0x02
+        withUnsafeBytes(of: &targetID) { record.replaceSubrange(0x3c..<0x3c + $0.count, with: $0) }
         _ = postEventRecord(&psn, &record)
     }
 
@@ -254,6 +469,17 @@ enum SpaceWindowBridge {
         fileprivate var hotKeyID: Int32 { self == .left ? 79 : 81 }
     }
 
+    /// The two Mission Control overviews, by their system symbolic hotkey ids
+    /// (32 is "Mission Control", 33 is "Application windows"). The window
+    /// server refuses software-simulated touch gestures, so an overview is
+    /// opened the same way the keyboard opens it (issue #1012).
+    enum SpaceOverview {
+        case missionControl
+        case appExpose
+
+        fileprivate var hotKeyID: Int32 { self == .missionControl ? 32 : 33 }
+    }
+
     struct SpaceShortcut {
         let keyCode: CGKeyCode
         let flags: CGEventFlags
@@ -263,12 +489,23 @@ enum SpaceWindowBridge {
     /// Space over, honoring user remaps. Nil when the shortcut is disabled or
     /// unreadable, in which case no synthetic travel is attempted.
     static func spaceShortcut(_ direction: SpaceDirection) -> SpaceShortcut? {
+        registeredShortcut(direction.hotKeyID)
+    }
+
+    /// The same lookup for the overviews. Nil when the user switched that
+    /// shortcut off in System Settings, which is the one honest answer: with
+    /// no registered combination there is nothing to press.
+    static func overviewShortcut(_ overview: SpaceOverview) -> SpaceShortcut? {
+        registeredShortcut(overview.hotKeyID)
+    }
+
+    private static func registeredShortcut(_ hotKeyID: Int32) -> SpaceShortcut? {
         guard let symbolicHotKeyValue, let symbolicHotKeyEnabled,
-              symbolicHotKeyEnabled(direction.hotKeyID) else { return nil }
+              symbolicHotKeyEnabled(hotKeyID) else { return nil }
         var options: UInt32 = 0
         var keyCode: UInt32 = 0
         var modifiers: UInt32 = 0
-        guard symbolicHotKeyValue(direction.hotKeyID, &options, &keyCode, &modifiers) == .success,
+        guard symbolicHotKeyValue(hotKeyID, &options, &keyCode, &modifiers) == .success,
               keyCode != 0
         else { return nil }
         return SpaceShortcut(keyCode: CGKeyCode(keyCode),

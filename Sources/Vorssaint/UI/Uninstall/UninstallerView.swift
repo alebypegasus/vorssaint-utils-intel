@@ -11,52 +11,29 @@ struct UninstallerView: View {
     @ObservedObject private var uninstaller = AppUninstaller.shared
     @ObservedObject private var homebrew = HomebrewManager.shared
     @ObservedObject private var permissions = Permissions.shared
-    @State private var mode: Mode = .allApps
-    @State private var showHomebrewDetails = false
-    @State private var showingAppPicker = false
+    @AppStorage(DefaultsKey.uninstallerCommandBarEnabled) private var commandBarEnabled = false
     @State private var dropTargeted = false
-    @State private var pendingHomebrewRemoval: HomebrewPackage? = nil
-
-    private enum Mode: String, CaseIterable {
-        case allApps, dropPicker
-    }
+    @State private var showingAppPicker = false
+    @State private var pendingHomebrewRemoval: AppUninstaller.HomebrewRemovalConfirmation?
+    @State private var showHomebrewDetails = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("", selection: $mode) {
-                Label("All Applications", systemImage: "square.grid.2x2")
-                    .tag(Mode.allApps)
-                Label("Drag & Drop App", systemImage: "arrow.down.doc")
-                    .tag(Mode.dropPicker)
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear { uninstaller.clearRefusal() }
+            .onDisappear { uninstaller.clearRefusal() }
+            .alert(l10n.s.homebrewConfirmUninstallTitle,
+                   isPresented: Binding(get: { pendingHomebrewRemoval != nil },
+                                        set: { if !$0 { pendingHomebrewRemoval = nil } }),
+                   presenting: pendingHomebrewRemoval) { confirmation in
+                Button(l10n.s.uninstallerCancel, role: .cancel) {}
+                Button(l10n.s.homebrewUninstall, role: .destructive) {
+                    pendingHomebrewRemoval = nil
+                    uninstaller.removeSelectedWithHomebrew(confirmation: confirmation)
+                }
+            } message: { confirmation in
+                Text(String(format: l10n.s.homebrewConfirmUninstallBodyFormat, confirmation.package.displayName))
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(maxWidth: 360)
-            .padding(.horizontal, 24)
-            .padding(.vertical, 12)
-
-            Divider()
-
-            if mode == .allApps {
-                DeepUninstallerEnhancedView()
-            } else {
-                content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .alert(l10n.s.homebrewConfirmUninstallTitle,
-               isPresented: Binding(get: { pendingHomebrewRemoval != nil },
-                                    set: { if !$0 { pendingHomebrewRemoval = nil } }),
-               presenting: pendingHomebrewRemoval) { package in
-            Button(l10n.s.uninstallerCancel, role: .cancel) {}
-            Button(l10n.s.homebrewUninstall, role: .destructive) {
-                pendingHomebrewRemoval = nil
-                uninstaller.removeSelectedWithHomebrew()
-            }
-        } message: { package in
-            Text(String(format: l10n.s.homebrewConfirmUninstallBodyFormat, package.displayName))
-        }
     }
 
     @ViewBuilder
@@ -71,6 +48,20 @@ struct UninstallerView: View {
     }
 
     // MARK: Empty / drop
+
+    private var commandBarToggle: some View {
+        Form {
+            Section {
+                Toggle(l10n.s.uninstallerCommandBarToggle, isOn: $commandBarEnabled)
+                Text(l10n.s.uninstallerCommandBarCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: 360)
+    }
 
     private var emptyState: some View {
         VStack(spacing: 20) {
@@ -97,12 +88,18 @@ struct UninstallerView: View {
                 )
                 .animation(.easeOut(duration: 0.15), value: dropTargeted)
 
+            if let refusal = uninstaller.refusal {
+                UninstallRefusalNote(refusal: refusal).frame(width: 360)
+            }
+
             Button(l10n.s.uninstallerChoose) { choose() }
                 .controlSize(.large)
 
             Text(l10n.s.uninstallerEmptyNote)
                 .font(.caption)
                 .foregroundStyle(.tertiary)
+
+            commandBarToggle
 
             if !permissions.fullDiskAccess {
                 FullDiskAccessNote().frame(width: 360)
@@ -111,17 +108,16 @@ struct UninstallerView: View {
         }
         .padding(28)
         .sheet(isPresented: $showingAppPicker) {
-            AppPickerView {
+            AppPickerView(emptyNote: l10n.s.uninstallerPickerHiddenNote) {
                 showingAppPicker = false
             } onSelect: { url in
                 showingAppPicker = false
                 uninstaller.select(appURL: url)
-            }
+            } loadApps: { UninstallerSupport.offeredApplications() }
         }
         .dropDestination(for: URL.self) { urls, _ in
             guard let app = urls.first(where: { $0.pathExtension == "app" }) ?? urls.first else { return false }
-            uninstaller.select(appURL: app)
-            return true
+            return uninstaller.select(appURL: app)
         } isTargeted: { dropTargeted = $0 }
     }
 
@@ -137,6 +133,10 @@ struct UninstallerView: View {
                     Image(nsImage: target.icon).resizable().frame(width: 18, height: 18)
                     Text(target.name).font(.callout)
                 }
+            }
+            if uninstaller.phase == .scanning {
+                Button(l10n.s.uninstallerCancel) { uninstaller.reset() }
+                    .controlSize(.large)
             }
             Spacer()
         }
@@ -198,11 +198,27 @@ struct UninstallerView: View {
                 .resizable().frame(width: 22, height: 22)
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.name).font(.system(size: 12.5)).lineLimit(1).truncationMode(.middle)
-                Text(prettyPath(item.url))
-                    .font(.system(size: 10.5)).foregroundStyle(.tertiary)
-                    .lineLimit(1).truncationMode(.head)
+                HStack(spacing: 5) {
+                    if item.confidence == .related {
+                        Label(l10n.s.cleanerOptionalSection, systemImage: "questionmark.circle")
+                            .foregroundStyle(.orange)
+                    }
+                    Text(prettyPath(item.url))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+                .font(.system(size: 10.5))
             }
             Spacer()
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([item.url])
+            } label: {
+                Image(systemName: "folder")
+            }
+            .buttonStyle(.plain)
+            .help(l10n.s.cleanerRevealInFinder)
+            .accessibilityLabel(l10n.s.cleanerRevealInFinder)
             Text(Self.byteString(item.size))
                 .font(.system(size: 11.5)).foregroundStyle(.secondary)
                 .monospacedDigit()
@@ -223,8 +239,8 @@ struct UninstallerView: View {
             Button(l10n.s.uninstallerCancel) { uninstaller.reset() }
                 .disabled(uninstaller.isRemovingWithHomebrew)
             Button(removeButtonTitle) {
-                if let package = uninstaller.selectedHomebrewPackage {
-                    pendingHomebrewRemoval = package
+                if let confirmation = uninstaller.homebrewRemovalConfirmation {
+                    pendingHomebrewRemoval = confirmation
                 } else {
                     uninstaller.removeSelected()
                 }

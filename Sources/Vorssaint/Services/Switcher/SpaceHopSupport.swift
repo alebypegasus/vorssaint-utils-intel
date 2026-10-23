@@ -28,6 +28,30 @@ enum SpaceHopSupport {
         appHasWindowOnVisibleSpace ? .moveASpace : .waitForActivationTravel
     }
 
+    /// Whether an arrival pulse should run the focus pass again (issue #1733).
+    /// The first pulse always runs: it is the one Accessibility has to settle
+    /// for. A later pulse only repeats it when the earlier pass has not landed,
+    /// because raising a window that is already its app's focused window, with
+    /// that app in front, deactivates and reactivates it for nothing and reads
+    /// as a flicker. Only the process that owns the window counts as in front:
+    /// for a window of an embedded helper, fronting it makes the helper the
+    /// front process, so the host app in front means the keyboard is still
+    /// with the host even while the helper reports the window as focused. While
+    /// the window's Space is still hidden every pulse runs: when the "move a
+    /// space" shortcut is off or unreadable the pulses are the hop's last tries
+    /// to bring the window up, and the app can already be in front reporting
+    /// that window as focused before it has arrived.
+    static func arrivalPulseShouldFocus(isFirstPulse: Bool,
+                                        targetSpaceIsVisible: @autoclosure () -> Bool,
+                                        targetWindowID: CGWindowID,
+                                        windowOwnerPID: pid_t,
+                                        frontmostPID: pid_t?,
+                                        focusedWindowID: @autoclosure () -> CGWindowID?) -> Bool {
+        guard !isFirstPulse, targetSpaceIsVisible() else { return true }
+        guard frontmostPID == windowOwnerPID else { return true }
+        return focusedWindowID() != targetWindowID
+    }
+
     /// A window the window server places on at least one Space, none of which
     /// is visible right now, is a real window parked elsewhere. A window on no
     /// Space at all is a leftover surface (the ghosts the Accessibility veto
@@ -37,12 +61,49 @@ enum SpaceHopSupport {
         return !windowSpaces.contains { visibleSpaces.contains($0) }
     }
 
+    /// Whether at least one Space assigned to a window is a native fullscreen
+    /// Space. This is stronger than guessing from the window frame: a tiled or
+    /// zoomed window can fill the same rectangle without owning its own Space.
+    static func isOnFullscreenSpace(windowSpaces: [UInt64],
+                                    fullscreenSpaces: Set<UInt64>) -> Bool {
+        windowSpaces.contains { fullscreenSpaces.contains($0) }
+    }
+
     /// The window server marks surfaces that must stay out of app window
     /// cycling. This remains meaningful when Accessibility cannot inspect a
     /// window because it lives on another Space.
-    static func isExcludedFromWindowCycle(windowTagsLow: UInt32) -> Bool {
-        let ignoresCycleTag: UInt32 = 1 << 18
-        return windowTagsLow & ignoresCycleTag != 0
+    static func isExcludedFromWindowCycle(windowTags: UInt64) -> Bool {
+        let ignoresCycleTag: UInt64 = 1 << 18
+        return windowTags & ignoresCycleTag != 0
+    }
+
+    /// Hiding an app tags each window it takes off screen. A window the app
+    /// had already closed keeps its desktop assignment but never gets the
+    /// tag (issues #512 and #2628). The tag only means this while the app is
+    /// hidden: a window closed in the meantime keeps it.
+    static func isHiddenWithApp(windowTags: UInt64) -> Bool {
+        let hiddenWithAppTag: UInt64 = 1 << 39
+        return windowTags & hiddenWithAppTag != 0
+    }
+
+    /// Minimizing a window into the Dock tags it from the start of the
+    /// animation until it is restored. A window its app closed or hid never
+    /// gets the tag, though both leave it off screen on the Space in front
+    /// (measured on macOS 27, issue #3249).
+    static func isMinimized(windowTags: UInt64) -> Bool {
+        let minimizedTag: UInt64 = 1 << 60
+        return windowTags & minimizedTag != 0
+    }
+
+    /// The windows a window query's answer tags as hidden with their app. A
+    /// window missing from the answer no longer exists, so it is never one.
+    /// Every live window carries some tag, so an answer without any is one
+    /// the server withheld, as `CGSGetWindowTags` does for other apps on
+    /// macOS 27. Nil then keeps callers on their earlier behavior instead of
+    /// dropping every window of a hidden app.
+    static func windowsHiddenWithApp(windowTags: [CGWindowID: UInt64]) -> Set<CGWindowID>? {
+        guard windowTags.values.contains(where: { $0 != 0 }) else { return nil }
+        return Set(windowTags.filter { isHiddenWithApp(windowTags: $0.value) }.keys)
     }
 
     /// How many "move a space" presses take the user from the visible Space to

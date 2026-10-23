@@ -54,13 +54,30 @@ enum SelfTest {
             warnings.append("AppleSMC unavailable")
         }
 
+        // The recorder's macOS-conflict check reads the WindowServer's live
+        // shortcut table through private calls; when they are gone it falls
+        // back to the preferences plist and loses factory keys such as ⌘⇧4.
+        if SymbolicHotKeys.liveEntries()?.isEmpty != false {
+            warnings.append("symbolic hotkey table unavailable; shortcut conflicts fall back to the plist")
+        }
+
+        // Per-app AirPlay drives private AVFoundation routing objects (the
+        // default shared output context and the picker and renderer bindings).
+        // When an update removes one, the mixer quietly stops offering AirPlay
+        // on the systems it is offered on.
+        if #available(macOS 27, *), !AirPlayRouteManager.shared.isAvailable {
+            warnings.append("AirPlay routing unavailable; the mixer does not offer AirPlay")
+        }
+
         // Network counters should be readable and never run backwards.
         let net1 = NetworkSampler.readCounters()
         let net2 = NetworkSampler.readCounters()
-        if net1 == NetworkCounters(), net2 == NetworkCounters() {
+        if let net1, let net2 {
+            if net2.received < net1.received || net2.sent < net1.sent {
+                failures.append("network counters decreased")
+            }
+        } else {
             warnings.append("network counters unavailable")
-        } else if net2.received < net1.received || net2.sent < net1.sent {
-            failures.append("network counters decreased")
         }
 
         let diskCounters = DiskSampler.readCounters()
@@ -98,11 +115,31 @@ enum SelfTest {
             }
         }
 
+        // A symbol chosen for the menu bar shares the active symbols' canvas,
+        // so every one the gallery offers must fit it; a name this Mac lacks
+        // must leave the mark, never an empty item.
+        for name in Defaults.menuBarIconGallery {
+            guard let symbol = BlackHoleGlyph.customMark(named: name) else {
+                failures.append("menu bar gallery symbol \(name)")
+                continue
+            }
+            if symbol.size != BlackHoleGlyph.pointSize || inkTouchesEdge(of: symbol) {
+                failures.append("menu bar gallery symbol \(name) does not fit its canvas")
+            }
+        }
+        let missingSymbol = "vorssaint.missing.symbol"
+        if BlackHoleGlyph.customMark(named: missingSymbol) != nil
+            || BlackHoleGlyph.mark(symbolName: missingSymbol) !== BlackHoleGlyph.mark(symbolName: "") {
+            failures.append("unknown menu bar symbol does not fall back to the glyph")
+        }
+
         // Tools/MakeIcon.swift writes the glyph PNGs at BlackHoleGlyph.pointSize.
         // Changing the canvas in one and not the other would squash the glyph.
+        // Asked for with no symbol name, since the glyph in use may be a
+        // symbol chosen in the menu bar settings.
         if Bundle.main.url(forResource: "MenuBarIcon", withExtension: "png") == nil {
             warnings.append("menu bar glyph asset not bundled")
-        } else if let rep = BlackHoleGlyph.image(active: false)?
+        } else if let rep = BlackHoleGlyph.mark(symbolName: "")?
             .representations.min(by: { $0.pixelsWide < $1.pixelsWide }) {
             if rep.pixelsWide != Int(BlackHoleGlyph.pointSize.width)
                 || rep.pixelsHigh != Int(BlackHoleGlyph.pointSize.height) {
@@ -182,7 +219,10 @@ enum SensorDump {
             } else {
                 component = "cpu"
             }
+            // Diagnostic output, read by whoever ran the self-test and by
+            // scripts, so it stays on a decimal point wherever it runs.
             print(String(format: "%-11@  %@  %@  %6.2f",
+                         locale: Locale(identifier: "en_US_POSIX"),
                          component as NSString, key.name, key.dataType, value))
         }
         exit(0)

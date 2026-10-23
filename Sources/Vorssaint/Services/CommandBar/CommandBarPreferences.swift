@@ -12,6 +12,9 @@ enum CommandBarSource: String, CaseIterable, Identifiable {
     case menus
     case windows
     case quitApps
+    /// Apps offered for uninstalling, browsed one at a time from the
+    /// "Uninstall Application" row - never in the flat search pool.
+    case uninstallApps
     case settingsPages
     /// The Mac's own Settings panes, which are not Vorssaint's and can be
     /// switched off on their own.
@@ -44,6 +47,7 @@ enum CommandBarSource: String, CaseIterable, Identifiable {
         case .menus: return "filemenu.and.selection"
         case .windows: return "macwindow"
         case .quitApps: return "xmark.circle"
+        case .uninstallApps: return "trash"
         case .settingsPages: return "gearshape"
         case .macSettings: return "gearshape.2"
         case .snippets: return "text.append"
@@ -67,6 +71,7 @@ enum CommandBarSource: String, CaseIterable, Identifiable {
         case .menus: return "menu."
         case .windows: return "window."
         case .quitApps: return "quit."
+        case .uninstallApps: return "uninstall."
         case .settingsPages: return "settings."
         case .macSettings: return "macsettings."
         case .snippets: return "snippet."
@@ -91,6 +96,14 @@ enum CommandBarPreferences {
     static let emojiBrowserRowID = "emoji.browse"
     static let killProcessBrowserRowID = "kill.browse"
 
+    /// The rows that open another category. They are the app's own actions,
+    /// but they carry the prefix of what they open, because that is where
+    /// they lead, so `source(ofRowID:)` files them under it and the Actions
+    /// list has to name them rather than read them off the prefix.
+    static let actionBrowseRowIDs: Set<String> = [
+        emojiBrowserRowID, killProcessBrowserRowID, "uninstall.browse", "uninstall.finder",
+    ]
+
     // MARK: - Sources
 
     static func disabledSources(from raw: String) -> Set<CommandBarSource> {
@@ -105,8 +118,30 @@ enum CommandBarPreferences {
         sources.filter { !$0.isAlwaysOn }.map(\.rawValue).sorted().joined(separator: ",")
     }
 
+    static func emojiRowID(identity: String) -> String {
+        (CommandBarSource.emoji.idPrefix ?? "") + identity
+    }
+
+    static func emojiIdentity(fromRowID id: String) -> String? {
+        guard let prefix = CommandBarSource.emoji.idPrefix, id.hasPrefix(prefix),
+              id.count > prefix.count else { return nil }
+        return String(id.dropFirst(prefix.count))
+    }
+
+    /// The tone the person chose for emoji that can carry one. An unknown
+    /// value reads as the default.
+    static func skinTone(from raw: String) -> CommandBarEmoji.SkinTone {
+        CommandBarEmoji.SkinTone(rawValue: raw) ?? .none
+    }
+
     static func isEnabled(_ source: CommandBarSource, disabledRaw: String) -> Bool {
-        source.isAlwaysOn || !disabledSources(from: disabledRaw).contains(source)
+        isEnabled(source, disabled: disabledSources(from: disabledRaw))
+    }
+
+    /// The same rule the empty bar and the search pool apply, over a set the
+    /// caller already holds rather than a string it would have to parse again.
+    static func isEnabled(_ source: CommandBarSource, disabled: Set<CommandBarSource>) -> Bool {
+        source.isAlwaysOn || !disabled.contains(source)
     }
 
     /// The source a row belongs to, decided by its id. Rows with no prefix of
@@ -116,6 +151,22 @@ enum CommandBarPreferences {
             if let prefix = source.idPrefix, id.hasPrefix(prefix) { return source }
         }
         return .actions
+    }
+
+    /// Whether the Actions browse list shows this row: everything with no
+    /// prefix of its own, plus the rows whose only way into another category
+    /// is that category's name.
+    static func isActionRow(_ id: String) -> Bool {
+        source(ofRowID: id) == .actions || actionBrowseRowIDs.contains(id)
+    }
+
+    /// Whether the Actions browse list shows this row, with the source rule
+    /// the empty bar and the search pool already apply. A row that opens
+    /// another category leads to that category's name, so with the category
+    /// switched off the row is the only place left that can still run it, and
+    /// that is exactly what the empty bar and the search pool refuse.
+    static func isActionRow(_ id: String, disabled: Set<CommandBarSource>) -> Bool {
+        isActionRow(id) && isEnabled(source(ofRowID: id), disabled: disabled)
     }
 
     /// What a kind of row is worth before a single letter of it is read.
@@ -133,8 +184,9 @@ enum CommandBarPreferences {
         // A file is the deepest and most numerous thing the bar can find, and
         // a bar is for running things first. So a file has to be a plainly
         // better match than a command to lead the list, never merely as good.
-        case .files: return -40
-        case .actions, .apps, .windows, .quitApps, .settingsPages, .macSettings, .snippets,
+        case .files, .settingsPages: return -40
+        case .apps: return 80
+        case .actions, .windows, .quitApps, .uninstallApps, .macSettings, .snippets,
              .clipboard, .emoji, .folders, .answers, .calculator, .selection, .links, .killProcess:
             return 0
         }
@@ -164,7 +216,7 @@ enum CommandBarPreferences {
     /// pinned to one would silently point somewhere else tomorrow.
     static func acceptsAlias(rowID: String) -> Bool {
         switch source(ofRowID: rowID) {
-        case .menus, .windows, .clipboard, .selection, .files, .killProcess: return false
+        case .menus, .windows, .clipboard, .selection, .files, .killProcess, .uninstallApps: return false
         case .actions, .apps, .quitApps, .settingsPages, .macSettings, .snippets, .emoji,
              .folders, .answers, .calculator, .links:
             return true
@@ -184,6 +236,11 @@ enum CommandBarPreferences {
         return next
     }
 
+    static func removingAliases(for keys: Set<String>, in aliases: [String: String]) -> [String: String] {
+        guard !keys.isEmpty else { return aliases }
+        return aliases.filter { !keys.contains($0.key) }
+    }
+
     /// How well what was typed names this alias. A name the person gave has
     /// to outrank the app's own titles, or "codex" keeps opening the editor
     /// whose name merely looks similar; a name being typed ranks just under a
@@ -194,7 +251,12 @@ enum CommandBarPreferences {
     }
 
     static func aliasHit(_ alias: String, query: String) -> AliasHit? {
-        let normalizedQuery = CommandBarSearch.normalized(query)
+        aliasHit(alias, normalizedQuery: CommandBarSearch.normalized(query))
+    }
+
+    /// The same answer for letters the caller has already folded, so a pass
+    /// over the pool folds the query once instead of once per named row.
+    static func aliasHit(_ alias: String, normalizedQuery: String) -> AliasHit? {
         guard !normalizedQuery.isEmpty else { return nil }
         var best: AliasHit?
         for word in CommandBarSearch.normalized(alias).split(separator: " ").map(String.init)
@@ -232,7 +294,8 @@ enum CommandBarPreferences {
     /// again, which reads as the pin being broken.
     static func acceptsPin(rowID: String) -> Bool {
         switch source(ofRowID: rowID) {
-        case .menus, .quitApps, .clipboard, .emoji, .selection, .files, .killProcess: return false
+        case .menus, .quitApps, .uninstallApps, .clipboard, .emoji, .selection, .files, .killProcess:
+            return false
         case .actions, .apps, .windows, .settingsPages, .macSettings, .snippets, .folders,
              .links, .answers, .calculator:
             return true
@@ -263,6 +326,11 @@ enum CommandBarPreferences {
         return next
     }
 
+    static func removingPins(for keys: Set<String>, in pins: [String]) -> [String] {
+        guard !keys.isEmpty else { return pins }
+        return pins.filter { !keys.contains($0) }
+    }
+
     /// What a pin is worth on a typed query: enough to win a tie between two
     /// equally good matches, never enough to jump over a better one. A pin
     /// that overrode the ranking would make the list feel stale, which is the
@@ -286,7 +354,7 @@ enum CommandBarPreferences {
     private static func isHubOwned(_ rowID: String) -> Bool {
         switch source(ofRowID: rowID) {
         case .actions, .settingsPages, .snippets: return true
-        case .apps, .menus, .windows, .quitApps, .macSettings, .clipboard, .emoji,
+        case .apps, .uninstallApps, .menus, .windows, .quitApps, .macSettings, .clipboard, .emoji,
              .folders, .answers, .calculator, .selection, .links, .files, .killProcess:
             return false
         }
@@ -307,6 +375,11 @@ enum CommandBarPreferences {
         var next = hidden
         if next.contains(key) { next.remove(key) } else { next.insert(key) }
         return next
+    }
+
+    static func removingHidden(for keys: Set<String>, in hidden: Set<String>) -> Set<String> {
+        guard !keys.isEmpty else { return hidden }
+        return hidden.subtracting(keys)
     }
 
     // MARK: - Position

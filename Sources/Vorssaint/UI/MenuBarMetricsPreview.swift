@@ -16,11 +16,14 @@ struct MenuBarMetricsPreview: View {
     @AppStorage(DefaultsKey.menuBarBatteryTemperature) private var batteryTemperature = false
     @AppStorage(DefaultsKey.menuBarNetwork) private var network = false
     @AppStorage(DefaultsKey.menuBarDiskUsage) private var diskUsage = false
+    @AppStorage(DiskMenuBarStyle.defaultsKey) private var diskStyle = DiskMenuBarStyle.percent
     @AppStorage(DefaultsKey.menuBarDiskActivity) private var diskActivity = false
     @AppStorage(DefaultsKey.menuBarBattery) private var battery = false
     @AppStorage(DefaultsKey.menuBarBatteryTime) private var batteryTime = false
     @AppStorage(DefaultsKey.menuBarPeripheralBattery) private var peripheralBattery = false
     @AppStorage(DefaultsKey.menuBarPower) private var power = false
+    @AppStorage(DefaultsKey.menuBarFanSpeed) private var fanSpeed = false
+    @AppStorage(DefaultsKey.menuBarConnectedDevices) private var connectedDevices = false
     @AppStorage(DefaultsKey.menuBarMetricOrder) private var metricOrder = ""
     @AppStorage(DefaultsKey.menuBarCombineTemperatures) private var combineTemperatures = true
     @AppStorage(DefaultsKey.menuBarMetricAppearance) private var metricAppearance = "values"
@@ -33,6 +36,11 @@ struct MenuBarMetricsPreview: View {
     @AppStorage(DefaultsKey.menuBarNetworkUploadFirst) private var networkUploadFirst = false
     @AppStorage(DefaultsKey.menuBarMemoryStyle) private var memoryStyle = "percent"
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
+    @AppStorage(DefaultsKey.networkSpeedUnit) private var networkSpeedUnit = NetworkSpeedUnit.bytes
+    @AppStorage(DefaultsKey.menuBarMetricSpacing) private var metricSpacing = "standard"
+    @AppStorage(DefaultsKey.menuBarHideIconWithMetrics) private var hideIconWithMetrics = false
+    @AppStorage(DefaultsKey.menuBarSeparateMetrics) private var separateMetrics = false
+    @ObservedObject private var l10n = L10n.shared
 
     var body: some View {
         let _ = metricOrder
@@ -46,9 +54,23 @@ struct MenuBarMetricsPreview: View {
         let _ = labelStyle
         let _ = networkUploadFirst
         let _ = memoryStyle
+        let _ = diskStyle
         let _ = temperatureUnit
-        let lines = MenuBarRenderer.lines(for: monitor.snapshot, metrics: activeMetrics)
-        let stacked = lines.count > 1
+        let _ = networkSpeedUnit
+        let _ = metricSpacing
+        let metrics = activeMetrics
+        let lines = separateMetrics ? [] : MenuBarRenderer.lines(for: monitor.snapshot, metrics: metrics)
+        // Separate items are their own status items, which macOS seats to
+        // the left of the one that was there first.
+        let items = separateMetrics
+            ? StatusItemController.metricStatusGroups(for: metrics, strings: l10n.s)
+                .map { MenuBarRenderer.lines(for: monitor.snapshot, metrics: $0.metrics) }
+                .filter { !$0.isEmpty }
+            : []
+        // The steady state of the hide option: a pending update, a running
+        // Keep Awake or a muted microphone brings the real icon back, and the
+        // preview does not pretend to know about any of them.
+        let iconHidden = hideIconWithMetrics && (!lines.isEmpty || !items.isEmpty)
 
         HStack(spacing: 12) {
             Spacer()
@@ -58,20 +80,18 @@ struct MenuBarMetricsPreview: View {
                 Image(systemName: "battery.75")
                     .foregroundStyle(.white.opacity(0.5))
             }
-            HStack(spacing: 5) {
-                glyph
-                    .frame(width: BlackHoleGlyph.pointSize.width,
-                           height: BlackHoleGlyph.pointSize.height)
-                if !lines.isEmpty {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                            HStack(spacing: 0) {
-                                ForEach(Array(line.enumerated()), id: \.offset) { _, segment in
-                                    segmentView(segment, stacked: stacked)
-                                }
-                            }
-                            .frame(height: MenuBarRenderer.statusLineHeight(stacked: stacked))
-                        }
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                linesView(item)
+            }
+            if !iconHidden || !lines.isEmpty {
+                HStack(spacing: 5) {
+                    if !iconHidden {
+                        glyph
+                            .frame(width: BlackHoleGlyph.pointSize.width,
+                                   height: BlackHoleGlyph.pointSize.height)
+                    }
+                    if !lines.isEmpty {
+                        linesView(lines)
                     }
                 }
             }
@@ -84,6 +104,20 @@ struct MenuBarMetricsPreview: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .fill(Color.black.opacity(0.82))
         )
+    }
+
+    private func linesView(_ lines: [[MenuBarSegment]]) -> some View {
+        let stacked = lines.count > 1
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                HStack(spacing: 0) {
+                    ForEach(Array(line.enumerated()), id: \.offset) { _, segment in
+                        segmentView(segment, stacked: stacked)
+                    }
+                }
+                .frame(height: MenuBarRenderer.statusLineHeight(stacked: stacked))
+            }
+        }
     }
 
     private var activeMetrics: [MenuBarMetric] {
@@ -100,6 +134,8 @@ struct MenuBarMetricsPreview: View {
         let _ = batteryTime
         let _ = peripheralBattery
         let _ = power
+        let _ = fanSpeed
+        let _ = connectedDevices
         return MenuBarMetric.enabled(in: .standard)
     }
 
@@ -124,12 +160,13 @@ struct MenuBarMetricsPreview: View {
                 .font(.system(size: 13.6, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 14.2, height: 14.2)
-        case let .metricBlock(label, value, minimumValue, style, pressure):
+        case let .metricBlock(label, value, minimumValue, style, pressure, warning):
             metricBlock(label: label,
                         value: value,
                         minimumValue: minimumValue,
                         style: style,
-                        pressure: pressure)
+                        pressure: pressure,
+                        warning: warning)
         case let .usageBarBlock(label, fraction, style, pressure):
             usageBarBlock(label: label,
                           fraction: fraction,
@@ -164,9 +201,11 @@ struct MenuBarMetricsPreview: View {
             .frame(width: MenuBarRenderer.rateBlockWidth(style: style),
                    height: style == .readable ? 22 : 20,
                    alignment: .center)
-        case let .batteryBlock(percent, isCharging, style):
+        case let .batteryBlock(percent, isCharging, externalConnected, warning, style):
             HStack(spacing: style == .readable ? 5 : 4) {
-                Image(systemName: MenuBarRenderer.batterySymbol(for: percent, isCharging: isCharging))
+                Image(systemName: BatteryPowerSupport.menuBarSymbol(percent: percent,
+                                                                    isCharging: isCharging,
+                                                                    externalConnected: externalConnected))
                     .font(.system(size: style == .readable ? 17 : 15.5, weight: .regular))
                 Text("\(max(0, min(100, percent)))%")
                     .font(.system(size: style == .readable ? 13 : 12,
@@ -174,7 +213,7 @@ struct MenuBarMetricsPreview: View {
                                   design: .monospaced))
                     .frame(minWidth: style == .readable ? 33 : 30, alignment: .leading)
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(MenuBarRenderer.nsColor(for: warning).map { Color(nsColor: $0) } ?? .white)
             .fixedSize(horizontal: true, vertical: true)
         case let .dot(pressure):
             Circle()
@@ -194,7 +233,8 @@ struct MenuBarMetricsPreview: View {
                              value: String,
                              minimumValue: String,
                              style: MenuBarBlockStyle,
-                             pressure: MemoryPressure?) -> some View {
+                             pressure: MemoryPressure?,
+                             warning: BatteryWarning) -> some View {
         VStack(spacing: -1) {
             Text(label)
                 .font(.system(size: style == .readable ? 7.2 : 6.6, weight: .medium))
@@ -207,6 +247,7 @@ struct MenuBarMetricsPreview: View {
                 }
                 if !value.isEmpty {
                     Text(value)
+                        .foregroundStyle(MenuBarRenderer.nsColor(for: warning).map { Color(nsColor: $0) } ?? .white)
                         .font(.system(size: style == .readable ? 13 : 12,
                                       weight: .semibold,
                                       design: .monospaced))

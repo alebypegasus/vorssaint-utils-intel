@@ -3,13 +3,6 @@ build/
 dist/
 .build/
 *.dmg
-*.d
-*.dia
-*.swiftdeps
-*.swiftmodule
-*.swiftinterface
-*.abi.json
-*-2.*
 
 # Signing material: never commit private keys or notary credentials
 *.p12
@@ -23,7 +16,6 @@ dist/
 # Local-only working notes
 AGENTS.md
 CLAUDE.md
-E2E/
 
 # macOS noise
 .DS_Store
@@ -32,17 +24,3 @@ E2E/
 *.xcodeproj
 xcuserdata/
 .swiftpm/
-
-# IDEs / Editor
-.vscode/
-.idea/
-.cursor/
-.gemini/
-*.swp
-*~
-test.swift
-test_*
-test
-*.o
-.o
-*.zip

@@ -13,62 +13,51 @@ struct CleanerSettings: View {
     @AppStorage(DefaultsKey.whatsAppDownloadsEnabled) private var whatsAppEnabled = false
     @State private var tool = Tool.system
 
-    private enum Tool: String, CaseIterable {
-        case system, largeFiles, duplicates, diskVisualizer, memoryPro, devDoctor, shredder, whatsApp
-    }
-
-    private var extStrings: CleanerExtendedStrings {
-        CleanerExtendedStrings.localized(l10n.language)
-    }
-
-    private var tenStrings: TenFeaturesExtendedStrings {
-        TenFeaturesExtendedStrings.localized(l10n.language)
+    private enum Tool: String {
+        case system, whatsApp
     }
 
     /// A panel surface can ask for a specific tool; the hint is one-shot.
     private func consumeToolHint() {
         guard let hint = router.cleanerTool else { return }
         router.cleanerTool = nil
-        guard let wanted = Tool(rawValue: hint) else { return }
-        if wanted == .whatsApp && !whatsAppEnabled { return }
+        guard whatsAppEnabled, let wanted = Tool(rawValue: hint) else { return }
         tool = wanted
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            tabBar
-            Divider()
-
-            switch tool {
-            case .system:
-                CleanerView()
-            case .largeFiles:
-                LargeFilesView()
-            case .duplicates:
-                DuplicateFilesView()
-            case .diskVisualizer:
-                DiskUsageVisualizerView()
-            case .memoryPro:
-                MemoryMaintenanceView()
-            case .devDoctor:
-                DevEnvironmentDoctorView()
-            case .shredder:
-                FileShredderView()
-            case .whatsApp:
-                if whatsAppEnabled {
-                    WhatsAppDownloadsSettings()
-                } else {
-                    CleanerView()
+            if whatsAppEnabled {
+                Picker("", selection: $tool) {
+                    Label(l10n.s.cleanerName, systemImage: "sparkles")
+                        .tag(Tool.system)
+                    Label(FeatureStrings.whatsAppDownloads(l10n.language).title,
+                          systemImage: "arrow.down.doc")
+                        .tag(Tool.whatsApp)
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 440)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
+
+                Divider()
+            }
+
+            if whatsAppEnabled, tool == .whatsApp {
+                WhatsAppDownloadsSettings()
+            } else {
+                CleanerView()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear {
+            if !whatsAppEnabled { tool = .system }
             consumeToolHint()
         }
         .onChange(of: router.cleanerTool) { _, _ in consumeToolHint() }
         .onChange(of: whatsAppEnabled) { _, enabled in
-            if !enabled && tool == .whatsApp { tool = .system }
+            tool = enabled ? .whatsApp : .system
             WhatsAppDownloadScheduler.shared.syncWithPreferences()
             WhatsAppDownloadOrganizer.shared.syncWithPreferences()
             if !enabled {
@@ -76,59 +65,6 @@ struct CleanerSettings: View {
                 WhatsAppDownloadOrganizer.shared.stop()
             }
         }
-    }
-
-    @ViewBuilder
-    private var tabBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ToolTabButton(title: extStrings.tabSystemJunk, icon: "sparkles", isSelected: tool == .system) { tool = .system }
-                ToolTabButton(title: extStrings.tabLargeFiles, icon: "internaldrive", isSelected: tool == .largeFiles) { tool = .largeFiles }
-                ToolTabButton(title: extStrings.tabDuplicates, icon: "doc.on.doc", isSelected: tool == .duplicates) { tool = .duplicates }
-                ToolTabButton(title: "Uso de Disco (Pizza)", icon: "chart.pie.fill", isSelected: tool == .diskVisualizer) { tool = .diskVisualizer }
-                ToolTabButton(title: "Memória Pro", icon: "memorychip.fill", isSelected: tool == .memoryPro) { tool = .memoryPro }
-                ToolTabButton(title: tenStrings.titleDevDoctor, icon: "stethoscope", isSelected: tool == .devDoctor) { tool = .devDoctor }
-                ToolTabButton(title: tenStrings.titleFileShredder, icon: "flame", isSelected: tool == .shredder) { tool = .shredder }
-                if whatsAppEnabled {
-                    ToolTabButton(title: FeatureStrings.whatsAppDownloads(l10n.language).title, icon: "arrow.down.doc", isSelected: tool == .whatsApp) { tool = .whatsApp }
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-        }
-        .background(Color(NSColor.controlBackgroundColor))
-    }
-}
-
-private struct ToolTabButton: View {
-    let title: String
-    let icon: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
-                Text(title)
-                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.04))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.35) : Color.clear, lineWidth: 1)
-            )
-            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -148,7 +84,10 @@ struct CleanerView: View {
     @AppStorage(DefaultsKey.cleanerScheduleWeekday) private var scheduleWeekday = 2
     @AppStorage(DefaultsKey.cleanerLastAutoRun) private var lastAutoRun = 0.0
     @AppStorage(DefaultsKey.cleanerLastAutoFreed) private var lastAutoFreed = 0
+    @AppStorage(DefaultsKey.cleanerLastAutoFailed) private var lastAutoFailed = 0
     @AppStorage(DefaultsKey.cleanerScheduleNotify) private var scheduleNotify = true
+    @AppStorage(DefaultsKey.cleanerScreenshotAgeDays)
+    private var screenshotAgeDays = CleanerPolicy.defaultScreenshotAgeDays
     @ObservedObject private var scheduler = CleanerScheduler.shared
     @ObservedObject private var whatsAppScheduler = WhatsAppDownloadScheduler.shared
     @AppStorage(DefaultsKey.whatsAppDownloadsEnabled) private var whatsAppEnabled = false
@@ -222,24 +161,20 @@ struct CleanerView: View {
         }.map(title(for:))
     }
 
-    private var extStrings: CleanerExtendedStrings {
-        CleanerExtendedStrings.localized(l10n.language)
-    }
-
     // MARK: Display groups
 
     /// How the raw finds are presented: safe groups first, fully selected;
     /// judgment calls under optional, unchecked and collapsed.
     private enum DisplayGroup: Int, CaseIterable, Identifiable {
-        case loginItems, safeCaches, browserCaches, appMediaCaches, logs, systemLogs, developer, temporaryResidue
-        case leftovers, otherCaches, deviceBackups, trash, externalTrashes
+        case loginItems, safeCaches, logs, developer
+        case leftovers, otherCaches, deviceBackups, screenshots, trash
 
         var id: Int { rawValue }
 
         var isSafe: Bool {
             switch self {
-            case .loginItems, .safeCaches, .browserCaches, .appMediaCaches, .logs, .systemLogs, .developer, .temporaryResidue: return true
-            case .leftovers, .otherCaches, .deviceBackups, .trash, .externalTrashes: return false
+            case .loginItems, .safeCaches, .logs, .developer: return true
+            case .leftovers, .otherCaches, .deviceBackups, .screenshots, .trash: return false
             }
         }
 
@@ -247,16 +182,12 @@ struct CleanerView: View {
             switch self {
             case .loginItems: return [.loginItems]
             case .safeCaches, .otherCaches: return [.caches]
-            case .browserCaches: return [.browserCaches]
-            case .appMediaCaches: return [.appMediaCaches]
             case .logs: return [.logs]
-            case .systemLogs: return [.systemLogs]
             case .developer: return [.developer]
-            case .temporaryResidue: return [.temporaryResidue]
             case .leftovers: return [.leftovers]
             case .deviceBackups: return [.deviceBackups]
+            case .screenshots: return [.screenshots]
             case .trash: return [.trash]
-            case .externalTrashes: return [.externalTrashes]
             }
         }
 
@@ -264,17 +195,13 @@ struct CleanerView: View {
             switch self {
             case .loginItems: return "power"
             case .safeCaches: return "archivebox"
-            case .browserCaches: return "globe"
-            case .appMediaCaches: return "message"
             case .logs: return "doc.text"
-            case .systemLogs: return "stethoscope"
             case .developer: return "hammer"
-            case .temporaryResidue: return "arrow.down.circle"
             case .leftovers: return "puzzlepiece"
             case .otherCaches: return "internaldrive"
             case .deviceBackups: return "iphone"
+            case .screenshots: return "camera.viewfinder"
             case .trash: return "trash"
-            case .externalTrashes: return "externaldrive.badge.xmark"
             }
         }
     }
@@ -291,17 +218,13 @@ struct CleanerView: View {
         switch group {
         case .loginItems: return l10n.s.cleanerCatLoginItems
         case .safeCaches: return l10n.s.cleanerCatCaches
-        case .browserCaches: return extStrings.catBrowserCaches
-        case .appMediaCaches: return extStrings.catAppMediaCaches
         case .logs: return l10n.s.cleanerCatLogs
-        case .systemLogs: return extStrings.catSystemLogs
         case .developer: return l10n.s.cleanerCatDeveloper
-        case .temporaryResidue: return extStrings.catTemporaryResidue
         case .leftovers: return l10n.s.cleanerCatLeftovers
         case .otherCaches: return l10n.s.cleanerCatOtherCaches
         case .deviceBackups: return l10n.s.cleanerCatDeviceBackups
+        case .screenshots: return l10n.s.cleanerCatScreenshots
         case .trash: return l10n.s.cleanerCatTrash
-        case .externalTrashes: return extStrings.catExternalTrashes
         }
     }
 
@@ -309,17 +232,15 @@ struct CleanerView: View {
         switch group {
         case .loginItems: return l10n.s.cleanerLoginItemsCaption
         case .safeCaches: return l10n.s.cleanerCachesCaption
-        case .browserCaches: return extStrings.browserCachesCaption
-        case .appMediaCaches: return extStrings.appMediaCachesCaption
         case .logs: return l10n.s.cleanerLogsCaption
-        case .systemLogs: return extStrings.systemLogsCaption
         case .developer: return l10n.s.cleanerDeveloperCaption
-        case .temporaryResidue: return extStrings.temporaryResidueCaption
         case .leftovers: return l10n.s.cleanerLeftoversCaption
         case .otherCaches: return l10n.s.cleanerOtherCachesCaption
         case .deviceBackups: return l10n.s.cleanerDeviceBackupsCaption
+        case .screenshots:
+            return String(format: l10n.s.cleanerScreenshotsCaptionFormat,
+                          CleanerPolicy.sanitizedScreenshotAgeDays(screenshotAgeDays))
         case .trash: return l10n.s.cleanerTrashNote
-        case .externalTrashes: return extStrings.externalTrashesCaption
         }
     }
 
@@ -337,10 +258,11 @@ struct CleanerView: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 380)
-            Button(l10n.s.cleanerScan) { cleaner.scan() }
+            Button(l10n.s.cleanerScan) { cleaner.scan(attended: true) }
                 .controlSize(.large)
                 .buttonStyle(.borderedProminent)
             scheduleCard
+            screenshotsCard
             if !compact, !whatsAppEnabled { whatsAppOptInCard }
             // The Settings page has its own full tool for these downloads;
             // the panel gets this one-line home so the feature is findable
@@ -353,6 +275,52 @@ struct CleanerView: View {
         }
         .padding(compact ? 14 : 28)
         .frame(maxWidth: .infinity)
+    }
+
+    // MARK: Forgotten screenshots
+
+    /// Off plus the offered ages, and the stored value when it came from
+    /// elsewhere (a restored backup) and is not one of them.
+    private var screenshotAgeChoices: [Int] {
+        var choices = CleanerPolicy.screenshotAgeChoices
+        let current = CleanerPolicy.sanitizedScreenshotAgeDays(screenshotAgeDays)
+        if current > 0, !choices.contains(current) {
+            choices.append(current)
+            choices.sort()
+        }
+        return [0] + choices
+    }
+
+    /// How old an untouched screenshot must be to be listed, or off. The
+    /// Settings page explains it; the panel keeps it to one line.
+    private var screenshotsCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "camera.viewfinder").foregroundStyle(.secondary)
+                Text(l10n.s.cleanerCatScreenshots)
+                    .font(.system(size: 12, weight: .medium))
+                Spacer()
+                Picker("", selection: $screenshotAgeDays) {
+                    ForEach(screenshotAgeChoices, id: \.self) { days in
+                        Text(days == 0
+                             ? l10n.s.cleanerScheduleOff
+                             : String(format: l10n.s.cleanerScreenshotsAfterFormat, days))
+                            .tag(days)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            if !compact {
+                Text(l10n.s.cleanerScreenshotsSettingCaption)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(11)
+        .frame(maxWidth: 380)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.05)))
     }
 
     // MARK: WhatsApp downloads (panel surface)
@@ -371,7 +339,7 @@ struct CleanerView: View {
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(11)
-        .frame(maxWidth: 380)
+        .frame(maxWidth: 380, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.05)))
     }
 
@@ -622,50 +590,23 @@ struct CleanerView: View {
     @ViewBuilder
     private var scheduleDetails: some View {
         if scheduleFrequency != .off {
-                HStack(spacing: 6) {
-                    if scheduleFrequency == .weekly {
-                        Picker("", selection: $scheduleWeekday) {
-                            ForEach(1...7, id: \.self) { day in
-                                Text(Calendar.current.standaloneWeekdaySymbols[day - 1].capitalized)
-                                    .tag(day)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
+                // The menu panel is too narrow for the weekday beside the time
+                // in most languages, and a row wider than the panel shifts all
+                // of its content past the left edge, so the weekday then takes
+                // its own row.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        weekdayPicker
+                        timePickers
+                        Spacer()
                     }
-                    if Self.uses12HourClock {
-                        Picker("", selection: scheduleHour12Binding) {
-                            ForEach(1...12, id: \.self) { hour in
-                                Text(String(hour)).tag(hour)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                    } else {
-                        Picker("", selection: $scheduleHour) {
-                            ForEach(0..<24, id: \.self) { hour in
-                                Text(String(hour)).tag(hour)
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                    }
-                    Picker("", selection: $scheduleMinute) {
-                        ForEach(minuteChoices, id: \.self) { minute in
-                            Text(String(format: ":%02d", minute)).tag(minute)
+                    VStack(alignment: .leading, spacing: 6) {
+                        weekdayPicker
+                        HStack(spacing: 6) {
+                            timePickers
+                            Spacer()
                         }
                     }
-                    .labelsHidden()
-                    .fixedSize()
-                    if Self.uses12HourClock {
-                        Picker("", selection: schedulePMBinding) {
-                            Text(Self.dayPeriodSymbols.am).tag(false)
-                            Text(Self.dayPeriodSymbols.pm).tag(true)
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                    }
-                    Spacer()
                 }
                 Toggle(l10n.s.cleanerScheduleNotifyToggle, isOn: $scheduleNotify)
                     .toggleStyle(.checkbox)
@@ -693,6 +634,57 @@ struct CleanerView: View {
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
+        }
+    }
+
+    @ViewBuilder
+    private var weekdayPicker: some View {
+        if scheduleFrequency == .weekly {
+            Picker("", selection: $scheduleWeekday) {
+                ForEach(1...7, id: \.self) { day in
+                    Text(Calendar.current.standaloneWeekdaySymbols[day - 1].capitalized)
+                        .tag(day)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+        }
+    }
+
+    /// The hour, the minutes and, on a twelve hour clock, AM or PM.
+    @ViewBuilder
+    private var timePickers: some View {
+        if Self.uses12HourClock {
+            Picker("", selection: scheduleHour12Binding) {
+                ForEach(1...12, id: \.self) { hour in
+                    Text(String(hour)).tag(hour)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+        } else {
+            Picker("", selection: $scheduleHour) {
+                ForEach(0..<24, id: \.self) { hour in
+                    Text(String(hour)).tag(hour)
+                }
+            }
+            .labelsHidden()
+            .fixedSize()
+        }
+        Picker("", selection: $scheduleMinute) {
+            ForEach(minuteChoices, id: \.self) { minute in
+                Text(String(format: ":%02d", minute)).tag(minute)
+            }
+        }
+        .labelsHidden()
+        .fixedSize()
+        if Self.uses12HourClock {
+            Picker("", selection: schedulePMBinding) {
+                Text(Self.dayPeriodSymbols.am).tag(false)
+                Text(Self.dayPeriodSymbols.pm).tag(true)
+            }
+            .labelsHidden()
+            .fixedSize()
         }
     }
 
@@ -728,11 +720,11 @@ struct CleanerView: View {
 
     private var lastRunLine: String {
         let ranAt = Self.nextRunFormatter.string(from: Date(timeIntervalSince1970: lastAutoRun))
-        if lastAutoFreed > 0 {
-            return String(format: l10n.s.cleanerScheduleLastFormat,
-                          Self.byteString(Int64(lastAutoFreed)))
-        }
-        return String(format: l10n.s.cleanerScheduleRanFormat, ranAt)
+        let line = lastAutoFreed > 0
+            ? String(format: l10n.s.cleanerScheduleLastFormat, Self.byteString(Int64(lastAutoFreed)))
+            : String(format: l10n.s.cleanerScheduleRanFormat, ranAt)
+        // A pass that moved nothing still reads as a normal run unless what it left is said.
+        return lastAutoFailed > 0 ? line + " " + l10n.s.uninstallerSomeFailed : line
     }
 
     /// Checked slightly delayed so a just fired authorization prompt has a
@@ -760,6 +752,10 @@ struct CleanerView: View {
             if let detail {
                 Text(detail).font(.caption).foregroundStyle(.tertiary)
             }
+            if cleaner.phase == .scanning {
+                Button(l10n.s.uninstallerCancel) { cleaner.reset() }
+                    .controlSize(compact ? .small : .large)
+            }
             Spacer(minLength: compact ? 24 : 0)
         }
         .frame(maxWidth: .infinity, minHeight: compact ? 0 : 320)
@@ -784,19 +780,27 @@ struct CleanerView: View {
                 }
                 .frame(maxWidth: .infinity)
             } else {
-                List {
-                    section(l10n.s.cleanerSafeSection, groups: DisplayGroup.allCases.filter(\.isSafe))
-                    section(l10n.s.cleanerOptionalSection, groups: DisplayGroup.allCases.filter { !$0.isSafe })
+                if compact {
+                    // The island, menu panel and launcher already scroll.
+                    // Keep the rows and Clean button in that same scroll area.
+                    VStack(alignment: .leading, spacing: 16) {
+                        resultsGroups
+                    }
+                    .padding(12)
+                } else {
+                    List { resultsGroups }
+                        .listStyle(.inset)
                 }
-                .listStyle(.inset)
-                // Inside the floating panel the list must not paint its own
-                // opaque backdrop over the panel's translucent material.
-                .scrollContentBackground(compact ? .hidden : .automatic)
-                .frame(minHeight: compact ? 280 : 0)
                 Divider()
                 resultsFooter
             }
         }
+    }
+
+    @ViewBuilder
+    private var resultsGroups: some View {
+        section(l10n.s.cleanerSafeSection, groups: DisplayGroup.allCases.filter(\.isSafe))
+        section(l10n.s.cleanerOptionalSection, groups: DisplayGroup.allCases.filter { !$0.isSafe })
     }
 
     private var resultsHeader: some View {
@@ -820,8 +824,19 @@ struct CleanerView: View {
     private func section(_ header: String, groups: [DisplayGroup]) -> some View {
         let visible = groups.filter { !items(for: $0).isEmpty }
         if !visible.isEmpty {
-            Section(header) {
-                ForEach(visible) { group in groupRow(group) }
+            if compact {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(header).font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    ForEach(visible) { group in
+                        groupRow(group)
+                        Divider()
+                    }
+                }
+            } else {
+                Section(header) {
+                    ForEach(visible) { group in groupRow(group) }
+                }
             }
         }
     }
@@ -894,7 +909,7 @@ struct CleanerView: View {
             Button(l10n.s.uninstallerCancel) { cleaner.reset() }
             Button(String(format: l10n.s.cleanerCleanSizeFormat,
                           Self.byteString(cleaner.selectedSize))) {
-                cleaner.cleanSelected()
+                cleaner.cleanSelected(escalate: true)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
@@ -981,6 +996,10 @@ struct PanelCleanerView: View {
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
                 Button {
+                    // Closing means cancel: a scan left running would come
+                    // back on the next open. Cleaning in progress is left alone.
+                    let cleaner = JunkCleaner.shared
+                    if cleaner.phase == .scanning { cleaner.reset() }
                     onClose()
                 } label: {
                     Image(systemName: "xmark.circle.fill")

@@ -13,19 +13,34 @@ struct AppPickerView: View {
 
     var compact = false
     var canBrowseApplications = false
+    /// Whether a program that is not packaged as an app may be chosen too.
+    /// Only the lists that can recognize one at runtime ask for this: offering
+    /// it anywhere else would take an entry that never matches anything
+    /// (issue #1009).
+    var acceptsExecutables = false
+    /// What a list that leaves some apps out says when nothing shows, so a
+    /// missing app reads as a rule rather than a fault.
+    var emptyNote: String? = nil
     var loadApps: () -> [InstalledApps.InstalledApp] = { InstalledApps.installedApplications() }
     var onCancel: () -> Void
     var onSelect: (URL) -> Void
+    var onSelectApp: ((InstalledApps.InstalledApp) -> Void)? = nil
 
     init(compact: Bool = false,
          canBrowseApplications: Bool = false,
+         acceptsExecutables: Bool = false,
+         emptyNote: String? = nil,
          onCancel: @escaping () -> Void,
          onSelect: @escaping (URL) -> Void,
+         onSelectApp: ((InstalledApps.InstalledApp) -> Void)? = nil,
          loadApps: @escaping () -> [InstalledApps.InstalledApp] = { InstalledApps.installedApplications() }) {
         self.compact = compact
         self.canBrowseApplications = canBrowseApplications
+        self.acceptsExecutables = acceptsExecutables
+        self.emptyNote = emptyNote
         self.onCancel = onCancel
         self.onSelect = onSelect
+        self.onSelectApp = onSelectApp
         self.loadApps = loadApps
     }
 
@@ -35,6 +50,7 @@ struct AppPickerView: View {
         return apps.filter { app in
             app.name.localizedCaseInsensitiveContains(trimmed)
                 || (app.bundleID?.localizedCaseInsensitiveContains(trimmed) ?? false)
+                || (app.identity?.localizedCaseInsensitiveContains(trimmed) ?? false)
         }
     }
 
@@ -50,7 +66,9 @@ struct AppPickerView: View {
         .frame(width: compact ? nil : 520, height: compact ? nil : 560)
         .onAppear { loadAppsIfNeeded() }
         .fileImporter(isPresented: $isBrowsingApplications,
-                      allowedContentTypes: [.applicationBundle]) { result in
+                      allowedContentTypes: acceptsExecutables
+                          ? [.applicationBundle, .executable, .unixExecutable]
+                          : [.applicationBundle]) { result in
             guard let url = try? result.get() else { return }
             onSelect(url)
         }
@@ -95,6 +113,14 @@ struct AppPickerView: View {
                 Text(l10n.s.uninstallerPickerEmpty)
                     .font(.system(size: compact ? 11 : 13))
                     .foregroundStyle(.secondary)
+                if let emptyNote {
+                    Text(emptyNote)
+                        .font(.system(size: compact ? 10 : 11))
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, compact ? 6 : 24)
+                }
             }
             .frame(maxWidth: .infinity)
             .frame(height: compact ? 150 : 360)
@@ -103,7 +129,11 @@ struct AppPickerView: View {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     ForEach(apps) { app in
                         Button {
-                            onSelect(app.url)
+                            if let onSelectApp {
+                                onSelectApp(app)
+                            } else {
+                                onSelect(app.url)
+                            }
                         } label: {
                             AppPickerRow(app: app, compact: compact)
                         }
@@ -139,14 +169,15 @@ private struct AppPickerRow: View {
                 .resizable()
                 .frame(width: compact ? 20 : 28, height: compact ? 20 : 28)
             VStack(alignment: .leading, spacing: 1) {
+                let location = app.identity.flatMap(InstalledApps.location(for:))
                 Text(app.name)
                     .font(.system(size: compact ? 11 : 13, weight: .medium))
                     .lineLimit(1)
-                Text(app.bundleID ?? app.url.path)
+                Text(location ?? app.bundleID ?? app.url.path)
                     .font(.system(size: compact ? 9 : 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    .truncationMode(location == nil ? .middle : .head)
             }
             Spacer(minLength: 0)
         }

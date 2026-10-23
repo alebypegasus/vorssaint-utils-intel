@@ -32,6 +32,7 @@ struct FeedbackStrings {
     let commandBug: String
     let commandFeature: String
     let commandSubtitle: String
+    let diagnosticsChannelLabel: String
 }
 
 extension FeatureStrings {
@@ -42,6 +43,7 @@ extension FeatureStrings {
         case .tr: return .tr
         case .ru: return .ru
         case .es: return .es
+        case .sk: return .sk
         case .de: return .de
         case .fr: return .fr
         case .it: return .it
@@ -50,6 +52,7 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .uk: return .uk
         }
     }
 }
@@ -67,7 +70,7 @@ extension FeedbackStrings {
         featurePlaceholder: "Describe the idea and how it would help.",
         charactersFormat: "%d of 2000 characters",
         includeDiagnostics: "Include technical details",
-        includeDiagnosticsCaption: "Adds only the app version and build, macOS version, Mac model and app language shown below. It does not include logs.",
+        includeDiagnosticsCaption: "Adds only the technical details shown below. It does not include logs.",
         whatSentTitle: "What will be sent",
         whatSentBasic: "Your chosen category and the text above.",
         whatSentDiagnostics: "The technical details listed below.",
@@ -83,7 +86,8 @@ extension FeedbackStrings {
         done: "Done",
         commandBug: "Report a bug",
         commandFeature: "Suggest a feature",
-        commandSubtitle: "Send feedback"
+        commandSubtitle: "Send feedback",
+        diagnosticsChannelLabel: "Update channel"
     )
 
     static let ptBR = FeedbackStrings(
@@ -98,7 +102,7 @@ extension FeedbackStrings {
         featurePlaceholder: "Descreva a ideia e como ela ajudaria.",
         charactersFormat: "%d de 2000 caracteres",
         includeDiagnostics: "Incluir dados técnicos",
-        includeDiagnosticsCaption: "Adiciona somente a versão e build do app, versão do macOS, modelo do Mac e idioma exibidos abaixo. Não inclui logs.",
+        includeDiagnosticsCaption: "Adiciona somente os dados técnicos mostrados abaixo. Não inclui logs.",
         whatSentTitle: "O que será enviado",
         whatSentBasic: "A categoria escolhida e o texto acima.",
         whatSentDiagnostics: "Os dados técnicos listados abaixo.",
@@ -114,7 +118,8 @@ extension FeedbackStrings {
         done: "Concluído",
         commandBug: "Relatar um bug",
         commandFeature: "Sugerir um recurso",
-        commandSubtitle: "Enviar feedback"
+        commandSubtitle: "Enviar feedback",
+        diagnosticsChannelLabel: "Canal de atualização"
     )
 
     static let tr = FeedbackStrings(
@@ -129,7 +134,7 @@ extension FeedbackStrings {
         featurePlaceholder: "Fikri ve nasıl yardımcı olacağını açıklayın.",
         charactersFormat: "2000 karakterden %d",
         includeDiagnostics: "Teknik ayrıntıları ekle",
-        includeDiagnosticsCaption: "Yalnızca aşağıda gösterilen uygulama sürümü ve derlemesini, macOS sürümünü, Mac modelini ve uygulama dilini ekler. Günlükler eklenmez.",
+        includeDiagnosticsCaption: "Yalnızca aşağıda gösterilen teknik ayrıntıları ekler. Günlükler eklenmez.",
         whatSentTitle: "Gönderilecekler",
         whatSentBasic: "Seçtiğiniz kategori ve yukarıdaki metin.",
         whatSentDiagnostics: "Aşağıda listelenen teknik ayrıntılar.",
@@ -145,7 +150,8 @@ extension FeedbackStrings {
         done: "Bitti",
         commandBug: "Hata bildir",
         commandFeature: "Özellik öner",
-        commandSubtitle: "Geri bildirim gönder"
+        commandSubtitle: "Geri bildirim gönder",
+        diagnosticsChannelLabel: "Güncelleme kanalı"
     )
 
     static let ru = FeedbackStrings(
@@ -160,7 +166,7 @@ extension FeedbackStrings {
         featurePlaceholder: "Опишите идею и чем она поможет.",
         charactersFormat: "%d из 2000 символов",
         includeDiagnostics: "Добавить технические данные",
-        includeDiagnosticsCaption: "Добавляет только показанные ниже версию и сборку приложения, версию macOS, модель Mac и язык приложения. Журналы не добавляются.",
+        includeDiagnosticsCaption: "Добавляет только технические данные, показанные ниже. Журналы не добавляются.",
         whatSentTitle: "Что будет отправлено",
         whatSentBasic: "Выбранная категория и текст выше.",
         whatSentDiagnostics: "Технические данные, перечисленные ниже.",
@@ -176,7 +182,8 @@ extension FeedbackStrings {
         done: "Готово",
         commandBug: "Сообщить об ошибке",
         commandFeature: "Предложить функцию",
-        commandSubtitle: "Отправить отзыв"
+        commandSubtitle: "Отправить отзыв",
+        diagnosticsChannelLabel: "Канал обновлений"
     )
 
     static let es = FeedbackStrings(
@@ -191,7 +198,7 @@ extension FeedbackStrings {
         featurePlaceholder: "Describe la idea y cómo ayudaría.",
         charactersFormat: "%d de 2000 caracteres",
         includeDiagnostics: "Incluir datos técnicos",
-        includeDiagnosticsCaption: "Añade solo la versión y compilación de la app, la versión de macOS, el modelo del Mac y el idioma mostrados abajo. No incluye registros.",
+        includeDiagnosticsCaption: "Añade solo los datos técnicos mostrados abajo. No incluye registros.",
         whatSentTitle: "Qué se enviará",
         whatSentBasic: "La categoría elegida y el texto anterior.",
         whatSentDiagnostics: "Los datos técnicos indicados abajo.",
@@ -207,7 +214,40 @@ extension FeedbackStrings {
         done: "Listo",
         commandBug: "Informar de un error",
         commandFeature: "Sugerir una función",
-        commandSubtitle: "Enviar comentarios"
+        commandSubtitle: "Enviar comentarios",
+        diagnosticsChannelLabel: "Canal de actualización"
+    )
+
+    static let sk = FeedbackStrings(
+        sectionTitle: "Spätná väzba",
+        sectionCaption: "Pošlite hlásenie o chybe alebo nápad na funkciu priamo osobe, ktorá udržiava Vorssaint.",
+        openButton: "Poslať spätnú väzbu",
+        windowTitle: "Poslať spätnú väzbu",
+        bugTitle: "Chyba",
+        featureTitle: "Nápad na funkciu",
+        messageLabel: "Čo by ste chceli zdieľať?",
+        bugPlaceholder: "Napíšte, čo sa stalo a čo ste očakávali.",
+        featurePlaceholder: "Opíšte nápad a ako by pomohol.",
+        charactersFormat: "%d z 2000 znakov",
+        includeDiagnostics: "Zahrnúť technické detaily",
+        includeDiagnosticsCaption: "Pridá iba technické detaily zobrazené nižšie. Neobsahuje záznamy.",
+        whatSentTitle: "Čo sa odošle",
+        whatSentBasic: "Vybraná kategória a text vyššie.",
+        whatSentDiagnostics: "Technické detaily uvedené nižšie.",
+        privacyNote: "Meno, účet, e-mail, identifikátor zariadenia, záznamy, snímky obrazovky, súbory ani obsah schránky sa neodosielajú. Vaša verejná IP adresa sa dočasne spracúva na ochranu pred zneužitím a k spätnej väzbe sa nepripája.",
+        retentionNote: "Po doručení zostáva text v súkromných podporných kanáloch, kým ho vlastník služby nevymaže. Nedoručená kópia sa natrvalo vymaže po 7 dňoch.",
+        sendButton: "Poslať spätnú väzbu",
+        sending: "Odosiela sa…",
+        sentTitle: "Spätná väzba odoslaná",
+        sentCaption: "Ďakujeme. Kontaktné údaje sa neposlali, takže priamu odpoveď nedostanete.",
+        unavailableError: "Nepodarilo sa pripojiť. Skontrolujte internetové pripojenie a skúste to znova.",
+        rateLimitError: "Príliš veľa odoslaní z tejto siete. Skúste to neskôr.",
+        genericError: "Spätnú väzbu sa teraz nepodarilo odoslať.",
+        done: "Hotovo",
+        commandBug: "Nahlásiť chybu",
+        commandFeature: "Navrhnúť funkciu",
+        commandSubtitle: "Poslať spätnú väzbu",
+        diagnosticsChannelLabel: "Kanál aktualizácií"
     )
 
     static let de = FeedbackStrings(
@@ -222,7 +262,7 @@ extension FeedbackStrings {
         featurePlaceholder: "Beschreibe die Idee und wie sie helfen würde.",
         charactersFormat: "%d von 2000 Zeichen",
         includeDiagnostics: "Technische Daten mitsenden",
-        includeDiagnosticsCaption: "Fügt nur die unten gezeigte App-Version und Buildnummer, macOS-Version, das Mac-Modell und die App-Sprache hinzu. Keine Protokolle.",
+        includeDiagnosticsCaption: "Fügt nur die unten gezeigten technischen Daten hinzu. Keine Protokolle.",
         whatSentTitle: "Was gesendet wird",
         whatSentBasic: "Die gewählte Kategorie und der Text oben.",
         whatSentDiagnostics: "Die unten aufgeführten technischen Daten.",
@@ -238,7 +278,8 @@ extension FeedbackStrings {
         done: "Fertig",
         commandBug: "Fehler melden",
         commandFeature: "Funktion vorschlagen",
-        commandSubtitle: "Feedback senden"
+        commandSubtitle: "Feedback senden",
+        diagnosticsChannelLabel: "Update-Kanal"
     )
 
     static let fr = FeedbackStrings(
@@ -248,47 +289,48 @@ extension FeedbackStrings {
         windowTitle: "Envoyer un avis",
         bugTitle: "Bug",
         featureTitle: "Idée de fonction",
-        messageLabel: "Que souhaitez-vous partager ?",
-        bugPlaceholder: "Décrivez ce qui s'est passé et ce que vous attendiez.",
-        featurePlaceholder: "Décrivez l'idée et son utilité.",
+        messageLabel: "Que souhaitez-vous partager\u{00A0}?",
+        bugPlaceholder: "Décrivez ce qui s’est passé et ce que vous attendiez.",
+        featurePlaceholder: "Décrivez l’idée et son utilité.",
         charactersFormat: "%d caractères sur 2000",
         includeDiagnostics: "Inclure les données techniques",
-        includeDiagnosticsCaption: "Ajoute uniquement la version et le build de l'app, la version de macOS, le modèle du Mac et la langue affichés ci-dessous. Aucun journal.",
+        includeDiagnosticsCaption: "Ajoute uniquement les données techniques affichées ci-dessous. Aucun journal.",
         whatSentTitle: "Ce qui sera envoyé",
         whatSentBasic: "La catégorie choisie et le texte ci-dessus.",
         whatSentDiagnostics: "Les données techniques listées ci-dessous.",
-        privacyNote: "Aucun nom, compte, e-mail, identifiant d'appareil, journal, capture, fichier ou presse-papiers n'est inclus. Votre IP publique est traitée temporairement contre les abus et n'est pas jointe à l'avis.",
-        retentionNote: "Après livraison, le texte reste dans des canaux privés jusqu'à sa suppression par le responsable. Une copie non livrée est définitivement supprimée après 7 jours.",
-        sendButton: "Envoyer l'avis",
+        privacyNote: "Aucun nom, compte, e-mail, identifiant d’appareil, journal, capture, fichier ou presse-papiers n’est inclus. Votre IP publique est traitée temporairement contre les abus et n’est pas jointe à l’avis.",
+        retentionNote: "Après livraison, le texte reste dans des canaux privés jusqu’à sa suppression par le responsable. Une copie non livrée est définitivement supprimée après 7 jours.",
+        sendButton: "Envoyer l’avis",
         sending: "Envoi…",
         sentTitle: "Avis envoyé",
-        sentCaption: "Merci. Aucune coordonnée n'a été envoyée, vous ne recevrez donc pas de réponse directe.",
+        sentCaption: "Merci. Aucune coordonnée n’a été envoyée, vous ne recevrez donc pas de réponse directe.",
         unavailableError: "Connexion impossible. Vérifiez Internet et réessayez.",
-        rateLimitError: "Trop d'envois depuis ce réseau. Réessayez plus tard.",
-        genericError: "Impossible d'envoyer l'avis maintenant.",
+        rateLimitError: "Trop d’envois depuis ce réseau. Réessayez plus tard.",
+        genericError: "Impossible d’envoyer l’avis maintenant.",
         done: "Terminé",
         commandBug: "Signaler un bug",
         commandFeature: "Suggérer une fonction",
-        commandSubtitle: "Envoyer un avis"
+        commandSubtitle: "Envoyer un avis",
+        diagnosticsChannelLabel: "Canal de mise à jour"
     )
 
     static let it = FeedbackStrings(
         sectionTitle: "Feedback",
-        sectionCaption: "Invia una segnalazione o un'idea direttamente a chi mantiene Vorssaint.",
+        sectionCaption: "Invia una segnalazione o un’idea direttamente a chi mantiene Vorssaint.",
         openButton: "Invia feedback",
         windowTitle: "Invia feedback",
         bugTitle: "Bug",
         featureTitle: "Idea per una funzione",
         messageLabel: "Cosa vuoi condividere?",
         bugPlaceholder: "Descrivi cosa è successo e cosa ti aspettavi.",
-        featurePlaceholder: "Descrivi l'idea e come potrebbe aiutare.",
+        featurePlaceholder: "Descrivi l’idea e come potrebbe aiutare.",
         charactersFormat: "%d di 2000 caratteri",
         includeDiagnostics: "Includi dati tecnici",
-        includeDiagnosticsCaption: "Aggiunge solo versione e build dell'app, versione di macOS, modello del Mac e lingua mostrati sotto. Non include registri.",
+        includeDiagnosticsCaption: "Aggiunge solo i dati tecnici mostrati sotto. Non include registri.",
         whatSentTitle: "Cosa verrà inviato",
         whatSentBasic: "La categoria scelta e il testo qui sopra.",
         whatSentDiagnostics: "I dati tecnici elencati qui sotto.",
-        privacyNote: "Non vengono inclusi nome, account, e-mail, identificatore del dispositivo, registri, schermate, file o appunti. L'IP pubblico viene elaborato temporaneamente contro gli abusi e non è allegato al feedback.",
+        privacyNote: "Non vengono inclusi nome, account, e-mail, identificatore del dispositivo, registri, schermate, file o appunti. L’IP pubblico viene elaborato temporaneamente contro gli abusi e non è allegato al feedback.",
         retentionNote: "Dopo la consegna, il testo resta in canali privati finché il responsabile non lo elimina. Una copia non consegnata viene eliminata definitivamente dopo 7 giorni.",
         sendButton: "Invia feedback",
         sending: "Invio…",
@@ -300,7 +342,8 @@ extension FeedbackStrings {
         done: "Fine",
         commandBug: "Segnala un bug",
         commandFeature: "Suggerisci una funzione",
-        commandSubtitle: "Invia feedback"
+        commandSubtitle: "Invia feedback",
+        diagnosticsChannelLabel: "Canale di aggiornamento"
     )
 
     static let ja = FeedbackStrings(
@@ -315,7 +358,7 @@ extension FeedbackStrings {
         featurePlaceholder: "アイデアと、どのように役立つかを説明してください。",
         charactersFormat: "2000文字中%d文字",
         includeDiagnostics: "技術情報を含める",
-        includeDiagnosticsCaption: "下に表示されるアプリのバージョンとビルド、macOS バージョン、Mac モデル、アプリの言語だけを追加します。ログは含みません。",
+        includeDiagnosticsCaption: "下に表示される技術情報だけを追加します。ログは含みません。",
         whatSentTitle: "送信される内容",
         whatSentBasic: "選択した種類と上の文章。",
         whatSentDiagnostics: "下に表示される技術情報。",
@@ -331,7 +374,8 @@ extension FeedbackStrings {
         done: "完了",
         commandBug: "不具合を報告",
         commandFeature: "機能を提案",
-        commandSubtitle: "フィードバックを送信"
+        commandSubtitle: "フィードバックを送信",
+        diagnosticsChannelLabel: "アップデートチャンネル"
     )
 
     static let ko = FeedbackStrings(
@@ -346,7 +390,7 @@ extension FeedbackStrings {
         featurePlaceholder: "아이디어와 도움이 되는 이유를 설명해 주세요.",
         charactersFormat: "2000자 중 %d자",
         includeDiagnostics: "기술 정보 포함",
-        includeDiagnosticsCaption: "아래에 표시된 앱 버전과 빌드, macOS 버전, Mac 모델, 앱 언어만 추가합니다. 로그는 포함하지 않습니다.",
+        includeDiagnosticsCaption: "아래에 표시된 기술 정보만 추가합니다. 로그는 포함하지 않습니다.",
         whatSentTitle: "전송되는 내용",
         whatSentBasic: "선택한 종류와 위의 글.",
         whatSentDiagnostics: "아래에 표시된 기술 정보.",
@@ -362,7 +406,8 @@ extension FeedbackStrings {
         done: "완료",
         commandBug: "버그 신고",
         commandFeature: "기능 제안",
-        commandSubtitle: "피드백 보내기"
+        commandSubtitle: "피드백 보내기",
+        diagnosticsChannelLabel: "업데이트 채널"
     )
 
     static let zhHans = FeedbackStrings(
@@ -377,7 +422,7 @@ extension FeedbackStrings {
         featurePlaceholder: "说明你的想法以及它能带来什么帮助。",
         charactersFormat: "已输入 %d/2000 个字符",
         includeDiagnostics: "包含技术信息",
-        includeDiagnosticsCaption: "仅添加下方显示的应用版本和构建号、macOS 版本、Mac 型号及应用语言。不包含日志。",
+        includeDiagnosticsCaption: "仅添加下方显示的技术信息。不包含日志。",
         whatSentTitle: "将发送的内容",
         whatSentBasic: "所选类别和上方文字。",
         whatSentDiagnostics: "下方列出的技术信息。",
@@ -393,7 +438,8 @@ extension FeedbackStrings {
         done: "完成",
         commandBug: "报告错误",
         commandFeature: "建议功能",
-        commandSubtitle: "发送反馈"
+        commandSubtitle: "发送反馈",
+        diagnosticsChannelLabel: "更新渠道"
     )
 
     static let zhTW = FeedbackStrings(
@@ -408,7 +454,7 @@ extension FeedbackStrings {
         featurePlaceholder: "說明你的想法以及它能帶來什麼幫助。",
         charactersFormat: "已輸入 %d/2000 個字元",
         includeDiagnostics: "包含技術資訊",
-        includeDiagnosticsCaption: "只加入下方顯示的 App 版本與組建、macOS 版本、Mac 型號及 App 語言。不包含記錄。",
+        includeDiagnosticsCaption: "只加入下方顯示的技術資料。不包含記錄。",
         whatSentTitle: "將傳送的內容",
         whatSentBasic: "所選類別與上方文字。",
         whatSentDiagnostics: "下方列出的技術資訊。",
@@ -424,7 +470,8 @@ extension FeedbackStrings {
         done: "完成",
         commandBug: "回報錯誤",
         commandFeature: "建議功能",
-        commandSubtitle: "傳送意見"
+        commandSubtitle: "傳送意見",
+        diagnosticsChannelLabel: "更新頻道"
     )
 
     static let zhHK = FeedbackStrings(
@@ -439,7 +486,7 @@ extension FeedbackStrings {
         featurePlaceholder: "說明你的想法以及它能帶來甚麼幫助。",
         charactersFormat: "已輸入 %d/2000 個字元",
         includeDiagnostics: "包含技術資料",
-        includeDiagnosticsCaption: "只加入下方顯示的 App 版本與組建、macOS 版本、Mac 型號及 App 語言。不包含記錄。",
+        includeDiagnosticsCaption: "只加入下方顯示的技術資料。不包含記錄。",
         whatSentTitle: "將傳送的內容",
         whatSentBasic: "所選類別與上方文字。",
         whatSentDiagnostics: "下方列出的技術資料。",
@@ -455,6 +502,38 @@ extension FeedbackStrings {
         done: "完成",
         commandBug: "報告錯誤",
         commandFeature: "建議功能",
-        commandSubtitle: "傳送意見"
+        commandSubtitle: "傳送意見",
+        diagnosticsChannelLabel: "更新頻道"
+    )
+    static let uk = FeedbackStrings(
+        sectionTitle: "Відгук",
+        sectionCaption: "Надішліть звіт про помилку або ідею функції безпосередньо розробнику Vorssaint.",
+        openButton: "Надіслати відгук",
+        windowTitle: "Надіслати відгук",
+        bugTitle: "Помилка",
+        featureTitle: "Ідея функції",
+        messageLabel: "Чим би ви хотіли поділитися?",
+        bugPlaceholder: "Розкажіть, що сталося та що ви очікували.",
+        featurePlaceholder: "Опишіть ідею та як вона допоможе.",
+        charactersFormat: "%d з 2000 символів",
+        includeDiagnostics: "Включити технічні деталі",
+        includeDiagnosticsCaption: "Додає лише технічні деталі, показані нижче. Вони не включають журнали.",
+        whatSentTitle: "Що буде надіслано",
+        whatSentBasic: "Ваша обрана категорія та текст вище.",
+        whatSentDiagnostics: "Технічні деталі, перелічені нижче.",
+        privacyNote: "Не включає ім’я, обліковий запис, email, ідентифікатор пристрою, журнали, знімки екрана, файли чи вміст буфера обміну. Ваша публічна IP-адреса нетривало обробляється для захисту від зловживань і не прив’язується до відгуку.",
+        retentionNote: "Після доставки текст залишається в приватних каналах підтримки, поки власник сервісу не видалить його. Недоставлена копія безповоротно видаляється через 7 днів.",
+        sendButton: "Надіслати відгук",
+        sending: "Надсилання…",
+        sentTitle: "Відгук надіслано",
+        sentCaption: "Дякуємо. Контактна інформація не надсилалася, тому ви не отримаєте прямої відповіді.",
+        unavailableError: "Не вдалося з’єднатися. Перевірте інтернет-з’єднання та спробуйте знову.",
+        rateLimitError: "Забагато надсилань з цієї мережі. Спробуйте пізніше.",
+        genericError: "Не вдалося надіслати відгук зараз.",
+        done: "Готово",
+        commandBug: "Повідомити про помилку",
+        commandFeature: "Запропонувати функцію",
+        commandSubtitle: "Надіслати відгук",
+        diagnosticsChannelLabel: "Канал оновлення"
     )
 }

@@ -41,7 +41,8 @@ final class SnippetLibraryService: ObservableObject {
             && UserDefaults.standard.bool(forKey: DefaultsKey.snippetLibraryEnabled)
         let shortcut = GlobalShortcut.saved(for: DefaultsKey.snippetLibraryShortcut,
                                             fallback: .snippetLibraryDefault)
-        shortcutRegistrationFailed = !hotkey.sync(enabled: enabled, shortcut: shortcut)
+        shortcutRegistrationFailed = !hotkey.sync(enabled: enabled, shortcut: shortcut,
+                                                  storageKey: DefaultsKey.snippetLibraryShortcut)
         if !enabled { hide() }
         if isVisible {
             reloadSnippets()
@@ -206,6 +207,7 @@ final class SnippetLibraryService: ObservableObject {
                 return
             }
             TextSnippetService.postExpansion(deleteCount: 0,
+                                             typedTrigger: "",
                                              text: text,
                                              trailingKeyCode: nil,
                                              trailingFlags: [])
@@ -216,7 +218,7 @@ final class SnippetLibraryService: ObservableObject {
 
     /// Borderless panels refuse key status by default, and the library needs
     /// it for the search field, arrows and Esc.
-    private final class KeyableLibraryPanel: NSPanel {
+    private final class KeyableLibraryPanel: OverlayPanel {
         override var canBecomeKey: Bool { true }
     }
 
@@ -278,6 +280,16 @@ final class SnippetLibraryService: ObservableObject {
         removeMonitors()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak panel] event in
             guard let self, let panel, event.window === panel else { return event }
+
+            // While an input method is composing, Return confirms the
+            // candidate, the arrows walk it and Esc drops it. The panel edits
+            // through a field editor, so the marked range lives there; taking
+            // those keys would leave the search field unusable in Chinese,
+            // Japanese and Korean, so composition always wins.
+            if let editor = panel.firstResponder as? NSTextView, editor.hasMarkedText() {
+                return event
+            }
+
             switch Int(event.keyCode) {
             case kVK_Escape:
                 self.hide()
@@ -312,7 +324,10 @@ final class SnippetLibraryService: ObservableObject {
         }
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseEvents) { [weak self, weak panel] event in
             guard let self, let panel, panel.isVisible else { return }
-            if event.windowNumber != panel.windowNumber, !Self.mouseIsInside(panel) {
+            if event.windowNumber != panel.windowNumber, !Self.mouseIsInside(panel),
+               // Every key on the Accessibility Keyboard is a click outside this
+               // panel. Dismissing on those makes the panel impossible to type into.
+               !AssistiveKeyboard.ownsCocoaPoint(NSEvent.mouseLocation) {
                 self.hide()
             }
         }
@@ -323,7 +338,8 @@ final class SnippetLibraryService: ObservableObject {
         ) { [weak self] notification in
             guard let self,
                   let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-                  app.bundleIdentifier != Bundle.main.bundleIdentifier
+                  app.bundleIdentifier != Bundle.main.bundleIdentifier,
+                  app.bundleIdentifier != AssistiveKeyboard.bundleID
             else { return }
             self.hide()
         }
@@ -354,15 +370,15 @@ final class SnippetLibraryService: ObservableObject {
 
     private static func digitIndex(for keyCode: UInt16) -> Int? {
         switch Int(keyCode) {
-        case kVK_ANSI_1: return 0
-        case kVK_ANSI_2: return 1
-        case kVK_ANSI_3: return 2
-        case kVK_ANSI_4: return 3
-        case kVK_ANSI_5: return 4
-        case kVK_ANSI_6: return 5
-        case kVK_ANSI_7: return 6
-        case kVK_ANSI_8: return 7
-        case kVK_ANSI_9: return 8
+        case kVK_ANSI_1, kVK_ANSI_Keypad1: return 0
+        case kVK_ANSI_2, kVK_ANSI_Keypad2: return 1
+        case kVK_ANSI_3, kVK_ANSI_Keypad3: return 2
+        case kVK_ANSI_4, kVK_ANSI_Keypad4: return 3
+        case kVK_ANSI_5, kVK_ANSI_Keypad5: return 4
+        case kVK_ANSI_6, kVK_ANSI_Keypad6: return 5
+        case kVK_ANSI_7, kVK_ANSI_Keypad7: return 6
+        case kVK_ANSI_8, kVK_ANSI_Keypad8: return 7
+        case kVK_ANSI_9, kVK_ANSI_Keypad9: return 8
         default: return nil
         }
     }

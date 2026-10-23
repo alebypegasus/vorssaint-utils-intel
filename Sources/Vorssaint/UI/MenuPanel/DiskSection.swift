@@ -75,6 +75,7 @@ struct DiskSection: View {
         var seen = Set<String>()
         return disks.filter { disk in
             guard disk.canEject, let id = disk.ejectBSDName else { return false }
+            guard !protection.isExcluded(disk: disk) else { return false }
             return seen.insert(id).inserted
         }
     }
@@ -217,15 +218,21 @@ struct DiskSection: View {
                     HStack(spacing: 6) {
                         Text("\(MetricFormat.percent(disk.usedFraction)) \(l10n.s.diskUsed)")
                         Spacer()
-                        Text("\(MetricFormat.diskBytes(disk.freeBytes)) \(l10n.s.diskFree)")
+                        Text("\(MetricFormat.diskBytes(disk.freeBytes)) \(l10n.s.diskAvailable)")
                     }
                     .font(.system(size: 10.5, weight: .medium))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
-                    Text("\(MetricFormat.diskBytes(disk.usedBytes)) / \(MetricFormat.diskBytes(disk.totalBytes))")
-                        .font(.system(size: 10))
-                        .monospacedDigit()
-                        .foregroundStyle(.tertiary)
+                    HStack(spacing: 6) {
+                        Text("\(MetricFormat.diskBytes(disk.usedBytes)) / \(MetricFormat.diskBytes(disk.totalBytes))")
+                        if let purgeable = disk.purgeableBytes, purgeable >= 500_000_000 {
+                            Spacer()
+                            Text("\(MetricFormat.diskBytes(purgeable)) \(l10n.s.diskPurgeable)")
+                        }
+                    }
+                    .font(.system(size: 10))
+                    .monospacedDigit()
+                    .foregroundStyle(.tertiary)
                 }
             }
         }
@@ -271,7 +278,7 @@ struct DiskSection: View {
     private var graph: some View {
         let read = monitor.snapshot.diskReadHistory
         let write = monitor.snapshot.diskWriteHistory
-        let peak = max(read.max() ?? 0, write.max() ?? 0, 1)
+        let peak = MetricFormat.graphCeiling(max(read.max() ?? 0, write.max() ?? 0, 1), unitStep: 1024)
         return ZStack {
             Sparkline(values: read, color: .accentColor, maxValue: peak, showsZeroBaseline: true)
             Sparkline(values: write,
@@ -280,6 +287,7 @@ struct DiskSection: View {
                       fillOpacity: 0.08)
         }
         .frame(height: 30)
+        .graphCeilingLabel(MetricFormat.bytesPerSec(peak))
     }
 
     private func rateColumn(icon: String, label: String, value: Double?, color: Color) -> some View {

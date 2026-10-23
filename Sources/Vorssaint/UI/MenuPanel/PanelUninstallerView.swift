@@ -10,9 +10,10 @@ struct PanelUninstallerView: View {
     @ObservedObject private var permissions = Permissions.shared
     @ObservedObject private var uninstaller = AppUninstaller.shared
     @ObservedObject private var homebrew = HomebrewManager.shared
+    @Environment(\.notchPresentation) private var inNotch
     @State private var dropTargeted = false
     @State private var showingAppPicker = false
-    @State private var pendingHomebrewRemoval: HomebrewPackage?
+    @State private var pendingHomebrewRemoval: AppUninstaller.HomebrewRemovalConfirmation?
     @State private var showHomebrewDetails = false
 
     var onClose: () -> Void
@@ -24,28 +25,33 @@ struct PanelUninstallerView: View {
         }
         .dropDestination(for: URL.self) { urls, _ in
             let selected = selectFirstApp(from: urls)
-            if selected {
+            // The empty state explains a refusal, so the list gives way to it too.
+            if selected || uninstaller.refusal != nil {
                 showingAppPicker = false
             }
             return selected
         } isTargeted: { dropTargeted = $0 }
-        .onAppear { PanelInteractionState.shared.viewKeepsPopoverOpen = true }
+        .onAppear {
+            PanelInteractionState.shared.viewKeepsPopoverOpen = true
+            uninstaller.clearRefusal()
+        }
         .onDisappear {
             PanelInteractionState.shared.viewKeepsPopoverOpen = false
             dismissHomebrewRemovalConfirmation()
+            uninstaller.clearRefusal()
         }
         .alert(l10n.s.homebrewConfirmUninstallTitle,
                isPresented: homebrewRemovalConfirmationPresented,
-               presenting: pendingHomebrewRemoval) { package in
+               presenting: pendingHomebrewRemoval) { confirmation in
             Button(l10n.s.uninstallerCancel, role: .cancel) {
                 dismissHomebrewRemovalConfirmation()
             }
             Button(l10n.s.homebrewUninstall, role: .destructive) {
-                uninstaller.removeSelectedWithHomebrew()
+                uninstaller.removeSelectedWithHomebrew(confirmation: confirmation)
                 dismissHomebrewRemovalConfirmation()
             }
-        } message: { package in
-            Text(String(format: l10n.s.homebrewConfirmUninstallBodyFormat, package.displayName))
+        } message: { confirmation in
+            Text(String(format: l10n.s.homebrewConfirmUninstallBodyFormat, confirmation.package.displayName))
         }
     }
 
@@ -70,7 +76,12 @@ struct PanelUninstallerView: View {
             Label(l10n.s.uninstallerName, systemImage: "trash")
                 .font(.system(size: 12, weight: .semibold))
             Spacer()
-            Button(action: onClose) {
+            Button {
+                // Closing means cancel: a scan left running would come back
+                // on the next open. A removal in progress is left alone.
+                if uninstaller.phase == .scanning { uninstaller.reset() }
+                onClose()
+            } label: {
                 Image(systemName: "xmark.circle.fill")
                     .font(.system(size: 14))
                     .foregroundStyle(.secondary)
@@ -84,6 +95,10 @@ struct PanelUninstallerView: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             dropZone
+
+            if let refusal = uninstaller.refusal {
+                UninstallRefusalNote(refusal: refusal, compact: true)
+            }
 
             Button {
                 choose()
@@ -108,12 +123,12 @@ struct PanelUninstallerView: View {
     }
 
     private var appPickerState: some View {
-        AppPickerView(compact: true) {
+        AppPickerView(compact: true, emptyNote: l10n.s.uninstallerPickerHiddenNote) {
             showingAppPicker = false
         } onSelect: { url in
             showingAppPicker = false
             uninstaller.select(appURL: url)
-        }
+        } loadApps: { UninstallerSupport.offeredApplications() }
         .panelCard()
     }
 
@@ -159,6 +174,10 @@ struct PanelUninstallerView: View {
                         .font(.system(size: 11.5, weight: .medium))
                         .lineLimit(1)
                 }
+            }
+            if uninstaller.phase == .scanning {
+                Button(l10n.s.uninstallerCancel) { uninstaller.reset() }
+                    .controlSize(.small)
             }
         }
         .frame(maxWidth: .infinity)
@@ -250,13 +269,29 @@ struct PanelUninstallerView: View {
                     .font(.system(size: 11))
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text(prettyPath(item.url))
-                    .font(.system(size: 9.5))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .truncationMode(.head)
+                HStack(spacing: 4) {
+                    if item.confidence == .related {
+                        Image(systemName: "questionmark.circle")
+                            .foregroundStyle(.orange)
+                            .help(l10n.s.cleanerOptionalSection)
+                            .accessibilityLabel(l10n.s.cleanerOptionalSection)
+                    }
+                    Text(prettyPath(item.url))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+                .font(.system(size: 9.5))
             }
             Spacer(minLength: 0)
+            Button {
+                NSWorkspace.shared.activateFileViewerSelecting([item.url])
+            } label: {
+                Image(systemName: "folder")
+            }
+            .buttonStyle(.plain)
+            .help(l10n.s.cleanerRevealInFinder)
+            .accessibilityLabel(l10n.s.cleanerRevealInFinder)
             Text(Self.byteString(item.size))
                 .font(.system(size: 10))
                 .monospacedDigit()
@@ -285,8 +320,8 @@ struct PanelUninstallerView: View {
                 .disabled(uninstaller.isRemovingWithHomebrew)
                 Spacer()
                 Button {
-                    if let package = uninstaller.selectedHomebrewPackage {
-                        presentHomebrewRemovalConfirmation(for: package)
+                    if let confirmation = uninstaller.homebrewRemovalConfirmation {
+                        presentHomebrewRemovalConfirmation(confirmation)
                     } else {
                         uninstaller.removeSelected()
                     }
@@ -316,9 +351,21 @@ struct PanelUninstallerView: View {
         }
     }
 
-    private func presentHomebrewRemovalConfirmation(for package: HomebrewPackage) {
+    private func presentHomebrewRemovalConfirmation(_ confirmation: AppUninstaller.HomebrewRemovalConfirmation) {
+        // The alert would hang from the island as a sheet; there it asks on its own.
+        guard !inNotch else {
+            DispatchQueue.main.async {
+                guard NSAlert.confirmAboveIsland(l10n.s.homebrewConfirmUninstallTitle,
+                                                 message: String(format: l10n.s.homebrewConfirmUninstallBodyFormat,
+                                                                 confirmation.package.displayName),
+                                                 action: l10n.s.homebrewUninstall, destructive: true,
+                                                 cancel: l10n.s.uninstallerCancel) else { return }
+                uninstaller.removeSelectedWithHomebrew(confirmation: confirmation)
+            }
+            return
+        }
         PanelInteractionState.shared.isPresentingPopoverModal = true
-        pendingHomebrewRemoval = package
+        pendingHomebrewRemoval = confirmation
     }
 
     private func dismissHomebrewRemovalConfirmation() {
@@ -394,8 +441,7 @@ struct PanelUninstallerView: View {
         guard let app = urls.first(where: { $0.pathExtension == "app" }) ?? urls.first else {
             return false
         }
-        uninstaller.select(appURL: app)
-        return true
+        return uninstaller.select(appURL: app)
     }
 
     private func choose() {

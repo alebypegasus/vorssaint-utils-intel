@@ -19,9 +19,16 @@ enum BrightnessOSD {
             }
             return
         }
+        if NotchSupport.routes(.brightness), NotchService.shared.showBrightness(brightness) {
+            return
+        }
+        // A display mirroring another has no screen of its own; the overlay
+        // goes on the screen the mirror set shares, in hardware or software.
+        let sharedScreenID = CGDisplayPrimaryDisplay(displayID)
+        let mirroredID = CGDisplayMirrorsDisplay(displayID)
         guard let screen = NSScreen.screens.first(where: {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?
-                .uint32Value == displayID
+            let number = ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber)?.uint32Value
+            return number == displayID || number == sharedScreenID || number == mirroredID
         }) else { return }
 
         // One hosting controller for the panel's lifetime: a slider drag
@@ -102,9 +109,9 @@ enum BrightnessOSD {
 
     private static func ensurePanel() -> NSPanel {
         if let panel { return panel }
-        let panel = NSPanel(contentRect: .zero,
-                            styleMask: [.borderless, .nonactivatingPanel],
-                            backing: .buffered, defer: false)
+        let panel = OverlayPanel(contentRect: .zero,
+                                 styleMask: [.borderless, .nonactivatingPanel],
+                                 backing: .buffered, defer: false)
         panel.level = .screenSaver
         panel.isOpaque = false
         panel.backgroundColor = .clear

@@ -6,32 +6,47 @@ import SwiftUI
 /// Which per-app breakdown is expanded in the System section.
 enum BreakdownKind {
     case cpu, gpu, memory, energy, network
+
+    func processRefreshInterval(configuredMonitorInterval: Int) -> TimeInterval {
+        switch self {
+        case .cpu, .gpu, .energy:
+            return TimeInterval(Defaults.sanitizedMonitorInterval(configuredMonitorInterval))
+        case .memory, .network:
+            return 4
+        }
+    }
 }
 
 /// The "System" section of the panel: component temperatures, hardware usage
-/// and memory pressure, with zero clutter and intelligent dynamic coloring.
+/// and memory pressure, only the readings that matter, presented cleanly.
+/// Tapping CPU, GPU or Memory expands the top consumers of that resource;
+/// CPU also shows the load of each core.
 struct SystemSection: View {
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var monitor = SystemMonitor.shared
-    @ObservedObject private var powerModeService = ProcessorPowerModeService.shared
     @Environment(\.colorScheme) private var colorScheme
     var collapsible = true
+    let showConnectedDevices: () -> Void
     @State private var expanded: BreakdownKind?
-    @State private var showDeepMetrics = false
     @State private var alertsExpanded = false
+    @State private var cpuAppsExpanded = true
     @State private var breakdownRows: [ProcessUsage] = []
     @State private var breakdownIsLoading = false
     @State private var lastBreakdownRefresh = Date.distantPast
     private let breakdownLimit = 15
+    @AppStorage(DefaultsKey.monitorInterval) private var monitorInterval = 2
     @AppStorage(DefaultsKey.monitorGraphCPU) private var graphCPU = true
     @AppStorage(DefaultsKey.monitorGraphGPU) private var graphGPU = true
     @AppStorage(DefaultsKey.monitorGraphMemory) private var graphMemory = true
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit = TemperatureUnit.celsius.rawValue
     @AppStorage(DefaultsKey.monitorSysTemps) private var sysTemps = true
     @AppStorage(DefaultsKey.monitorSysCPU) private var sysCPU = true
+    @AppStorage(DefaultsKey.monitorSysCPUCores) private var sysCPUCores = true
     @AppStorage(DefaultsKey.monitorSysGPU) private var sysGPU = true
     @AppStorage(DefaultsKey.monitorSysMemory) private var sysMemory = true
+    @AppStorage(DefaultsKey.monitorSysAlerts) private var sysAlerts = true
     @AppStorage(DefaultsKey.monitorSysUptime) private var sysUptime = true
+    @AppStorage(DefaultsKey.monitorSysConnectedDevices) private var sysConnectedDevices = true
     @AppStorage(DefaultsKey.panelSystemOrder) private var systemOrderRaw = ""
     @State private var draggingBlock: Block?
 
@@ -56,20 +71,15 @@ struct SystemSection: View {
                         }
                     }
                 }
-                if !editing {
-                    Divider()
-                    processorPowerModeControl
-                    Divider()
-                    deepMetricsButton
-                }
             }
             .panelCard()
         }
-        .sheet(isPresented: $showDeepMetrics) {
-            DeepMetricsView()
-        }
         .onReceive(monitor.$snapshot) { _ in
-            guard expanded != nil, Date().timeIntervalSince(lastBreakdownRefresh) > 4 else { return }
+            guard let kind = expanded,
+                  Date().timeIntervalSince(lastBreakdownRefresh) >= kind.processRefreshInterval(
+                      configuredMonitorInterval: monitorInterval
+                  ) * 0.8
+            else { return }
             refreshBreakdown()
         }
         .onDisappear {
@@ -79,8 +89,12 @@ struct SystemSection: View {
         }
     }
 
-    private enum Block: String, PanelOrderItem { case temps, usage, memory, uptime }
+    /// Card subsections, in order, filtered by the per-item toggles (and whether a
+    /// battery exists). Drives divider interleaving so only rendered blocks get one.
+    private enum Block: String, PanelOrderItem { case temps, usage, memory, alerts, uptime, connectedDevices }
 
+    // Hub availability per metric family: an unavailable metric leaves the
+    // card entirely, including the edit-mode hidden rows.
     private var cpuAvailable: Bool { AppFeature.monitorCPU.isAvailable }
     private var gpuAvailable: Bool { AppFeature.monitorGPU.isAvailable }
     private var memoryAvailable: Bool { AppFeature.monitorMemory.isAvailable }
@@ -101,13 +115,16 @@ struct SystemSection: View {
         switch block {
         case .temps, .usage: return cpuAvailable || gpuAvailable
         case .memory: return memoryAvailable
-        case .uptime: return true
+        case .connectedDevices: return AppFeature.connectedDevices.isAvailable
+        case .alerts, .uptime: return true
         }
     }
 
     private var orderedBlocks: [Block] {
         _ = systemOrderRaw
-        return PanelLayout.itemOrder(Block.self, key: DefaultsKey.panelSystemOrder)
+        // Alert rules are configured in Settings. Keeping them out of the panel
+        // avoids presenting the same controls twice.
+        return PanelLayout.itemOrder(Block.self, key: DefaultsKey.panelSystemOrder).filter { $0 != .alerts }
     }
 
     private var blockOrderBinding: Binding<[Block]> {
@@ -123,7 +140,9 @@ struct SystemSection: View {
         case .temps: return sysTemps
         case .usage: return usageVisible
         case .memory: return sysMemory
+        case .alerts: return sysAlerts
         case .uptime: return sysUptime
+        case .connectedDevices: return sysConnectedDevices
         }
     }
 
@@ -132,9 +151,12 @@ struct SystemSection: View {
         systemOrderRaw = ""
         sysTemps = true
         sysCPU = true
+        sysCPUCores = true
         sysGPU = true
         sysMemory = true
+        sysAlerts = true
         sysUptime = true
+        sysConnectedDevices = true
     }
 
     @ViewBuilder
@@ -143,7 +165,54 @@ struct SystemSection: View {
         case .temps: temperatureGrid(editing: editing)
         case .usage: usageRows(editing: editing)
         case .memory: memoryRows(editing: editing)
+        case .alerts: alertRows(editing: editing)
         case .uptime: uptimeRow(editing: editing)
+        case .connectedDevices: connectedDevicesRow(editing: editing)
+        }
+    }
+
+    // MARK: Connected devices
+
+    /// Opens the device list. While editing it is only a row to reorder or
+    /// hide, like the usage rows, so a drag cannot open the detail.
+    @ViewBuilder
+    private func connectedDevicesRow(editing: Bool) -> some View {
+        let strings = FeatureStrings.connectedDevices(l10n.language)
+        if !sysConnectedDevices {
+            PanelHiddenItemRow(title: strings.title, systemImage: "cable.connector",
+                               isVisible: $sysConnectedDevices)
+        } else if editing {
+            connectedDevicesRowContent(title: strings.title, isInteractive: false) {
+                PanelInlineHideButton(isVisible: $sysConnectedDevices)
+            }
+        } else {
+            Button(action: showConnectedDevices) {
+                connectedDevicesRowContent(title: strings.title, isInteractive: true) {
+                    EmptyView()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(strings.title)
+            .accessibilityValue(strings.formattedCount(monitor.snapshot.connectedDevices.count))
+        }
+    }
+
+    private func connectedDevicesRowContent<Trailing: View>(title: String, isInteractive: Bool,
+                                                             @ViewBuilder trailing: () -> Trailing) -> some View {
+        HStack(spacing: 8) {
+            Label(title, systemImage: "cable.connector")
+                .font(.system(size: 11, weight: .medium))
+            Spacer(minLength: 0)
+            Text("\(monitor.snapshot.connectedDevices.count)")
+                .font(.system(size: 11, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .opacity(isInteractive ? 1 : 0.35)
+            trailing()
         }
     }
 
@@ -161,12 +230,29 @@ struct SystemSection: View {
         }
     }
 
+    /// Opening the folded CPU apps list starts from the same recent reading
+    /// expanding a row does, not from rows kept while it was folded.
+    private func toggleCPUApps() {
+        cpuAppsExpanded.toggle()
+        if cpuAppsExpanded {
+            breakdownRows = ProcessUsageService.shared.cachedTop(.cpu, limit: breakdownLimit) ?? []
+        }
+        refreshBreakdown()
+    }
+
     private func refreshBreakdown() {
-        guard let kind = expanded else { return }
+        guard let kind = expanded, kind != .cpu || !sysCPUCores || cpuAppsExpanded else { return }
         lastBreakdownRefresh = Date()
         breakdownIsLoading = breakdownRows.isEmpty
+        let sampleInterval = percentageSampleInterval
+        let cpuPercentage = monitor.snapshot.cpuUsage.map { $0 * 100 }
+        let gpuPercentage = monitor.snapshot.gpuUsage.map { $0 * 100 }
         DispatchQueue.global(qos: .utility).async {
-            let rows = ProcessUsageService.shared.top(kind, limit: breakdownLimit)
+            let rows = ProcessUsageService.shared.top(kind,
+                                                      limit: breakdownLimit,
+                                                      sampleInterval: sampleInterval,
+                                                      cpuPercentage: cpuPercentage,
+                                                      gpuPercentage: gpuPercentage)
             DispatchQueue.main.async {
                 guard expanded == kind else { return }
                 breakdownIsLoading = false
@@ -177,97 +263,8 @@ struct SystemSection: View {
         }
     }
 
-    // MARK: Processor Power Mode
-
-    @ViewBuilder
-    private var processorPowerModeControl: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Label("Desempenho do Processador", systemImage: "speedometer")
-                    .font(.system(size: 11, weight: .semibold))
-                Spacer()
-                if powerModeService.isWorking {
-                    ProgressView().controlSize(.mini)
-                }
-            }
-
-            HStack(spacing: 4) {
-                ForEach(CPUPowerMode.allCases) { mode in
-                    let isSelected = powerModeService.currentMode == mode
-                    Button {
-                        withAnimation(.liquidSpring) {
-                            powerModeService.setMode(mode)
-                        }
-                    } label: {
-                        Text(mode.title)
-                            .font(.system(size: 10, weight: isSelected ? .bold : .medium))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 4.5)
-                            .background(
-                                isSelected
-                                    ? AnyShapeStyle(
-                                        LinearGradient(
-                                            colors: powerModeGradient(for: mode),
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                    : AnyShapeStyle(Color.primary.opacity(0.04))
-                            )
-                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                            .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(0.75))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(3)
-            .background(Color.primary.opacity(0.03))
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .disabled(powerModeService.isWorking)
-
-            Text(powerModeService.currentMode.description)
-                .font(.system(size: 9.5))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.vertical, 2)
-    }
-
-    private func powerModeGradient(for mode: CPUPowerMode) -> [Color] {
-        switch mode {
-        case .lowPower:
-            return [Theme.LiquidGlass.emeraldGlow, Theme.LiquidGlass.emeraldGlow.opacity(0.85)]
-        case .balanced:
-            return [Color(red: 0.25, green: 0.45, blue: 0.85), Color(red: 0.18, green: 0.35, blue: 0.75)]
-        case .performance:
-            return [Theme.LiquidGlass.amberGlow, Theme.LiquidGlass.amberGlow.opacity(0.85)]
-        case .overclock:
-            return [Theme.LiquidGlass.magentaGlow, Color.red]
-        case .custom:
-            return [Theme.LiquidGlass.cyanGlow, Theme.LiquidGlass.violetGlow]
-        }
-    }
-
-    @ViewBuilder
-    private var deepMetricsButton: some View {
-        Button(action: {
-            showDeepMetrics = true
-        }) {
-            HStack(spacing: 8) {
-                Image(systemName: "cpu.fill")
-                    .font(.system(size: 11))
-                Text("Relatório Profundo (Hardware & Energia)")
-                    .font(.system(size: 11, weight: .semibold))
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .foregroundStyle(.primary)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .padding(.vertical, 2)
+    private var percentageSampleInterval: TimeInterval {
+        TimeInterval(Defaults.sanitizedMonitorInterval(monitorInterval))
     }
 
     @ViewBuilder
@@ -296,7 +293,8 @@ struct SystemSection: View {
     }
 
     private func breakdownValue(_ row: ProcessUsage, for kind: BreakdownKind) -> String {
-        kind == .memory ? formatMemory(UInt64(row.value)) : String(format: "%.1f%%", row.value)
+        kind == .memory ? formatMemory(UInt64(row.value))
+                        : String(format: "%.1f%%", locale: MetricFormat.locale, row.value)
     }
 
     // MARK: Temperatures
@@ -317,14 +315,13 @@ struct SystemSection: View {
                     }
                 }
                 HStack(spacing: 8) {
-                    if cpuAvailable, let cpuTemp = monitor.snapshot.cpuTemperature {
-                        temperatureCell(icon: "cpu", label: l10n.s.cpuLabel, value: cpuTemp)
+                    if cpuAvailable {
+                        temperatureCell(icon: "cpu", label: l10n.s.cpuLabel,
+                                        value: monitor.snapshot.cpuTemperature)
                     }
-                    if gpuAvailable, let gpuTemp = monitor.snapshot.gpuTemperature {
-                        temperatureCell(icon: "memorychip", label: l10n.s.gpuLabel, value: gpuTemp)
-                    }
-                    if let batteryTemp = monitor.snapshot.batteryTemperature {
-                        temperatureCell(icon: "battery.100", label: l10n.s.batteryLabel, value: batteryTemp)
+                    if gpuAvailable {
+                        temperatureCell(icon: "memorychip", label: l10n.s.gpuLabel,
+                                        value: monitor.snapshot.gpuTemperature)
                     }
                 }
                 if monitor.snapshot.cpuTemperature == nil,
@@ -337,30 +334,25 @@ struct SystemSection: View {
         }
     }
 
-    private func temperatureCell(icon: String, label: String, value: Double) -> some View {
+    private func temperatureCell(icon: String, label: String, value: Double?) -> some View {
         VStack(spacing: 3) {
             HStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.system(size: 9.5))
+                    .font(.system(size: 9))
                     .foregroundStyle(.secondary)
                 Text(label)
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
-            Text(MetricFormat.temperature(value, unit: displayTemperatureUnit))
-                .font(.system(size: 15, weight: .bold, design: .rounded))
+            Text(value.map { MetricFormat.temperature($0, unit: displayTemperatureUnit) } ?? "-")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .monospacedDigit()
-                .foregroundStyle(value > 85 ? Color.red : (value > 75 ? Color.orange : Color.primary))
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 6)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.05), lineWidth: 0.8)
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.primary.opacity(0.045))
         )
     }
 
@@ -381,27 +373,52 @@ struct SystemSection: View {
             }
             if sysCPU, cpuAvailable {
                 usageRow(label: l10n.s.cpuLabel, fraction: monitor.snapshot.cpuUsage,
-                         kind: .cpu, tintColor: Theme.LiquidGlass.cyanGlow, editing: editing, visible: $sysCPU)
+                         kind: .cpu, editing: editing, visible: $sysCPU)
                 if graphCPU, monitor.snapshot.cpuHistory.count >= 2 {
                     Sparkline(values: monitor.snapshot.cpuHistory,
-                              color: Theme.LiquidGlass.cyanGlow,
+                              color: .accentColor,
                               maxValue: 1,
                               showsZeroBaseline: true)
-                        .frame(height: 22)
+                        .frame(height: 30)
+                        .graphCeilingLabel(MetricFormat.percent(1))
                 }
-                breakdownList(for: .cpu)
+                // The apps list folds only under the per-core bars; without
+                // them CPU expands straight to its apps, like GPU and Memory.
+                if sysCPUCores, expanded == .cpu {
+                    if !monitor.snapshot.cpuCoreUsage.isEmpty {
+                        CPUCoreMatrix(usage: monitor.snapshot.cpuCoreUsage)
+                    }
+                    Button {
+                        toggleCPUApps()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .rotationEffect(.degrees(cpuAppsExpanded ? 90 : 0))
+                            subsectionLabel(FeatureStrings.cpuCores(l10n.language).apps)
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+                if !sysCPUCores || cpuAppsExpanded {
+                    breakdownList(for: .cpu)
+                }
             } else if editing, cpuAvailable {
                 PanelHiddenItemRow(title: l10n.s.cpuLabel, systemImage: "cpu", isVisible: $sysCPU)
             }
             if sysGPU, gpuAvailable {
                 usageRow(label: l10n.s.gpuLabel, fraction: monitor.snapshot.gpuUsage,
-                         kind: .gpu, tintColor: Theme.LiquidGlass.violetGlow, editing: editing, visible: $sysGPU)
+                         kind: .gpu, editing: editing, visible: $sysGPU)
                 if graphGPU, monitor.snapshot.gpuHistory.count >= 2 {
                     Sparkline(values: monitor.snapshot.gpuHistory,
-                              color: Theme.LiquidGlass.violetGlow,
+                              color: PanelMetricColor.cyan(for: colorScheme),
                               maxValue: 1,
                               showsZeroBaseline: true)
-                        .frame(height: 22)
+                        .frame(height: 30)
+                        .graphCeilingLabel(MetricFormat.percent(1))
                 }
                 breakdownList(for: .gpu)
             } else if editing, gpuAvailable {
@@ -409,6 +426,8 @@ struct SystemSection: View {
             }
         }
     }
+
+    // MARK: Uptime
 
     @ViewBuilder
     private func uptimeRow(editing: Bool) -> some View {
@@ -442,17 +461,17 @@ struct SystemSection: View {
     }()
 
     private func usageRow(label: String, fraction: Double?, kind: BreakdownKind,
-                          tintColor: Color, editing: Bool, visible: Binding<Bool>) -> some View {
+                          editing: Bool, visible: Binding<Bool>) -> some View {
         Group {
             if editing {
-                usageRowContent(label: label, fraction: fraction, kind: kind, tintColor: tintColor, isInteractive: false) {
+                usageRowContent(label: label, fraction: fraction, kind: kind, isInteractive: false) {
                     PanelInlineHideButton(isVisible: visible)
                 }
             } else {
                 Button {
                     toggleBreakdown(kind)
                 } label: {
-                    usageRowContent(label: label, fraction: fraction, kind: kind, tintColor: tintColor, isInteractive: true) {
+                    usageRowContent(label: label, fraction: fraction, kind: kind, isInteractive: true) {
                         EmptyView()
                     }
                     .contentShape(Rectangle())
@@ -463,27 +482,24 @@ struct SystemSection: View {
     }
 
     private func usageRowContent<Trailing: View>(label: String, fraction: Double?,
-                                                 kind: BreakdownKind, tintColor: Color, isInteractive: Bool,
+                                                 kind: BreakdownKind, isInteractive: Bool,
                                                  @ViewBuilder trailing: () -> Trailing) -> some View {
-        let frac = fraction ?? 0
-        let effectiveTint: Color = frac > 0.85 ? Color.red : (frac > 0.60 ? Color.orange : tintColor)
-
-        return HStack(spacing: 8) {
+        HStack(spacing: 8) {
             Image(systemName: "chevron.right")
                 .font(.system(size: 8, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .rotationEffect(.degrees(expanded == kind ? 90 : 0))
                 .opacity(isInteractive ? 1 : 0.35)
             Text(label)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
-                .frame(width: 48, alignment: .leading)
-            UsageBar(fraction: frac, tint: effectiveTint)
-            Text(fraction.map { String(format: "%.0f%%", $0 * 100) } ?? "-")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .minimumScaleFactor(0.8)
+                .frame(width: 52, alignment: .leading)
+            UsageBar(fraction: fraction ?? 0)
+            Text(fraction.map { String(format: "%.0f%%", locale: MetricFormat.locale, $0 * 100) } ?? "-")
+                .font(.system(size: 11, weight: .medium))
                 .monospacedDigit()
-                .foregroundStyle(frac > 0.85 ? Color.red : Color.primary)
                 .frame(width: 38, alignment: .trailing)
             trailing()
         }
@@ -504,29 +520,6 @@ struct SystemSection: View {
                     Spacer(minLength: 0)
                     if editing {
                         PanelInlineHideButton(isVisible: $sysMemory)
-                    } else {
-                        // Purge RAM Button
-                        Button(action: {
-                            powerModeService.purgeMemory()
-                        }) {
-                            HStack(spacing: 3) {
-                                if powerModeService.isPurgingMemory {
-                                    ProgressView().controlSize(.mini)
-                                } else {
-                                    Image(systemName: "sparkles")
-                                        .font(.system(size: 8.5))
-                                }
-                                Text("Liberar RAM")
-                                    .font(.system(size: 9.5, weight: .semibold))
-                            }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2.5)
-                            .background(Color.primary.opacity(0.06))
-                            .clipShape(Capsule())
-                            .foregroundStyle(Color.accentColor)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(powerModeService.isPurgingMemory)
                     }
                 }
                 if editing {
@@ -546,13 +539,31 @@ struct SystemSection: View {
                 let memoryHistory = MonitorMemoryMetric.current.history(in: monitor.snapshot)
                 if graphMemory, memoryHistory.count >= 2 {
                     Sparkline(values: memoryHistory,
-                              color: Theme.LiquidGlass.emeraldGlow,
+                              color: PanelMetricColor.mint(for: colorScheme),
                               maxValue: 1,
                               showsZeroBaseline: true)
-                        .frame(height: 22)
+                        .frame(height: 30)
+                        .graphCeilingLabel(MetricFormat.percent(1))
                 }
                 breakdownList(for: .memory)
             }
+        }
+    }
+
+    @ViewBuilder
+    private func memorySecondaryRow(_ title: String, _ bytes: UInt64?) -> some View {
+        if let bytes {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(formatMemory(bytes))
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.leading, 16)
         }
     }
 
@@ -564,40 +575,59 @@ struct SystemSection: View {
                 .rotationEffect(.degrees(expanded == .memory ? 90 : 0))
                 .opacity(isInteractive ? 1 : 0.35)
             Text(l10n.s.memoryPressure)
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             PressureIndicator(pressure: monitor.snapshot.memoryPressure)
             Spacer()
-            Text(memoryUsageText)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .monospacedDigit()
+            let memoryValue = MonitorMemoryMetric.current.value(in: monitor.snapshot)
+            if let used = memoryValue, let total = monitor.snapshot.memoryTotal {
+                Text("\(formatMemory(used)) / \(formatMemory(total))")
+                    .font(.system(size: 11, weight: .medium))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
-    private func memorySecondaryRow(_ label: String, _ bytes: UInt64?) -> some View {
-        HStack(spacing: 8) {
-            Text(label)
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-                .padding(.leading, 18)
-            Spacer()
-            Text(bytes.map(formatMemory) ?? "-")
-                .font(.system(size: 10, design: .monospaced))
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var memoryUsageText: String {
-        guard let used = monitor.snapshot.memoryUsed,
-              let total = monitor.snapshot.memoryTotal else { return "-" }
-        return "\(formatMemory(used)) / \(formatMemory(total))"
-    }
-
-    private func subsectionLabel(_ title: String) -> some View {
-        Text(title)
+    private func subsectionLabel(_ text: String) -> some View {
+        Text(text)
             .font(.system(size: 10.5, weight: .semibold))
             .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private func alertRows(editing: Bool) -> some View {
+        let text = FeatureStrings.monitorAlerts(l10n.language)
+        if !sysAlerts {
+            PanelHiddenItemRow(title: text.section,
+                               systemImage: "bell.badge",
+                               isVisible: $sysAlerts)
+        } else {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 6) {
+                    Button {
+                        alertsExpanded.toggle()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .rotationEffect(.degrees(alertsExpanded ? 90 : 0))
+                            subsectionLabel(text.section)
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    if editing {
+                        PanelInlineHideButton(isVisible: $sysAlerts)
+                    }
+                }
+                if alertsExpanded {
+                    MonitorAlertsControls(compact: true)
+                }
+            }
+        }
     }
 
     private func formatMemory(_ bytes: UInt64) -> String {
@@ -605,8 +635,8 @@ struct SystemSection: View {
     }
 }
 
-/// Thin capacity bar for CPU/GPU usage with smooth gradients.
-private struct UsageBar: View {
+/// Thin capacity bar for CPU/GPU usage.
+struct UsageBar: View {
     @Environment(\.colorScheme) private var colorScheme
     let fraction: Double
     var tint: Color? = nil
@@ -617,11 +647,19 @@ private struct UsageBar: View {
                 Capsule()
                     .fill(Color.primary.opacity(0.08))
                 Capsule()
-                    .fill(tint ?? Theme.LiquidGlass.cyanGlow)
+                    .fill(tint ?? barColor)
                     .frame(width: max(3, proxy.size.width * min(1, fraction)))
             }
         }
         .frame(height: 5)
+    }
+
+    private var barColor: Color {
+        switch fraction {
+        case ..<0.6: return .accentColor
+        case ..<0.85: return PanelMetricColor.yellow(for: colorScheme)
+        default: return PanelMetricColor.red(for: colorScheme)
+        }
     }
 }
 
@@ -637,26 +675,26 @@ struct PressureIndicator: View {
             Circle()
                 .fill(color)
                 .frame(width: 7, height: 7)
-            Text(title)
-                .font(.system(size: 10, weight: .semibold))
+                .shadow(color: color.opacity(0.6), radius: 2)
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(color)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 1.5)
-        .background(color.opacity(0.12))
-        .clipShape(Capsule())
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(color.opacity(0.13)))
     }
 
     private var color: Color {
         switch pressure {
-        case .normal: return Theme.LiquidGlass.emeraldGlow
-        case .warning: return Color.orange
-        case .critical: return Color.red
-        case .unknown: return Color.secondary
+        case .normal: return PanelMetricColor.green(for: colorScheme)
+        case .warning: return PanelMetricColor.yellow(for: colorScheme)
+        case .critical: return PanelMetricColor.red(for: colorScheme)
+        case .unknown: return .secondary
         }
     }
 
-    private var title: String {
+    private var label: String {
         switch pressure {
         case .normal: return l10n.s.pressureNormal
         case .warning: return l10n.s.pressureWarning

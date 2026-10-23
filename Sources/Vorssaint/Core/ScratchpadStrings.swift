@@ -13,6 +13,9 @@ struct ScratchpadFeatureStrings {
     let copyAll: String
     let copied: String
     let exportAction: String
+    let exportFailed: String
+    let loadFailed: String
+    let saveFailed: String
     let clearAction: String
     let retentionTitle: String
     let retentionNever: String
@@ -35,6 +38,21 @@ struct ScratchpadFeatureStrings {
     let padLimitFormat: String
     let previewFormatting: String
     let editText: String
+    /// How a task's checkbox in the formatted reading tells VoiceOver whether
+    /// it is done.
+    let taskDone: String
+    let taskNotDone: String
+    let markBold: String
+    let markItalic: String
+    let markStrikethrough: String
+    let markHeading: String
+    let markBullet: String
+    let markNumbered: String
+    let markQuote: String
+    let markCode: String
+    let markLink: String
+    let formatMarks: String
+    let textSize: String
 }
 
 extension FeatureStrings {
@@ -45,6 +63,7 @@ extension FeatureStrings {
         case .tr: return .tr
         case .ru: return .ru
         case .es: return .es
+        case .sk: return .sk
         case .de: return .de
         case .fr: return .fr
         case .it: return .it
@@ -53,6 +72,7 @@ extension FeatureStrings {
         case .zhHans: return .zhHans
         case .zhTW: return .zhTW
         case .zhHK: return .zhHK
+        case .uk: return .uk
         }
     }
 }
@@ -67,6 +87,9 @@ extension ScratchpadFeatureStrings {
         copyAll: "Copy all",
         copied: "Copied",
         exportAction: "Save as file",
+        exportFailed: "The file could not be saved",
+        loadFailed: "Your notes could not be opened. They were left unchanged.",
+        saveFailed: "Your notes could not be saved. Copy them elsewhere before quitting.",
         clearAction: "Clear",
         retentionTitle: "Clear on its own",
         retentionNever: "Never",
@@ -88,7 +111,20 @@ extension ScratchpadFeatureStrings {
         deletePadMessageFormat: "Delete “%@” and everything in it?",
         padLimitFormat: "You can keep up to %d scratchpads",
         previewFormatting: "Show formatting",
-        editText: "Edit text"
+        editText: "Edit text",
+        taskDone: "Done",
+        taskNotDone: "Not done",
+        markBold: "Bold",
+        markItalic: "Italic",
+        markStrikethrough: "Strikethrough",
+        markHeading: "Heading",
+        markBullet: "Bulleted list",
+        markNumbered: "Numbered list",
+        markQuote: "Quote",
+        markCode: "Code",
+        markLink: "Link",
+        formatMarks: "Formatting",
+        textSize: "Text size"
     )
 
     static let ptBR = ScratchpadFeatureStrings(
@@ -100,6 +136,9 @@ extension ScratchpadFeatureStrings {
         copyAll: "Copiar tudo",
         copied: "Copiado",
         exportAction: "Salvar como arquivo",
+        exportFailed: "Não foi possível salvar o arquivo",
+        loadFailed: "Não foi possível abrir as notas. O conteúdo foi preservado.",
+        saveFailed: "Não foi possível salvar as notas. Copie-as para outro lugar antes de sair.",
         clearAction: "Limpar",
         retentionTitle: "Limpar sozinho",
         retentionNever: "Nunca",
@@ -121,7 +160,20 @@ extension ScratchpadFeatureStrings {
         deletePadMessageFormat: "Apagar “%@” e todo o conteúdo?",
         padLimitFormat: "Você pode manter até %d rascunhos",
         previewFormatting: "Ver formatação",
-        editText: "Editar texto"
+        editText: "Editar texto",
+        taskDone: "Concluída",
+        taskNotDone: "Não concluída",
+        markBold: "Negrito",
+        markItalic: "Itálico",
+        markStrikethrough: "Tachado",
+        markHeading: "Título",
+        markBullet: "Lista com marcadores",
+        markNumbered: "Lista numerada",
+        markQuote: "Citação",
+        markCode: "Código",
+        markLink: "Link",
+        formatMarks: "Formatação",
+        textSize: "Tamanho do texto"
     )
 
     static let tr = ScratchpadFeatureStrings(
@@ -133,6 +185,9 @@ extension ScratchpadFeatureStrings {
         copyAll: "Tümünü kopyala",
         copied: "Kopyalandı",
         exportAction: "Dosya olarak kaydet",
+        exportFailed: "Dosya kaydedilemedi",
+        loadFailed: "Notlar açılamadı. İçerik değiştirilmeden korundu.",
+        saveFailed: "Notlar kaydedilemedi. Çıkmadan önce başka bir yere kopyalayın.",
         clearAction: "Temizle",
         retentionTitle: "Kendiliğinden temizle",
         retentionNever: "Hiçbir zaman",
@@ -154,7 +209,20 @@ extension ScratchpadFeatureStrings {
         deletePadMessageFormat: "“%@” ve içindeki her şey silinsin mi?",
         padLimitFormat: "%d adede kadar karalama defteri tutabilirsiniz",
         previewFormatting: "Biçimlendirmeyi göster",
-        editText: "Metni düzenle"
+        editText: "Metni düzenle",
+        taskDone: "Tamamlandı",
+        taskNotDone: "Tamamlanmadı",
+        markBold: "Kalın",
+        markItalic: "İtalik",
+        markStrikethrough: "Üstü çizili",
+        markHeading: "Başlık",
+        markBullet: "Madde işaretli liste",
+        markNumbered: "Numaralı liste",
+        markQuote: "Alıntı",
+        markCode: "Kod",
+        markLink: "Bağlantı",
+        formatMarks: "Biçimlendirme",
+        textSize: "Metin boyutu"
     )
 
     static let ru = ScratchpadFeatureStrings(
@@ -166,6 +234,9 @@ extension ScratchpadFeatureStrings {
         copyAll: "Скопировать всё",
         copied: "Скопировано",
         exportAction: "Сохранить как файл",
+        exportFailed: "Не удалось сохранить файл",
+        loadFailed: "Не удалось открыть заметки. Они сохранены без изменений.",
+        saveFailed: "Не удалось сохранить заметки. Скопируйте их в другое место перед выходом.",
         clearAction: "Очистить",
         retentionTitle: "Очищать автоматически",
         retentionNever: "Никогда",
@@ -187,7 +258,20 @@ extension ScratchpadFeatureStrings {
         deletePadMessageFormat: "Удалить «%@» вместе со всем содержимым?",
         padLimitFormat: "Можно хранить до %d черновиков",
         previewFormatting: "Показать форматирование",
-        editText: "Редактировать текст"
+        editText: "Редактировать текст",
+        taskDone: "Выполнено",
+        taskNotDone: "Не выполнено",
+        markBold: "Полужирный",
+        markItalic: "Курсив",
+        markStrikethrough: "Зачёркнутый",
+        markHeading: "Заголовок",
+        markBullet: "Маркированный список",
+        markNumbered: "Нумерованный список",
+        markQuote: "Цитата",
+        markCode: "Код",
+        markLink: "Ссылка",
+        formatMarks: "Форматирование",
+        textSize: "Размер текста"
     )
 
     static let es = ScratchpadFeatureStrings(
@@ -199,6 +283,9 @@ extension ScratchpadFeatureStrings {
         copyAll: "Copiar todo",
         copied: "Copiado",
         exportAction: "Guardar como archivo",
+        exportFailed: "No se pudo guardar el archivo",
+        loadFailed: "No se pudieron abrir las notas. Se conservaron sin cambios.",
+        saveFailed: "No se pudieron guardar las notas. Cópialas en otro lugar antes de salir.",
         clearAction: "Limpiar",
         retentionTitle: "Limpiar solo",
         retentionNever: "Nunca",
@@ -217,10 +304,72 @@ extension ScratchpadFeatureStrings {
         closePad: "Cerrar borrador",
         saveName: "Guardar",
         cancel: "Cancelar",
-        deletePadMessageFormat: "¿Eliminar «%@» y todo su contenido?",
+        deletePadMessageFormat: "¿Eliminar “%@” y todo su contenido?",
         padLimitFormat: "Puedes guardar hasta %d borradores",
         previewFormatting: "Ver formato",
-        editText: "Editar texto"
+        editText: "Editar texto",
+        taskDone: "Completada",
+        taskNotDone: "Sin completar",
+        markBold: "Negrita",
+        markItalic: "Cursiva",
+        markStrikethrough: "Tachado",
+        markHeading: "Título",
+        markBullet: "Lista con viñetas",
+        markNumbered: "Lista numerada",
+        markQuote: "Cita",
+        markCode: "Código",
+        markLink: "Enlace",
+        formatMarks: "Formato",
+        textSize: "Tamaño del texto"
+    )
+
+    static let sk = ScratchpadFeatureStrings(
+        pageTitle: "Poznámkový blok",
+        hubDescription: "Plávajúce bloky pre krátkodobé poznámky",
+        panelCaption: "Rýchle poznámky v samostatných kartách",
+        openButton: "Otvoriť poznámkový blok",
+        placeholder: "Napíšte čokoľvek. Ukladá sa samo.",
+        copyAll: "Kopírovať všetko",
+        copied: "Skopírované",
+        exportAction: "Uložiť ako súbor",
+        exportFailed: "Súbor sa nepodarilo uložiť",
+        loadFailed: "Poznámky sa nepodarilo otvoriť. Zostali bez zmeny.",
+        saveFailed: "Poznámky sa nepodarilo uložiť. Pred ukončením ich skopírujte inam.",
+        clearAction: "Vymazať",
+        retentionTitle: "Vymazať automaticky",
+        retentionNever: "Nikdy",
+        retentionDay: "Po dni bez použitia",
+        retentionWeek: "Po týždni bez použitia",
+        retentionMonth: "Po mesiaci bez použitia",
+        retentionCaption: "Blok sa sám vyprázdni, keď text zostane taký dlho bez úprav.",
+        closeOnClickOutside: "Zavrieť pri kliknutí mimo",
+        keepOpen: "Nechať otvorené",
+        backgroundOpacity: "Pozadie bloku",
+        backgroundTranslucent: "Priesvitné",
+        backgroundOpaque: "Nepriehľadné",
+        newPad: "Nový poznámkový blok",
+        padActions: "Akcie poznámkového bloku",
+        renamePad: "Premenovať poznámkový blok",
+        closePad: "Zavrieť poznámkový blok",
+        saveName: "Uložiť",
+        cancel: "Zrušiť",
+        deletePadMessageFormat: "Vymazať „%@“ a celý jeho obsah?",
+        padLimitFormat: "Maximálny počet poznámkových blokov: %d",
+        previewFormatting: "Zobraziť formátovanie",
+        editText: "Upraviť text",
+        taskDone: "Dokončená",
+        taskNotDone: "Nedokončená",
+        markBold: "Tučné",
+        markItalic: "Kurzíva",
+        markStrikethrough: "Prečiarknuté",
+        markHeading: "Nadpis",
+        markBullet: "Zoznam s odrážkami",
+        markNumbered: "Číslovaný zoznam",
+        markQuote: "Citát",
+        markCode: "Kód",
+        markLink: "Odkaz",
+        formatMarks: "Formátovanie",
+        textSize: "Veľkosť textu"
     )
 
     static let de = ScratchpadFeatureStrings(
@@ -232,6 +381,9 @@ extension ScratchpadFeatureStrings {
         copyAll: "Alles kopieren",
         copied: "Kopiert",
         exportAction: "Als Datei sichern",
+        exportFailed: "Die Datei konnte nicht gesichert werden",
+        loadFailed: "Die Notizen konnten nicht geöffnet werden. Sie bleiben unverändert.",
+        saveFailed: "Die Notizen konnten nicht gesichert werden. Kopiere sie vor dem Beenden an einen anderen Ort.",
         clearAction: "Leeren",
         retentionTitle: "Automatisch leeren",
         retentionNever: "Nie",
@@ -253,7 +405,20 @@ extension ScratchpadFeatureStrings {
         deletePadMessageFormat: "„%@“ und den gesamten Inhalt löschen?",
         padLimitFormat: "Du kannst bis zu %d Schmierzettel behalten",
         previewFormatting: "Formatierung zeigen",
-        editText: "Text bearbeiten"
+        editText: "Text bearbeiten",
+        taskDone: "Erledigt",
+        taskNotDone: "Nicht erledigt",
+        markBold: "Fett",
+        markItalic: "Kursiv",
+        markStrikethrough: "Durchgestrichen",
+        markHeading: "Überschrift",
+        markBullet: "Aufzählung",
+        markNumbered: "Nummerierte Liste",
+        markQuote: "Zitat",
+        markCode: "Code",
+        markLink: "Link",
+        formatMarks: "Formatierung",
+        textSize: "Textgröße"
     )
 
     static let fr = ScratchpadFeatureStrings(
@@ -261,10 +426,13 @@ extension ScratchpadFeatureStrings {
         hubDescription: "Des blocs flottants à onglets pour les notes éphémères",
         panelCaption: "Des notes rapides dans des onglets séparés",
         openButton: "Ouvrir le brouillon",
-        placeholder: "Écrivez ce que vous voulez. Tout s'enregistre tout seul.",
+        placeholder: "Écrivez ce que vous voulez. Tout s’enregistre tout seul.",
         copyAll: "Tout copier",
         copied: "Copié",
         exportAction: "Enregistrer dans un fichier",
+        exportFailed: "Impossible d’enregistrer le fichier",
+        loadFailed: "Impossible d’ouvrir les notes. Elles restent inchangées.",
+        saveFailed: "Impossible d’enregistrer les notes. Copiez-les ailleurs avant de quitter.",
         clearAction: "Effacer",
         retentionTitle: "Effacer automatiquement",
         retentionNever: "Jamais",
@@ -283,10 +451,23 @@ extension ScratchpadFeatureStrings {
         closePad: "Fermer le brouillon",
         saveName: "Enregistrer",
         cancel: "Annuler",
-        deletePadMessageFormat: "Supprimer « %@ » et tout son contenu ?",
+        deletePadMessageFormat: "Supprimer «\u{00A0}%@\u{00A0}» et tout son contenu\u{00A0}?",
         padLimitFormat: "Vous pouvez conserver jusqu’à %d brouillons",
         previewFormatting: "Afficher la mise en forme",
-        editText: "Modifier le texte"
+        editText: "Modifier le texte",
+        taskDone: "Terminée",
+        taskNotDone: "Non terminée",
+        markBold: "Gras",
+        markItalic: "Italique",
+        markStrikethrough: "Barré",
+        markHeading: "Titre",
+        markBullet: "Liste à puces",
+        markNumbered: "Liste numérotée",
+        markQuote: "Citation",
+        markCode: "Code",
+        markLink: "Lien",
+        formatMarks: "Mise en forme",
+        textSize: "Taille du texte"
     )
 
     static let it = ScratchpadFeatureStrings(
@@ -298,6 +479,9 @@ extension ScratchpadFeatureStrings {
         copyAll: "Copia tutto",
         copied: "Copiato",
         exportAction: "Salva come file",
+        exportFailed: "Impossibile salvare il file",
+        loadFailed: "Impossibile aprire le note. Sono state conservate senza modifiche.",
+        saveFailed: "Impossibile salvare le note. Copiale altrove prima di uscire.",
         clearAction: "Svuota",
         retentionTitle: "Svuota automaticamente",
         retentionNever: "Mai",
@@ -319,7 +503,20 @@ extension ScratchpadFeatureStrings {
         deletePadMessageFormat: "Eliminare “%@” e tutto il contenuto?",
         padLimitFormat: "Puoi conservare fino a %d bozze",
         previewFormatting: "Mostra formattazione",
-        editText: "Modifica testo"
+        editText: "Modifica testo",
+        taskDone: "Completata",
+        taskNotDone: "Non completata",
+        markBold: "Grassetto",
+        markItalic: "Corsivo",
+        markStrikethrough: "Barrato",
+        markHeading: "Titolo",
+        markBullet: "Elenco puntato",
+        markNumbered: "Elenco numerato",
+        markQuote: "Citazione",
+        markCode: "Codice",
+        markLink: "Collegamento",
+        formatMarks: "Formattazione",
+        textSize: "Dimensione del testo"
     )
 
     static let ja = ScratchpadFeatureStrings(
@@ -331,6 +528,9 @@ extension ScratchpadFeatureStrings {
         copyAll: "すべてコピー",
         copied: "コピーしました",
         exportAction: "ファイルとして保存",
+        exportFailed: "ファイルを保存できませんでした",
+        loadFailed: "メモを開けませんでした。内容は変更されていません。",
+        saveFailed: "メモを保存できませんでした。終了する前に別の場所へコピーしてください。",
         clearAction: "消去",
         retentionTitle: "自動で消去",
         retentionNever: "しない",
@@ -352,7 +552,20 @@ extension ScratchpadFeatureStrings {
         deletePadMessageFormat: "「%@」とその内容をすべて削除しますか？",
         padLimitFormat: "クイックメモは最大%d個まで作成できます",
         previewFormatting: "書式を表示",
-        editText: "テキストを編集"
+        editText: "テキストを編集",
+        taskDone: "完了",
+        taskNotDone: "未完了",
+        markBold: "太字",
+        markItalic: "斜体",
+        markStrikethrough: "取り消し線",
+        markHeading: "見出し",
+        markBullet: "箇条書き",
+        markNumbered: "番号付きリスト",
+        markQuote: "引用",
+        markCode: "コード",
+        markLink: "リンク",
+        formatMarks: "書式",
+        textSize: "文字サイズ"
     )
 
     static let ko = ScratchpadFeatureStrings(
@@ -364,6 +577,9 @@ extension ScratchpadFeatureStrings {
         copyAll: "전체 복사",
         copied: "복사됨",
         exportAction: "파일로 저장",
+        exportFailed: "파일을 저장할 수 없습니다",
+        loadFailed: "메모를 열 수 없습니다. 내용은 변경되지 않았습니다.",
+        saveFailed: "메모를 저장할 수 없습니다. 종료하기 전에 다른 곳에 복사해 두세요.",
         clearAction: "지우기",
         retentionTitle: "자동으로 지우기",
         retentionNever: "안 함",
@@ -385,7 +601,20 @@ extension ScratchpadFeatureStrings {
         deletePadMessageFormat: "“%@” 및 모든 내용을 삭제할까요?",
         padLimitFormat: "빠른 메모는 최대 %d개까지 만들 수 있습니다",
         previewFormatting: "서식 보기",
-        editText: "텍스트 편집"
+        editText: "텍스트 편집",
+        taskDone: "완료됨",
+        taskNotDone: "완료되지 않음",
+        markBold: "굵게",
+        markItalic: "기울임꼴",
+        markStrikethrough: "취소선",
+        markHeading: "제목",
+        markBullet: "글머리 기호 목록",
+        markNumbered: "번호 목록",
+        markQuote: "인용",
+        markCode: "코드",
+        markLink: "링크",
+        formatMarks: "서식",
+        textSize: "텍스트 크기"
     )
 
     static let zhHans = ScratchpadFeatureStrings(
@@ -397,6 +626,9 @@ extension ScratchpadFeatureStrings {
         copyAll: "全部拷贝",
         copied: "已拷贝",
         exportAction: "存储为文件",
+        exportFailed: "无法存储文件",
+        loadFailed: "无法打开笔记。内容已保留，未作更改。",
+        saveFailed: "无法保存笔记。退出前请把内容拷贝到别处。",
         clearAction: "清空",
         retentionTitle: "自动清空",
         retentionNever: "从不",
@@ -413,12 +645,25 @@ extension ScratchpadFeatureStrings {
         padActions: "草稿板操作",
         renamePad: "重命名草稿板",
         closePad: "关闭草稿板",
-        saveName: "存储",
+        saveName: "保存",
         cancel: "取消",
         deletePadMessageFormat: "删除“%@”及其中的全部内容？",
         padLimitFormat: "最多可保留 %d 个草稿板",
         previewFormatting: "显示格式",
-        editText: "编辑文本"
+        editText: "编辑文本",
+        taskDone: "已完成",
+        taskNotDone: "未完成",
+        markBold: "粗体",
+        markItalic: "斜体",
+        markStrikethrough: "删除线",
+        markHeading: "标题",
+        markBullet: "项目符号列表",
+        markNumbered: "编号列表",
+        markQuote: "引用",
+        markCode: "代码",
+        markLink: "链接",
+        formatMarks: "格式",
+        textSize: "文字大小"
     )
 
     static let zhTW = ScratchpadFeatureStrings(
@@ -430,6 +675,9 @@ extension ScratchpadFeatureStrings {
         copyAll: "全部拷貝",
         copied: "已拷貝",
         exportAction: "儲存為檔案",
+        exportFailed: "無法儲存檔案",
+        loadFailed: "無法開啟筆記。內容已保留，未作更改。",
+        saveFailed: "無法儲存筆記。結束前請把內容拷貝到別處。",
         clearAction: "清空",
         retentionTitle: "自動清空",
         retentionNever: "永不",
@@ -451,7 +699,20 @@ extension ScratchpadFeatureStrings {
         deletePadMessageFormat: "刪除「%@」和其中的所有內容？",
         padLimitFormat: "最多可保留 %d 個草稿板",
         previewFormatting: "顯示格式",
-        editText: "編輯文字"
+        editText: "編輯文字",
+        taskDone: "已完成",
+        taskNotDone: "未完成",
+        markBold: "粗體",
+        markItalic: "斜體",
+        markStrikethrough: "刪除線",
+        markHeading: "標題",
+        markBullet: "項目符號列表",
+        markNumbered: "編號清單",
+        markQuote: "引用",
+        markCode: "程式碼",
+        markLink: "連結",
+        formatMarks: "格式",
+        textSize: "文字大小"
     )
 
     static let zhHK = ScratchpadFeatureStrings(
@@ -463,6 +724,9 @@ extension ScratchpadFeatureStrings {
         copyAll: "全部拷貝",
         copied: "已拷貝",
         exportAction: "儲存為檔案",
+        exportFailed: "無法儲存檔案",
+        loadFailed: "無法開啟筆記。內容已保留，未有更改。",
+        saveFailed: "無法儲存筆記。結束前請把內容拷貝到別處。",
         clearAction: "清空",
         retentionTitle: "自動清空",
         retentionNever: "永不",
@@ -484,6 +748,85 @@ extension ScratchpadFeatureStrings {
         deletePadMessageFormat: "刪除「%@」及當中的所有內容？",
         padLimitFormat: "最多可保留 %d 個草稿板",
         previewFormatting: "顯示格式",
-        editText: "編輯文字"
+        editText: "編輯文字",
+        taskDone: "已完成",
+        taskNotDone: "未完成",
+        markBold: "粗體",
+        markItalic: "斜體",
+        markStrikethrough: "刪除線",
+        markHeading: "標題",
+        markBullet: "項目符號列表",
+        markNumbered: "編號清單",
+        markQuote: "引用",
+        markCode: "程式碼",
+        markLink: "連結",
+        formatMarks: "格式",
+        textSize: "文字大小"
     )
+    static let uk = ScratchpadFeatureStrings(
+        pageTitle: "Нотатник",
+        hubDescription: "Плаваючі блокноти для короткочасних нотаток",
+        panelCaption: "Швидкі нотатки в окремих вкладках",
+        openButton: "Відкрити нотатник",
+        placeholder: "Пишіть будь-що. Зберігається сам.",
+        copyAll: "Скопіювати все",
+        copied: "Скопійовано",
+        exportAction: "Зберегти як файл",
+        exportFailed: "Не вдалося зберегти файл.",
+        loadFailed: "Не вдалося відкрити нотатку. Вміст збережено і не змінено.",
+        saveFailed: "Не вдалося зберегти нотатки. Перш ніж вийти, скопіюйте їх в інше місце.",
+        clearAction: "Очистити",
+        retentionTitle: "Очищати сам",
+        retentionNever: "Ніколи",
+        retentionDay: "Через день без використання",
+        retentionWeek: "Через тиждень без використання",
+        retentionMonth: "Через місяць без використання",
+        retentionCaption: "Блокнот очищається сам, коли текст залишається без редагувань стільки часу.",
+        closeOnClickOutside: "Закривати при клаці зовні",
+        keepOpen: "Тримати відкритою",
+        backgroundOpacity: "Фон панелі",
+        backgroundTranslucent: "Напівпрозорий",
+        backgroundOpaque: "Непрозорий",
+        newPad: "Новий нотатник",
+        padActions: "Дії нотатника",
+        renamePad: "Перейменувати нотатник",
+        closePad: "Закрити нотатник",
+        saveName: "Зберегти",
+        cancel: "Скасувати",
+        deletePadMessageFormat: "Видалити «%@» та все в ньому?",
+        padLimitFormat: "Ви можете зберігати до %d нотатників",
+        previewFormatting: "Показувати форматування",
+        editText: "Редагувати текст",
+        taskDone: "Виконано",
+        taskNotDone: "Не виконано",
+        markBold: "Жирний",
+        markItalic: "Курсив",
+        markStrikethrough: "Закреслений",
+        markHeading: "Заголовок",
+        markBullet: "Маркований список",
+        markNumbered: "Нумерований список",
+        markQuote: "Цитата",
+        markCode: "Код",
+        markLink: "Посилання",
+        formatMarks: "Форматування",
+        textSize: "Розмір тексту"
+    )
+}
+
+extension ScratchpadFeatureStrings {
+    /// One place both toolbars read their labels from, so the floating pad and
+    /// the island cannot drift into calling the same mark different things.
+    func label(for mark: ScratchpadMark) -> String {
+        switch mark {
+        case .bold: return markBold
+        case .italic: return markItalic
+        case .strikethrough: return markStrikethrough
+        case .heading: return markHeading
+        case .bullet: return markBullet
+        case .numbered: return markNumbered
+        case .quote: return markQuote
+        case .code: return markCode
+        case .link: return markLink
+        }
+    }
 }

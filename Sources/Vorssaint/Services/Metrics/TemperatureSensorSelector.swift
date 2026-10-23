@@ -9,8 +9,10 @@ enum CPUTemperaturePlatform: Equatable {
     case appleM2Family
     case appleM3Family
     case appleM4Family
+    case appleM4ProFamily
     case appleM5Family
     case intelFamily
+    case unmappedAppleSilicon
     case generic
 }
 
@@ -54,6 +56,17 @@ enum TemperatureSensorSelector {
         "Tp0V", "Tp0Y", "Tp0b", "Tp0e",
     ]
 
+    // Read on an M4 Pro (Mac16,8), which lacks three of the base M4 keys and
+    // runs hottest on sensors outside them. Each Tpx/Tex key repeats the
+    // hottest of a few Tp/Te sensors; in idle and loaded samples no other
+    // Tp/Te key read hotter beyond the moment between two reads. The Tex
+    // keys keep answering while the P cores are parked.
+    private static let appleM4ProCPUCoreKeys: Set<String> = [
+        "Tex0", "Tex1", "Tex2", "Tex3",
+        "Tpx0", "Tpx1", "Tpx2", "Tpx3", "Tpx4", "Tpx5",
+        "Tpx8", "Tpx9", "TpxA", "TpxB", "TpxC", "TpxD",
+    ]
+
     private static let appleM5CPUCoreKeys: Set<String> = [
         "Tp00", "Tp04", "Tp08", "Tp0C",
         "Tp0G", "Tp0K",
@@ -64,20 +77,18 @@ enum TemperatureSensorSelector {
 
     static func platform(brandString: String?) -> CPUTemperaturePlatform {
         let brand = brandString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if let generation = appleSiliconGeneration(in: brand) {
-            switch generation {
-            case 1: return .appleM1Family
-            case 2: return .appleM2Family
-            case 3: return .appleM3Family
-            case 4: return .appleM4Family
-            case 5: return .appleM5Family
-            default: break
-            }
+        // Preserve the established Tp/Te reading path for this supported chip
+        // until a verified per-core map is available.
+        if brand == "Apple A18 Pro" { return .generic }
+        if isIntelProcessor(in: brand) { return .intelFamily }
+        switch appleSiliconGeneration(in: brand) {
+        case 1: return .appleM1Family
+        case 2: return .appleM2Family
+        case 3: return .appleM3Family
+        case 4: return brand == "Apple M4 Pro" ? .appleM4ProFamily : .appleM4Family
+        case 5: return .appleM5Family
+        default: return brand.hasPrefix("Apple ") ? .unmappedAppleSilicon : .generic
         }
-        if isIntelProcessor(in: brand) {
-            return .intelFamily
-        }
-        return .generic
     }
 
     static func currentPlatform() -> CPUTemperaturePlatform {
@@ -101,28 +112,21 @@ enum TemperatureSensorSelector {
         if let value = core.map({ $0.value }).max() {
             return value
         }
+        // Not every Mac carries the sensors its chip generation is mapped to.
+        // One that does not showed the hottest reading of its CPU families
+        // instead, for as long as the app has had this panel, until 3.3.3
+        // restricted the answer to the mapped sensors and left those Macs with
+        // nothing. This is that reading, restored exactly. Fan control is a
+        // separate decision and keeps requiring its own mapped readings.
         return valid.map { $0.value }.max()
-    }
-
-    /// Whether a key is a GPU sensor.
-    ///
-    /// Apple Silicon reports graphics as `Tg*`. Intel Macs use `TG*` for a
-    /// discrete card and keep integrated graphics on the CPU package as `TCGC`,
-    /// as documented in the sensor dumps in vorssaintapp/vorssaint-utils#523.
-    /// `TCGC` therefore has to be claimed here before the `TC` prefix sends it
-    /// to the CPU set.
-    static func isGPUTemperatureKey(_ key: String,
-                                    platform: CPUTemperaturePlatform) -> Bool {
-        if key.hasPrefix("Tg") { return true }
-        guard platform == .intelFamily || platform == .generic else { return false }
-        return key == "TCGC" || key.hasPrefix("TG")
     }
 
     static func hasCPUCoreSet(platform: CPUTemperaturePlatform) -> Bool {
         switch platform {
-        case .appleM1Family, .appleM2Family, .appleM3Family, .appleM4Family, .appleM5Family, .intelFamily:
+        case .appleM1Family, .appleM2Family, .appleM3Family, .appleM4Family,
+             .appleM4ProFamily, .appleM5Family, .intelFamily:
             return true
-        case .generic: return false
+        case .unmappedAppleSilicon, .generic: return false
         }
     }
 
@@ -138,17 +142,17 @@ enum TemperatureSensorSelector {
             return appleM3CPUCoreKeys.contains(key)
         case .appleM4Family:
             return appleM4CPUCoreKeys.contains(key)
+        case .appleM4ProFamily:
+            return appleM4ProCPUCoreKeys.contains(key)
         case .appleM5Family:
             return appleM5CPUCoreKeys.contains(key)
-        case .generic:
+        case .unmappedAppleSilicon, .generic:
             return false
         }
     }
 
-
     static func isCPUTemperatureKey(_ key: String,
                                     platform: CPUTemperaturePlatform) -> Bool {
-        if isGPUTemperatureKey(key, platform: platform) { return false }
         if key.hasPrefix("Tp") || key.hasPrefix("Te") || key.hasPrefix("TC") { return true }
         return platform == .appleM3Family && key.hasPrefix("Tf")
     }

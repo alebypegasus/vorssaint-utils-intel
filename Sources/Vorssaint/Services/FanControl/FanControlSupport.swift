@@ -188,6 +188,12 @@ enum FanControlPolicy {
             && abs(target - expected) <= max(2, expected * 0.001)
     }
 
+    /// Not every Mac exposes `Ftst`. Where it is present the unlock write has to
+    /// succeed; where it is absent there is nothing to force and nothing to fail.
+    static func forceTestSatisfied(keyExists: Bool, writeSucceeded: Bool) -> Bool {
+        !keyExists || writeSucceeded
+    }
+
     static func coolingTargetRPM(minimum: Double, maximum: Double,
                                  level: Int) -> Double? {
         guard validBounds(minimum: minimum, maximum: maximum),
@@ -339,7 +345,14 @@ enum FanControlPolicy {
         let preferredCPU = validCPU.filter {
             TemperatureSensorSelector.isCPUCoreKey($0.key, platform: platform)
         }
-        let cpu = (preferredCPU.isEmpty ? validCPU : preferredCPU).map(\.value)
+        let cpu: [Double]
+        if TemperatureSensorSelector.hasCPUCoreSet(platform: platform) {
+            cpu = preferredCPU.map(\.value)
+        } else if platform == .generic {
+            cpu = validCPU.map(\.value)
+        } else {
+            cpu = []
+        }
         let gpu = gpuReadings.filter {
             $0 >= TemperatureSensorSelector.minimumChipTemperature && validTemperature($0)
         }

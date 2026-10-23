@@ -91,8 +91,10 @@ final class QuickTogglesService: ObservableObject {
         alert.informativeText = strings.emptyTrashConfirmMessage
         alert.addButton(withTitle: strings.emptyTrashConfirmButton)
         alert.addButton(withTitle: L10n.shared.s.uninstallerCancel)
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let island = NotchService.shared.presentationWindow
+        let fromIsland = island?.isVisible == true
+            && (NSApp.currentEvent?.window === island || NSApp.keyWindow === island)
+        guard NotchIslandAlert.run(alert, above: fromIsland ? island : nil) == .alertFirstButtonReturn else { return }
         emptyTrashConfirmed()
     }
 
@@ -115,13 +117,9 @@ final class QuickTogglesService: ObservableObject {
     }
 
     func toggleDesktopIcons() {
-        setDesktopIconsShown(!desktopIconsShown)
-    }
-
-    func setDesktopIconsShown(_ shown: Bool) {
         toggleFinderFlag(.desktopIcons,
                          key: QuickTogglesSupport.createDesktopKey,
-                         to: shown)
+                         to: !desktopIconsShown)
     }
 
     // MARK: - Disks
@@ -326,10 +324,15 @@ final class QuickTogglesService: ObservableObject {
             .volumeIsInternalKey, .volumeIsRemovableKey,
             .volumeIsEjectableKey, .volumeIsLocalKey,
             .volumeIsRootFileSystemKey,
+            .volumeNameKey,
+            .volumeLocalizedNameKey,
+            .volumeUUIDStringKey,
         ]
         guard let urls = FileManager.default.mountedVolumeURLs(
             includingResourceValuesForKeys: Array(keys),
             options: [.skipHiddenVolumes]) else { return [] }
+        let excludedList = UserDefaults.standard.stringArray(forKey: DefaultsKey.diskEjectExcludedVolumes) ?? []
+        let excludedSet = Set(excludedList.map { $0.lowercased() })
         return urls.filter { url in
             guard let values = try? url.resourceValues(forKeys: keys) else { return false }
             // A volume with no bus of its own, a mounted image for one, states
@@ -337,12 +340,17 @@ final class QuickTogglesService: ObservableObject {
             // internal. The local flag stays strict: a volume that will not say
             // it is local is left alone. The volume the Mac started from falls
             // back to its mount point, so a missing flag cannot expose it.
+            let name = values.volumeLocalizedName ?? values.volumeName ?? url.lastPathComponent
             return QuickTogglesSupport.shouldOfferEject(isInternal: values.volumeIsInternal ?? false,
                                                         isRemovable: values.volumeIsRemovable ?? false,
                                                         isEjectable: values.volumeIsEjectable ?? false,
                                                         isLocal: values.volumeIsLocal ?? false,
                                                         isRootFileSystem: values.volumeIsRootFileSystem
-                                                            ?? (url.path == "/"))
+                                                            ?? (url.path == "/"),
+                                                        volumeName: name,
+                                                        volumeUUID: values.volumeUUIDString,
+                                                        mountPath: url.path,
+                                                        excludedVolumes: excludedSet)
         }
     }
 

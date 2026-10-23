@@ -35,6 +35,15 @@ final class ScreenshotShareService: ObservableObject {
         configuration.timeoutIntervalForResource = 90
         configuration.waitsForConnectivity = false
         session = URLSession(configuration: configuration)
+        // An expiry that came due during sleep never triggers its timer: the
+        // deadline below is armed on a clock that stops with the Mac, so a link
+        // that ran out overnight stays listed as live for as long as the Mac
+        // slept. Waking up recomputes and catches the miss.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.refresh() }
+        }
         refresh()
     }
 
@@ -66,7 +75,8 @@ final class ScreenshotShareService: ObservableObject {
 
     func createLink(pngData: Data,
                     duration: ScreenshotShareDuration) async throws -> ScreenshotShareRecord {
-        guard UserDefaults.standard.bool(forKey: DefaultsKey.screenshotSharingEnabled) else {
+        guard AppFeature.screenshot.isAvailable,
+              UserDefaults.standard.bool(forKey: DefaultsKey.screenshotSharingEnabled) else {
             throw ScreenshotShareError.unavailable
         }
         guard !pngData.isEmpty,
@@ -154,6 +164,7 @@ final class ScreenshotShareService: ObservableObject {
     func copy(_ url: URL) -> Bool {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
+        pasteboard.declareVorssaintSource()
         return pasteboard.setString(url.absoluteString, forType: .string)
     }
 

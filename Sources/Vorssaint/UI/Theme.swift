@@ -4,7 +4,6 @@
 import SwiftUI
 
 /// Shared look & feel: brand colors, card styling and the brand mark.
-/// Shared look & feel: brand colors, card styling, Liquid Glass tokens and the brand mark.
 enum Theme {
     /// Near-black background behind the brand mark. Neutral greys into black, no
     /// colour cast, with just a hint of depth so the badge does not read as flat.
@@ -15,67 +14,6 @@ enum Theme {
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
-
-    // MARK: - Liquid Glass macOS Tahoe 26 Palettes
-    enum LiquidGlass {
-        static let cyanGlow = Color(red: 0.0, green: 0.85, blue: 1.0)
-        static let violetGlow = Color(red: 0.65, green: 0.35, blue: 1.0)
-        static let magentaGlow = Color(red: 1.0, green: 0.25, blue: 0.75)
-        static let emeraldGlow = Color(red: 0.15, green: 0.90, blue: 0.55)
-        static let amberGlow = Color(red: 1.0, green: 0.65, blue: 0.15)
-
-        static func specularGradient(for scheme: ColorScheme) -> LinearGradient {
-            LinearGradient(
-                stops: [
-                    .init(color: Color.white.opacity(scheme == .dark ? 0.28 : 0.45), location: 0.0),
-                    .init(color: Color.white.opacity(scheme == .dark ? 0.06 : 0.12), location: 0.35),
-                    .init(color: Color.clear, location: 1.0),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
-
-        static func borderGradient(for scheme: ColorScheme, glow: Color? = nil) -> LinearGradient {
-            let topColor = glow?.opacity(0.6) ?? (scheme == .dark ? Color.white.opacity(0.24) : Color.white.opacity(0.7))
-            let bottomColor = glow?.opacity(0.15) ?? (scheme == .dark ? Color.white.opacity(0.06) : Color.black.opacity(0.08))
-            return LinearGradient(
-                colors: [topColor, bottomColor],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
-
-        static func refractionGradient(for scheme: ColorScheme) -> LinearGradient {
-            LinearGradient(
-                stops: [
-                    .init(color: (scheme == .dark ? Color.white.opacity(0.06) : Color.white.opacity(0.6)), location: 0.0),
-                    .init(color: (scheme == .dark ? Color.white.opacity(0.02) : Color.white.opacity(0.25)), location: 0.5),
-                    .init(color: (scheme == .dark ? Color.black.opacity(0.25) : Color.black.opacity(0.03)), location: 1.0),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        }
-    }
-}
-
-// MARK: - Fluid Spring Animations
-extension Animation {
-    /// Quick, highly responsive spring for interactive hover and micro-transitions.
-    static var liquidSpring: Animation {
-        .spring(response: 0.28, dampingFraction: 0.72, blendDuration: 0.1)
-    }
-
-    /// Smooth, natural spring for panel expansion, view transitions and modal presentation.
-    static var liquidSmooth: Animation {
-        .spring(response: 0.42, dampingFraction: 0.82, blendDuration: 0.15)
-    }
-
-    /// Bouncy spring for toggles, pills, and tactile controls.
-    static var liquidBouncy: Animation {
-        .spring(response: 0.35, dampingFraction: 0.62, blendDuration: 0.1)
-    }
 }
 
 enum PanelMetricColor {
@@ -108,180 +46,163 @@ enum PanelMetricColor {
     }
 }
 
+private struct NotchPresentationKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var notchPresentation: Bool {
+        get { self[NotchPresentationKey.self] }
+        set { self[NotchPresentationKey.self] = newValue }
+    }
+}
+
 enum PanelSurface {
+    /// Whether the menu popover hosts the panel across its whole balloon, so the
+    /// panel's own surface can reach the arrow (#1030). Only macOS 26 lays the
+    /// content out that way. On macOS 15, `hasFullSizeContent` publishes the
+    /// full-size safe area but leaves the view at its content size in the frame's
+    /// lower-left corner: the popover grows by that safe area, the panel sits off
+    /// center, and a band of system material shows along the top and right edges.
+    static var popoverHostsFullSizeContent: Bool {
+        if #available(macOS 26.0, *) { return true }
+        return false
+    }
+
     static func baseFill(for scheme: ColorScheme) -> Color {
         scheme == .light ? Color.white.opacity(0.68) : Color.black.opacity(0.42)
     }
 
     static func cardFill(for scheme: ColorScheme) -> Color {
-        scheme == .light ? Color.white.opacity(0.42) : Color.white.opacity(0.08)
+        scheme == .light ? Color.white.opacity(0.38) : Color.white.opacity(0.075)
     }
 
     static func controlFill(for scheme: ColorScheme) -> Color {
         scheme == .light ? Color.black.opacity(0.055) : Color.white.opacity(0.085)
     }
 
+    /// Raised contrast is asked for by someone who cannot see a hairline at a
+    /// tenth of an opacity, so the outlines that separate one card from the
+    /// next are the ones that answer. A panel is rebuilt every time it opens,
+    /// which is when a change to this setting shows.
     static func border(for scheme: ColorScheme) -> Color {
-        scheme == .light ? Color.black.opacity(0.09) : Color.white.opacity(0.11)
+        let raised = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        return scheme == .light
+            ? Color.black.opacity(raised ? 0.24 : 0.09)
+            : Color.white.opacity(raised ? 0.28 : 0.11)
+    }
+
+    /// A control that sits ON a glass surface rather than in it: the system's
+    /// own round toggles read as physical because they are lighter than what
+    /// is behind them and carry their own shadow.
+    static func raisedFill(for scheme: ColorScheme) -> Color {
+        scheme == .light ? Color.white.opacity(0.88) : Color.white.opacity(0.14)
+    }
+
+    static func raisedBorder(for scheme: ColorScheme) -> Color {
+        let raised = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        return scheme == .light
+            ? Color.black.opacity(raised ? 0.22 : 0.07)
+            : Color.white.opacity(raised ? 0.32 : 0.16)
+    }
+
+    static func raisedShadow(for scheme: ColorScheme) -> Color {
+        scheme == .light ? Color.black.opacity(0.14) : Color.black.opacity(0.38)
+    }
+
+    /// The lit edge of a glass surface: bright where the light comes from,
+    /// gone by the bottom. Without it a translucent panel reads as paper.
+    static func rimHighlight(for scheme: ColorScheme) -> LinearGradient {
+        LinearGradient(colors: [Color.white.opacity(scheme == .light ? 0.95 : 0.30),
+                                Color.white.opacity(scheme == .light ? 0.12 : 0.04)],
+                       startPoint: .top,
+                       endPoint: .bottom)
     }
 }
 
 func sectionTitle(_ text: String) -> some View {
     Text(text.uppercased())
         .font(.system(size: 10, weight: .semibold))
-        .kerning(0.6)
+        .kerning(0.5)
         .foregroundStyle(.secondary)
 }
 
 extension View {
-    /// The rounded card background used by panel sections and tool cards.
-    func panelCard(cornerRadius: CGFloat = 12) -> some View {
-        modifier(PanelCardModifier(cornerRadius: cornerRadius))
+    /// The rounded card background used by every panel section. A card
+    /// holding a list of rows is not padded: each row brings its own insets,
+    /// so hover highlights and separators can reach the card's edges.
+    func panelCard(interactive: Bool = true, padded: Bool = true) -> some View {
+        modifier(PanelCardModifier(interactive: interactive, padded: padded))
     }
 
-    /// Liquid Glass Tahoe 26 Card Surface.
-    func liquidGlassCard(cornerRadius: CGFloat = 12, glow: Color? = nil, isHovered: Bool = false) -> some View {
-        modifier(LiquidGlassCardModifier(cornerRadius: cornerRadius, glow: glow, isHovered: isHovered))
-    }
-
-    /// Liquid Glass Capsule Pill.
-    func liquidGlassCapsule(glow: Color? = nil, isSelected: Bool = false) -> some View {
-        modifier(LiquidGlassCapsuleModifier(glow: glow, isSelected: isSelected))
-    }
-
-    /// A restrained glass base for the menu panel: translucent with stable tint.
-    func panelGlassSurface(cornerRadius: CGFloat = 18) -> some View {
-        background(PanelGlassSurface(cornerRadius: cornerRadius))
+    /// A restrained glass base for the menu panel: still translucent, but with a
+    /// stable tint so text and controls do not depend too much on the wallpaper.
+    /// It reaches the popover's arrow; see PanelGlassSurface.
+    func panelGlassSurface() -> some View {
+        background(PanelGlassSurface())
     }
 }
 
 private struct PanelCardModifier: ViewModifier {
+    var interactive: Bool
+    var padded = true
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    var cornerRadius: CGFloat = 12
+    @Environment(\.notchPresentation) private var notchPresentation
 
     func body(content: Content) -> some View {
+        if notchPresentation {
+            content.padding(padded ? 12 : 0).modifier(NotchControlSurface(cornerRadius: 18, interactive: interactive))
+        } else {
         content
-            .padding(11)
+            .padding(padded ? 10 : 0)
             .background(
-                ZStack {
-                    if reduceTransparency {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(colorScheme == .dark ? Color(white: 0.14) : Color(white: 0.94))
-                    } else {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(.ultraThinMaterial)
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(Theme.LiquidGlass.refractionGradient(for: colorScheme))
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(Theme.LiquidGlass.specularGradient(for: colorScheme))
-                    }
-                }
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(PanelSurface.cardFill(for: colorScheme))
             )
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme), lineWidth: 0.75)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(PanelSurface.border(for: colorScheme), lineWidth: 0.7)
             )
-            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.22 : 0.06), radius: 8, x: 0, y: 4)
-    }
-}
-
-private struct LiquidGlassCardModifier: ViewModifier {
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    var cornerRadius: CGFloat = 12
-    var glow: Color? = nil
-    var isHovered: Bool = false
-
-    func body(content: Content) -> some View {
-        content
-            .background(
-                ZStack {
-                    if reduceTransparency {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(colorScheme == .dark ? Color(white: 0.16) : Color(white: 0.92))
-                    } else {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(.ultraThinMaterial)
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(Theme.LiquidGlass.refractionGradient(for: colorScheme))
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(Theme.LiquidGlass.specularGradient(for: colorScheme))
-                    }
-
-                    if let glow = glow, isHovered {
-                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                            .fill(glow.opacity(colorScheme == .dark ? 0.12 : 0.08))
-                    }
-                }
-            )
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme, glow: isHovered ? glow : nil), lineWidth: 0.8)
-            )
-            .shadow(color: (glow ?? Color.black).opacity(isHovered ? 0.25 : (colorScheme == .dark ? 0.20 : 0.05)),
-                    radius: isHovered ? 12 : 6, x: 0, y: isHovered ? 6 : 3)
-            .scaleEffect(isHovered ? 1.015 : 1.0)
-            .animation(.liquidSpring, value: isHovered)
-    }
-}
-
-private struct LiquidGlassCapsuleModifier: ViewModifier {
-    @Environment(\.colorScheme) private var colorScheme
-    var glow: Color? = nil
-    var isSelected: Bool = false
-
-    func body(content: Content) -> some View {
-        content
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(
-                ZStack {
-                    Capsule(style: .continuous)
-                        .fill(isSelected ? (glow?.opacity(0.22) ?? Color.accentColor.opacity(0.2)) : Color.primary.opacity(0.06))
-                    if isSelected {
-                        Capsule(style: .continuous)
-                            .fill(Theme.LiquidGlass.specularGradient(for: colorScheme).opacity(0.7))
-                    }
-                }
-            )
-            .clipShape(Capsule(style: .continuous))
-            .overlay(
-                Capsule(style: .continuous)
-                    .strokeBorder(
-                        Theme.LiquidGlass.borderGradient(for: colorScheme, glow: isSelected ? (glow ?? Color.accentColor) : nil),
-                        lineWidth: isSelected ? 1.0 : 0.65
-                    )
-            )
-            .shadow(color: isSelected ? (glow ?? Color.accentColor).opacity(0.3) : Color.clear, radius: 6, x: 0, y: 2)
+        }
     }
 }
 
 private struct PanelGlassSurface: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.notchPresentation) private var notchPresentation
+    @Environment(\.notchGlassSurface) private var notchGlassSurface
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @AppStorage(DefaultsKey.liquidGlassEnabled) private var liquidGlassEnabled = true
-    let cornerRadius: CGFloat
+    @AppStorage(DefaultsKey.liquidGlassEnabled) private var liquidGlassEnabled = false
 
     var body: some View {
+        // AppKit hands the hosted panel a safe area for the popover's border and
+        // arrow, so a surface that stopped at the panel would leave the tip in the
+        // plain system material. The panel content keeps that inset and never sits
+        // under the arrow; only this background bleeds into it. The popover clips
+        // it to its own balloon, so the surface is a plain rectangle: rounding would
+        // expose the system material at the corners, while stroking would duplicate
+        // the outline AppKit already draws. Where the popover still insets its
+        // content, the panel is a card inside the balloon instead; see
+        // PanelSurface.popoverHostsFullSizeContent.
+        if notchPresentation {
+            Rectangle().fill(notchGlassSurface ? Color.clear : .black)
+        } else if PanelSurface.popoverHostsFullSizeContent {
+            surface.ignoresSafeArea()
+        } else {
+            insetSurface
+        }
+    }
+
+    @ViewBuilder
+    private var surface: some View {
 #if compiler(>=6.2)
         if #available(macOS 26.0, *), liquidGlassEnabled, !reduceTransparency {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            Rectangle()
                 .fill(Color.clear)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+                .glassEffect(.regular, in: Rectangle())
                 .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(Theme.LiquidGlass.refractionGradient(for: colorScheme))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .fill(Theme.LiquidGlass.specularGradient(for: colorScheme))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                        .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme), lineWidth: 0.8)
+                    Rectangle()
+                        .fill(PanelSurface.baseFill(for: colorScheme).opacity(colorScheme == .light ? 0.35 : 0.45))
                 )
         } else {
             standardSurface
@@ -293,21 +214,21 @@ private struct PanelGlassSurface: View {
 
     @ViewBuilder
     private var standardSurface: some View {
-        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(.ultraThinMaterial)
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Theme.LiquidGlass.refractionGradient(for: colorScheme))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .fill(Theme.LiquidGlass.specularGradient(for: colorScheme))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(Theme.LiquidGlass.borderGradient(for: colorScheme), lineWidth: 0.8)
-            )
-            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.35 : 0.12), radius: 16, x: 0, y: 8)
+        Rectangle()
+            .fill(.regularMaterial)
+            .overlay(Rectangle().fill(PanelSurface.baseFill(for: colorScheme)))
+    }
+
+    /// The panel as a card inside a popover that insets its content (before
+    /// macOS 26): the balloon's rounding never reaches it there, so it carries
+    /// its own rounding and rim. Liquid Glass needs macOS 26, so this is always
+    /// the standard material.
+    private var insetSurface: some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return shape
+            .fill(.regularMaterial)
+            .overlay(shape.fill(PanelSurface.baseFill(for: colorScheme)))
+            .overlay(shape.strokeBorder(PanelSurface.border(for: colorScheme), lineWidth: 0.8))
     }
 }
 

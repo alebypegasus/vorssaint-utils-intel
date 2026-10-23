@@ -1,11 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 Vorssaint
 
+import CryptoKit
 import Foundation
 
 enum CommandBarClipboardAccess {
     static func canUseHistory(captureEnabled: Bool, hasSavedItems: Bool) -> Bool {
         captureEnabled || hasSavedItems
+    }
+}
+
+enum CommandBarMenuPath {
+    /// The trail to a menu command, from the app name down. Every Mac app
+    /// carries a menu named after itself, which made those rows read
+    /// "Notes \u{203A} Notes", so a name is never repeated right after itself.
+    static func crumb(appName: String, path: [String]) -> String {
+        ([appName] + path).reduce(into: [String]()) { trail, name in
+            guard !name.isEmpty, trail.last != name else { return }
+            trail.append(name)
+        }.joined(separator: " \u{203A} ")
     }
 }
 
@@ -116,19 +129,32 @@ struct CommandBarCandidate {
     /// Already folded, so a long list is not re-folded on every keystroke.
     let normalizedTitle: String
     let normalizedKeywords: String
+    /// A deliberate preference, such as an alias or learned query choice,
+    /// leads ordinary textual matches.
+    let priority: Int
     let boost: Int
 
-    init(index: Int, title: String, keywords: String = "", boost: Int = 0) {
+    init(index: Int,
+         title: String,
+         keywords: String = "",
+         priority: Int = 0,
+         boost: Int = 0) {
         self.init(index: index,
                   normalizedTitle: CommandBarSearch.normalized(title),
                   normalizedKeywords: CommandBarSearch.normalized(keywords),
+                  priority: priority,
                   boost: boost)
     }
 
-    init(index: Int, normalizedTitle: String, normalizedKeywords: String, boost: Int = 0) {
+    init(index: Int,
+         normalizedTitle: String,
+         normalizedKeywords: String,
+         priority: Int = 0,
+         boost: Int = 0) {
         self.index = index
         self.normalizedTitle = normalizedTitle
         self.normalizedKeywords = normalizedKeywords
+        self.priority = priority
         self.boost = boost
     }
 }
@@ -139,6 +165,15 @@ struct CommandBarCandidate {
 /// also matches as an in-order subsequence of a word ("brlho" finds "brilho")
 /// and, as a last resort, within one edit of a word ("birlho" too).
 enum CommandBarSearch {
+    /// A leading colon scopes the global search to emoji. The marker is not
+    /// part of the text being matched, so `:fire` finds the same emoji as
+    /// `fire` inside the Emoji category.
+    static func emojiQuery(from query: String) -> String? {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix(":") else { return nil }
+        return String(trimmed.dropFirst()).trimmingCharacters(in: .whitespaces)
+    }
+
     /// Case, accent and width differences never matter. Folded without a
     /// locale on purpose: Turkish lowercases a capital I to a dotless one, so
     /// a locale-aware fold would stop "insta" from finding a title that begins
@@ -221,6 +256,16 @@ enum CommandBarSearch {
         return false
     }
 
+    /// Where a color typed on its own goes in the list. It leads, unless a row
+    /// already there spells what was typed: "#1234" is also an issue number
+    /// and "#cafe" a channel someone copied, and Return must still reach
+    /// those. The swatch then sits right under the first row.
+    static func colorPreviewIndex(rowTitles: [String], query: String) -> Int {
+        let typed = normalized(query)
+        guard !typed.isEmpty else { return 0 }
+        return rowTitles.contains { normalized($0).contains(typed) } ? 1 : 0
+    }
+
     static func matches(title: String, keywords: String = "", query: String) -> Bool {
         score(title: title, keywords: keywords, query: query) != nil
     }
@@ -239,15 +284,54 @@ enum CommandBarSearch {
     static func score(normalizedTitle: String,
                       normalizedKeywords: String,
                       normalizedQuery: String) -> Int? {
+        score(normalizedTitle: normalizedTitle,
+              normalizedKeywords: normalizedKeywords,
+              normalizedQuery: normalizedQuery,
+              tokens: QueryToken.tokens(of: normalizedQuery))
+    }
+
+    /// A query token, measured once per keystroke rather than once per row:
+    /// the ranking asks every row about the same few letters.
+    private struct QueryToken {
+        let text: String
+        let count: Int
+        let utf8: [UInt8]
+        let isASCII: Bool
+        /// Digit tokens are values, never typos.
+        let isFuzzy: Bool
+
+        init(_ text: Substring) {
+            self.text = String(text)
+            count = text.count
+            utf8 = Array(text.utf8)
+            isASCII = utf8.allSatisfy { $0 < 0x80 }
+            isFuzzy = !text.allSatisfy(\.isNumber)
+        }
+
+        static func tokens(of normalizedQuery: String) -> [QueryToken] {
+            normalizedQuery.split(separator: " ").map(QueryToken.init)
+        }
+    }
+
+    private static func score(normalizedTitle: String,
+                              normalizedKeywords: String,
+                              normalizedQuery: String,
+                              tokens: [QueryToken]) -> Int? {
         guard !normalizedQuery.isEmpty else { return nil }
         let haystack = normalizedKeywords.isEmpty
             ? normalizedTitle
             : normalizedTitle + " " + normalizedKeywords
-        let words = haystack.split(separator: " ").map(String.init)
+        let words = haystack.split(separator: " ")
+        // In ASCII one byte is one character, so the token passes below can
+        // compare bytes and skip grapheme breaking. Most rows are ASCII and
+        // most of them match nothing, which is exactly the row that runs
+        // every pass.
+        let haystackIsASCII = haystack.utf8.allSatisfy { $0 < 0x80 }
 
         var score = 0
-        for token in normalizedQuery.split(separator: " ").map(String.init) {
-            guard let tokenScore = bestTokenScore(token, in: words, haystack: haystack) else {
+        for token in tokens {
+            guard let tokenScore = bestTokenScore(token, in: words, haystack: haystack,
+                                                  ascii: haystackIsASCII && token.isASCII) else {
                 return nil
             }
             score += tokenScore
@@ -265,45 +349,154 @@ enum CommandBarSearch {
         return score
     }
 
-    /// Indexes of the matching candidates, best first; ties keep the caller's
-    /// order so equally good rows stay where the catalog put them.
+    /// Indexes of the matching candidates, best first. Deliberate preferences
+    /// lead match quality; ties keep the caller's order so equally good rows
+    /// stay where the catalog put them.
     static func rankedIndexes(candidates: [CommandBarCandidate], matching query: String) -> [Int] {
         let normalizedQuery = normalized(query)
-        let scored: [(index: Int, score: Int, position: Int)] = candidates.enumerated()
+        let tokens = QueryToken.tokens(of: normalizedQuery)
+        let scored: [(index: Int, priority: Int, tier: Int, score: Int, position: Int)] = candidates.enumerated()
             .compactMap { position, candidate in
                 guard let base = score(normalizedTitle: candidate.normalizedTitle,
                                        normalizedKeywords: candidate.normalizedKeywords,
-                                       normalizedQuery: normalizedQuery) else { return nil }
-                return (candidate.index, base + candidate.boost, position)
+                                       normalizedQuery: normalizedQuery,
+                                       tokens: tokens) else { return nil }
+                let tier = matchTier(title: candidate.normalizedTitle,
+                                     keywords: candidate.normalizedKeywords,
+                                     query: normalizedQuery)
+                return (candidate.index, candidate.priority, tier,
+                        base + candidate.boost, position)
             }
         return scored
-            .sorted { $0.score != $1.score ? $0.score > $1.score : $0.position < $1.position }
+            .sorted {
+                if $0.priority != $1.priority { return $0.priority > $1.priority }
+                if $0.tier != $1.tier { return $0.tier > $1.tier }
+                if $0.score != $1.score { return $0.score > $1.score }
+                return $0.position < $1.position
+            }
             .map(\.index)
     }
 
-    private static func bestTokenScore(_ token: String, in words: [String], haystack: String) -> Int? {
+    /// A feature's own rows keep one order whatever their titles score: its
+    /// main command, then its presets, then its Settings page. Ranked by title
+    /// alone, the page named exactly like the feature led, the presets that
+    /// start with its name came next, and the switch the person came for was
+    /// last. The rows trade places among the slots they already hold, so
+    /// nothing else moves, and a row chosen on purpose, by a name or a habit,
+    /// keeps its place while the rest still keep their order around it.
+    /// A feature's generated switch counts as its main command, and a page
+    /// of its own, named as the feature is, as its Settings page.
+    /// `id` and `priority` read a candidate by its index.
+    static func featureOrdered(_ ranked: [Int], id: (Int) -> String, priority: (Int) -> Int) -> [Int] {
+        // The feature a row belongs to, and its turn among that feature's rows.
+        func role(_ id: String) -> (feature: Substring, turn: Int)? {
+            if id.hasPrefix("settings.feature.") { return (id.dropFirst("settings.feature.".count), 2) }
+            if id.hasPrefix("settings.") {
+                let page = id.dropFirst("settings.".count)
+                return page.contains(".") ? nil : (page, 2)
+            }
+            if id.hasPrefix("toggle.") {
+                let name = id.dropFirst("toggle.".count)
+                return (name.split(separator: ".", maxSplits: 1).first ?? name, 0)
+            }
+            guard id.hasPrefix("action.") else { return nil }
+            let name = id.dropFirst("action.".count)
+            guard let dot = name.firstIndex(of: ".") else { return (name, 0) }
+            return (name[..<dot], 1)
+        }
+        var slots: [Substring: [Int]] = [:]
+        for (position, index) in ranked.enumerated() where priority(index) == 0 {
+            guard let role = role(id(index)) else { continue }
+            slots[role.feature, default: []].append(position)
+        }
+        var result = ranked
+        for positions in slots.values where positions.count > 1 {
+            let members = positions.map { ranked[$0] }
+            // Rows with the same turn keep the order they ranked in.
+            let ordered = members.enumerated().sorted {
+                let first = role(id($0.element))?.turn ?? 0, second = role(id($1.element))?.turn ?? 0
+                return first != second ? first < second : $0.offset < $1.offset
+            }.map(\.element)
+            for (slot, index) in zip(positions, ordered) { result[slot] = index }
+        }
+        return result
+    }
+
+    /// Broad text quality is compared before passive signals such as usage and
+    /// source preference. Explicit aliases and learned query choices arrive as
+    /// priority instead, because they record what the person actually meant.
+    private static func matchTier(title: String, keywords: String, query: String) -> Int {
+        if title == query { return 5 }
+        if title.hasPrefix(query) { return 4 }
+        if title.contains(query) { return 3 }
+        if !keywords.isEmpty, keywords.contains(query) { return 2 }
+        return 1
+    }
+
+    private static func bestTokenScore(_ token: QueryToken, in words: [Substring],
+                                       haystack: String, ascii: Bool) -> Int? {
         var best: Int?
         for word in words {
-            if word == token { return 140 }
-            if word.hasPrefix(token) { best = max(best ?? 0, 80) }
+            if ascii {
+                if word.utf8.elementsEqual(token.utf8) { return 140 }
+                if word.utf8.starts(with: token.utf8) { best = max(best ?? 0, 80) }
+            } else {
+                if word == token.text { return 140 }
+                if word.hasPrefix(token.text) { best = max(best ?? 0, 80) }
+            }
         }
-        if best == nil, haystack.contains(token) { best = 44 }
+        if best == nil, ascii ? asciiContains(haystack, token.utf8) : haystack.contains(token.text) {
+            best = 44
+        }
         // Fuzzy passes only rescue typing mistakes, so they need some length
         // to bite on; two letters matching half the catalog helps no one.
-        // Digit tokens are values, never typos.
-        if best == nil, token.count >= 3, !token.allSatisfy(\.isNumber) {
-            for word in words where isSubsequence(token, of: word) {
-                best = 24
-                break
-            }
+        guard best == nil, token.isFuzzy, token.count >= 3 else { return best }
+        // Each pass rules a word out by its length before reading it: in
+        // ASCII the byte count is the character count, and it costs nothing.
+        for word in words {
+            let matched = ascii
+                ? word.utf8.count >= token.count && asciiIsSubsequence(token.utf8, of: word.utf8)
+                : isSubsequence(token.text, of: String(word))
+            if matched { return 24 }
         }
-        if best == nil, token.count >= 4, !token.allSatisfy(\.isNumber) {
-            for word in words where withinOneEdit(token, word) {
-                best = 16
-                break
-            }
+        for word in words {
+            let matched = ascii
+                ? word.utf8.count == token.count && adjacentTransposition(token.utf8, Array(word.utf8))
+                : isAdjacentTransposition(token.text, String(word))
+            if matched { return 16 }
         }
-        return best
+        guard token.count >= 4 else { return nil }
+        for word in words {
+            let matched = ascii
+                ? abs(word.utf8.count - token.count) <= 1 && oneEditApart(token.utf8, Array(word.utf8))
+                : withinOneEdit(token.text, String(word))
+            if matched { return 16 }
+        }
+        return nil
+    }
+
+    private static func asciiContains(_ haystack: String, _ needle: [UInt8]) -> Bool {
+        haystack.utf8.withContiguousStorageIfAvailable { bytesContain($0, needle) }
+            ?? bytesContain(Array(haystack.utf8), needle)
+    }
+
+    private static func bytesContain<Bytes: RandomAccessCollection>(_ bytes: Bytes, _ needle: [UInt8]) -> Bool
+    where Bytes.Element == UInt8, Bytes.Index == Int {
+        guard !needle.isEmpty else { return true }
+        guard needle.count <= bytes.count else { return false }
+        let first = needle[0]
+        for start in 0...(bytes.count - needle.count) where bytes[start] == first {
+            var offset = 1
+            while offset < needle.count, bytes[start + offset] == needle[offset] { offset += 1 }
+            if offset == needle.count { return true }
+        }
+        return false
+    }
+
+    private static func asciiIsSubsequence(_ needle: [UInt8], of word: Substring.UTF8View) -> Bool {
+        var next = 0
+        for byte in word where next < needle.count && byte == needle[next] { next += 1 }
+        return next == needle.count
     }
 
     /// The positions to keep when ids repeat: the first of each, in order.
@@ -367,10 +560,35 @@ enum CommandBarSearch {
         return true
     }
 
+    /// True only when one neighboring pair was typed in reverse order.
+    static func isAdjacentTransposition(_ first: String, _ second: String) -> Bool {
+        adjacentTransposition(Array(first), Array(second))
+    }
+
+    private static func adjacentTransposition<T: Equatable>(_ a: [T], _ b: [T]) -> Bool {
+        guard a.count == b.count else { return false }
+        var firstMismatch: Int?
+        var swapped = false
+        for index in a.indices where a[index] != b[index] {
+            guard !swapped else { return false }
+            guard let previous = firstMismatch else {
+                firstMismatch = index
+                continue
+            }
+            guard index == previous + 1,
+                  a[previous] == b[index], a[index] == b[previous] else { return false }
+            swapped = true
+        }
+        return swapped
+    }
+
     /// True when the strings are at most one substitution, insertion,
     /// deletion or adjacent swap apart.
     static func withinOneEdit(_ first: String, _ second: String) -> Bool {
-        let a = Array(first), b = Array(second)
+        oneEditApart(Array(first), Array(second))
+    }
+
+    private static func oneEditApart<T: Equatable>(_ a: [T], _ b: [T]) -> Bool {
         if abs(a.count - b.count) > 1 { return false }
         if a == b { return true }
         var i = 0, j = 0
@@ -466,8 +684,8 @@ extension CommandBarSearch {
     }
 }
 
-/// How often and how recently one command ran. Stored per command id, never
-/// per query: what the person typed is never written anywhere.
+/// How often and how recently one command ran. Query habits reuse it behind
+/// keyed digests; the typed query itself is never written anywhere.
 struct CommandBarUse: Codable, Equatable {
     var count: Int
     var lastUsed: Double
@@ -543,5 +761,291 @@ enum CommandBarUsage {
             }
         }
         return picked
+    }
+
+    /// Empty category browsers keep their useful catalog order until the
+    /// person chooses something. Used rows then lead by frequency and recency,
+    /// while unseen rows retain their original relative order.
+    static func categoryIDs(usage: [String: CommandBarUse],
+                            available: [String]) -> [String] {
+        available.enumerated().sorted { left, right in
+            let leftUse = usage[left.element].flatMap { $0.count > 0 ? $0 : nil }
+            let rightUse = usage[right.element].flatMap { $0.count > 0 ? $0 : nil }
+            switch (leftUse, rightUse) {
+            case let (leftUse?, rightUse?):
+                if leftUse.count != rightUse.count { return leftUse.count > rightUse.count }
+                if leftUse.lastUsed != rightUse.lastUsed {
+                    return leftUse.lastUsed > rightUse.lastUsed
+                }
+                return left.offset < right.offset
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            case (nil, nil):
+                return left.offset < right.offset
+            }
+        }.map(\.element)
+    }
+}
+
+/// Which result won after a typed query. Only bounded, keyed query digests and
+/// row identities are saved locally; the typed query is never stored verbatim.
+enum CommandBarQueryHabits {
+    typealias Store = [String: [String: CommandBarUse]]
+
+    struct PreparedQuery {
+        fileprivate let keys: [(digest: String, specificity: Int)]
+        var keyCount: Int { keys.count }
+        var isEmpty: Bool { keys.isEmpty }
+    }
+
+    /// The active field's keyed prefixes. Typing one more character should
+    /// hash that character's prefix, not every prefix the field already had.
+    struct PreparationCache {
+        fileprivate var normalizedQuery = ""
+        fileprivate var key: Data?
+        fileprivate var prepared = PreparedQuery(keys: [])
+
+        mutating func reset() {
+            normalizedQuery = ""
+            key = nil
+            prepared = PreparedQuery(keys: [])
+        }
+    }
+
+    static let storedQueryLimit = 320
+    private static let resultLimit = 4
+
+    static func decode(_ raw: String?) -> Store {
+        guard let raw, let data = raw.data(using: .utf8),
+              let store = try? JSONDecoder().decode(Store.self, from: data)
+        else { return [:] }
+        return store
+    }
+
+    static func encode(_ store: Store) -> String? {
+        guard let data = try? JSONEncoder().encode(store) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func recording(_ store: Store,
+                          preparedQuery: PreparedQuery,
+                          resultID: String,
+                          now: Double) -> Store {
+        var next = store
+        for queryKey in preparedQuery.keys {
+            var choices = next[queryKey.digest] ?? [:]
+            var use = choices[resultID] ?? CommandBarUse(count: 0, lastUsed: now)
+            use.count = min(use.count + 1, 999)
+            use.lastUsed = now
+            choices[resultID] = use
+            if choices.count > resultLimit {
+                for choice in choices.sorted(by: { $0.value.lastUsed < $1.value.lastUsed })
+                    .prefix(choices.count - resultLimit) {
+                    choices.removeValue(forKey: choice.key)
+                }
+            }
+            next[queryKey.digest] = choices
+        }
+        if next.count > storedQueryLimit {
+            let surplus = next.sorted { latestUse(in: $0.value) < latestUse(in: $1.value) }
+                .prefix(next.count - storedQueryLimit)
+            for entry in surplus { next.removeValue(forKey: entry.key) }
+        }
+        return next
+    }
+
+    static func boost(for resultID: String,
+                      preparedQuery: PreparedQuery,
+                      store: Store,
+                      now: Double) -> Int {
+        preparedQuery.keys.reduce(0) { best, queryKey in
+            guard let use = store[queryKey.digest]?[resultID] else { return best }
+            let learned = CommandBarUsage.boost(for: use, now: now) * 5
+                + queryKey.specificity * 6
+            return max(best, min(learned, 720))
+        }
+    }
+
+    static func removing(resultID: String, from store: Store) -> Store {
+        store.reduce(into: Store()) { result, entry in
+            var choices = entry.value
+            choices.removeValue(forKey: resultID)
+            if !choices.isEmpty { result[entry.key] = choices }
+        }
+    }
+
+    /// Injectable so storage and ranking stay deterministic in tests without
+    /// touching the person's preferences.
+    static func prepare(_ query: String, key: Data) -> PreparedQuery {
+        var cache = PreparationCache()
+        return prepare(query, key: key, cache: &cache)
+    }
+
+    /// Injectable digest work gives the tests a stable operation count instead
+    /// of asking shared CI hardware to meet a wall-clock threshold.
+    static func prepare(_ query: String,
+                        key: Data?,
+                        cache: inout PreparationCache,
+                        digest: (String, Data) -> String = digest) -> PreparedQuery {
+        let normalized = String(CommandBarSearch.normalized(query).prefix(24))
+        guard let key, key.count == 32 else {
+            cache.normalizedQuery = normalized
+            cache.key = nil
+            cache.prepared = PreparedQuery(keys: [])
+            return cache.prepared
+        }
+
+        let characters = Array(normalized)
+        guard cache.key == key else {
+            cache.normalizedQuery = normalized
+            cache.key = key
+            cache.prepared = PreparedQuery(keys: preparedKeys(characters, key: key, digest: digest))
+            return cache.prepared
+        }
+        if normalized == cache.normalizedQuery { return cache.prepared }
+
+        let old = cache.normalizedQuery
+        if normalized.hasPrefix(old) {
+            var keys = cache.prepared.keys
+            let firstNewLength = Array(old).count + 1
+            if firstNewLength <= characters.count {
+                for length in firstNewLength...characters.count {
+                    let prefix = String(characters.prefix(length))
+                    keys.append((digest(prefix, key), length))
+                }
+            }
+            cache.prepared = PreparedQuery(keys: keys)
+        } else if old.hasPrefix(normalized) {
+            cache.prepared = PreparedQuery(
+                keys: cache.prepared.keys.filter { $0.specificity <= characters.count })
+        } else {
+            cache.prepared = PreparedQuery(keys: preparedKeys(characters, key: key, digest: digest))
+        }
+        cache.normalizedQuery = normalized
+        return cache.prepared
+    }
+
+    private static func preparedKeys(_ characters: [Character],
+                                     key: Data,
+                                     digest: (String, Data) -> String) -> [(String, Int)] {
+        guard !characters.isEmpty else { return [] }
+        return (1...characters.count).map { length in
+            (digest(String(characters.prefix(length)), key), length)
+        }
+    }
+
+    private static func digest(_ prefix: String, key: Data) -> String {
+        HMAC<SHA256>.authenticationCode(
+            for: Data(prefix.utf8), using: SymmetricKey(data: key))
+            .prefix(12)
+            .map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func latestUse(in choices: [String: CommandBarUse]) -> Double {
+        choices.values.map(\.lastUsed).max() ?? 0
+    }
+
+}
+
+/// Decoded query choices, kept in memory while ranking and saved on changes.
+struct CommandBarQueryHabitStoreCache {
+    private(set) var store: CommandBarQueryHabits.Store = [:]
+
+    mutating func reload(_ raw: String?,
+                         decode: (String?) -> CommandBarQueryHabits.Store =
+                            CommandBarQueryHabits.decode) {
+        store = decode(raw)
+    }
+
+    mutating func record(preparedQuery: CommandBarQueryHabits.PreparedQuery,
+                         resultID: String,
+                         now: Double) {
+        store = CommandBarQueryHabits.recording(
+            store, preparedQuery: preparedQuery, resultID: resultID, now: now)
+    }
+
+    mutating func remove(resultID: String) {
+        store = CommandBarQueryHabits.removing(resultID: resultID, from: store)
+    }
+
+    mutating func forgetAll() {
+        store = [:]
+    }
+}
+
+enum CommandBarLearning {
+    /// Keep one random key on this Mac so saved query digests mean the same
+    /// thing after a relaunch. A missing or damaged key invalidates old digests.
+    static func installationKey(in defaults: UserDefaults = .standard) -> Data {
+        if let raw = defaults.string(forKey: DefaultsKey.commandBarQueryHabitKey),
+           let key = Data(base64Encoded: raw), key.count == 32 {
+            return key
+        }
+        let key = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+        defaults.removeObject(forKey: DefaultsKey.commandBarQueryHabits)
+        defaults.set(key.base64EncodedString(), forKey: DefaultsKey.commandBarQueryHabitKey)
+        return key
+    }
+
+    static func forgetAll(in defaults: UserDefaults = .standard) {
+        defaults.removeObject(forKey: DefaultsKey.commandBarUsage)
+        defaults.removeObject(forKey: DefaultsKey.commandBarQueryHabits)
+    }
+}
+
+enum CommandBarCompletion {
+    static func completedQuery(current: String, title: String, matchTitle: String?) -> String {
+        CommandBarSearch.emojiQuery(from: current) != nil
+            ? ":" + (matchTitle ?? title)
+            : (matchTitle ?? title)
+    }
+
+    static func queryForLearning(current: String, beforeCompletion: String?) -> String {
+        beforeCompletion ?? current
+    }
+
+    static func retainedOriginal(_ original: String?,
+                                 completedValue: String?,
+                                 afterChangingTo value: String) -> String? {
+        value == completedValue ? original : nil
+    }
+}
+
+enum CommandBarAppSort {
+    enum Column { case name, alias, shortcut, pinned }
+
+    static func sorted<Item>(_ items: [Item], by column: Column, ascending: Bool,
+                             title: (Item) -> String, key: (Item) -> String,
+                             aliases: [String: String], shortcuts: [String: GlobalShortcut],
+                             pins: Set<String>) -> [Item] {
+        func text(_ item: Item) -> String? {
+            switch column {
+            case .name: return title(item)
+            case .alias: return aliases[key(item)].flatMap { $0.isEmpty ? nil : $0 }
+            case .shortcut: return shortcuts[key(item)]?.displayString
+            case .pinned: return nil
+            }
+        }
+        func byTitle(_ lhs: Item, _ rhs: Item) -> Bool {
+            title(lhs).localizedStandardCompare(title(rhs)) == .orderedAscending
+        }
+        return items.sorted { lhs, rhs in
+            if column == .pinned {
+                let left = pins.contains(key(lhs)), right = pins.contains(key(rhs))
+                if left != right { return ascending ? left : right }
+                return byTitle(lhs, rhs)
+            }
+            switch (text(lhs), text(rhs)) {
+            case (nil, nil): return byTitle(lhs, rhs)
+            case (nil, _): return false
+            case (_, nil): return true
+            case let (left?, right?):
+                let order = left.localizedStandardCompare(right)
+                if order == .orderedSame { return byTitle(lhs, rhs) }
+                return ascending ? order == .orderedAscending : order == .orderedDescending
+            }
+        }
     }
 }

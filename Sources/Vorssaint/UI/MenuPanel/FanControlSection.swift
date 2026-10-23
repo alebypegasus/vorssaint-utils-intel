@@ -11,9 +11,11 @@ struct FanControlSection: View {
         FanControlPolicy.defaultCoolingLevel
     @AppStorage(DefaultsKey.fanControlCurves) private var curvesStorage =
         FanControlConfiguration.defaultCurvesStorage
+    @AppStorage(DefaultsKey.fanControlResume) private var resume = false
     @AppStorage(DefaultsKey.temperatureUnit) private var temperatureUnit =
         TemperatureUnit.celsius.rawValue
     var collapsible = true
+    var fallbackFanSpeeds: [Double] = []
 
     private var strings: FanControlFeatureStrings {
         FeatureStrings.fanControl(l10n.language)
@@ -22,20 +24,24 @@ struct FanControlSection: View {
     var body: some View {
         PanelSection(.fanControl, title: strings.title, collapsible: collapsible) {
             FanControlCardContent(strings: strings,
+                                  betaLabel: l10n.s.betaBadge,
                                   snapshot: service.snapshot,
+                                  fallbackFanSpeeds: fallbackFanSpeeds,
                                   accessState: service.accessState,
                                   error: service.error,
                                   isWorking: service.isWorking,
                                   mode: modeBinding,
                                   coolingLevel: $coolingLevel,
                                   curves: curvesBinding,
+                                  resume: $resume,
                                   temperatureUnit: displayTemperatureUnit,
                                   authorize: service.authorize,
                                   applyConfiguration: service.applyConfiguration,
-                                  stopCooling: service.restoreAutomatic)
+                                  stopCooling: service.returnToSystem)
                 .panelCard()
                 .onAppear { service.panelDidAppear() }
                 .onDisappear { service.panelDidDisappear() }
+                .onChange(of: resume) { _, _ in service.resumePreferenceDidChange() }
         }
     }
 
@@ -67,24 +73,31 @@ struct FanControlSection: View {
 
 struct FanControlCardContent: View {
     let strings: FanControlFeatureStrings
+    let betaLabel: String
     let snapshot: FanControlSnapshot
+    let fallbackFanSpeeds: [Double]
     let accessState: FanControlService.AccessState
     let error: FanControlErrorCode?
     let isWorking: Bool
     @Binding var mode: FanControlMode
     @Binding var coolingLevel: Int
     @Binding var curves: [FanControlCurve]
+    @Binding var resume: Bool
     let temperatureUnit: TemperatureUnit
     let authorize: () -> Void
     let applyConfiguration: (FanControlConfiguration) -> Void
     let stopCooling: () -> Void
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             statusHeader
 
-            if !snapshot.fans.isEmpty { fanRows }
+            if !fallbackFanSpeeds.isEmpty,
+               snapshot.fans.isEmpty || error == .helperUnavailable {
+                fallbackFanRows
+            } else if !snapshot.fans.isEmpty {
+                fanRows
+            }
 
             if let message = stateMessage {
                 Text(message)
@@ -117,181 +130,75 @@ struct FanControlCardContent: View {
 
             action
 
+            if canConfigure, mode != .system {
+                Toggle(strings.resumeAfterRestart, isOn: $resume)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+            }
+
             if controlsCanAppear {
-                HStack(spacing: 5) {
-                    Image(systemName: "checkmark.shield.fill")
-                        .font(.system(size: 8.5))
-                        .foregroundStyle(Theme.LiquidGlass.emeraldGlow)
-                    Text("Proteção térmica ativa com restauração automática.")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.top, 2)
+                Text(strings.safetyCaption)
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(Color.secondary.opacity(0.84))
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
     private var modePicker: some View {
-        HStack(spacing: 4) {
-            modePill(FanControlMode.system, title: strings.systemControl, icon: "gearshape")
-            modePill(FanControlMode.manual, title: strings.manualControl, icon: "slider.horizontal.3")
-            modePill(FanControlMode.curve, title: strings.customCurve, icon: "chart.xyaxis.line")
+        Picker(strings.mode, selection: $mode) {
+            Text(strings.systemControl).tag(FanControlMode.system)
+            Text(strings.manualControl).tag(FanControlMode.manual)
+            Text(strings.customCurve).tag(FanControlMode.curve)
         }
-        .padding(3)
-        .background(Color.primary.opacity(0.04))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.8)
-        )
+        .pickerStyle(.segmented)
+        .controlSize(.small)
         .disabled(isWorking)
     }
 
-    private func modePill(_ targetMode: FanControlMode, title: String, icon: String) -> some View {
-        let isSelected = mode == targetMode
-        return Button {
-            withAnimation(.liquidSpring) {
-                mode = targetMode
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 9.5))
-                Text(title)
-                    .font(.system(size: 10.5, weight: isSelected ? .bold : .medium))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 4.5)
-            .background(
-                isSelected
-                    ? AnyShapeStyle(
-                        LinearGradient(
-                            colors: [
-                                Theme.LiquidGlass.cyanGlow,
-                                Theme.LiquidGlass.cyanGlow.opacity(0.85)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    : AnyShapeStyle(Color.clear)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(0.75))
-            .shadow(color: isSelected ? Theme.LiquidGlass.cyanGlow.opacity(0.4) : Color.clear, radius: 4)
-        }
-        .buttonStyle(.plain)
-    }
-
     private var manualControl: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(strings.coolingIntensity)
                     .font(.system(size: 10.5))
                     .foregroundStyle(.secondary)
                 Spacer()
                 Text("\(selectedCoolingLevel)%")
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .foregroundStyle(Theme.LiquidGlass.cyanGlow)
+                    .font(.system(size: 10.5, weight: .semibold).monospacedDigit())
             }
             Slider(value: coolingLevelBinding,
                    in: Double(FanControlPolicy.minimumCoolingLevel)...Double(FanControlPolicy.maximumCoolingLevel),
                    step: Double(FanControlPolicy.coolingLevelStep))
-                .tint(Theme.LiquidGlass.cyanGlow)
                 .controlSize(.small)
                 .disabled(isWorking)
-
-            HStack(spacing: 4) {
-                presetButton(title: "Silencioso", level: 30)
-                presetButton(title: "Médio", level: 50)
-                presetButton(title: "Gamer", level: 80)
-                presetButton(title: "Overdrive", level: 100, isGlow: true)
-            }
-            .padding(.top, 2)
-
-            jetBlastCard
         }
-        .padding(.vertical, 2)
-    }
-
-    private func presetButton(title: String, level: Int, isGlow: Bool = false) -> some View {
-        let isSelected = coolingLevel == level
-        return Button {
-            coolingLevel = level
-            applyConfiguration(.manual(level: level))
-        } label: {
-            Text(title)
-                .font(.system(size: 9.5, weight: isSelected ? .bold : .medium))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .frame(maxWidth: .infinity)
-                .background(isSelected ? (isGlow ? Theme.LiquidGlass.magentaGlow : Theme.LiquidGlass.cyanGlow) : Color.primary.opacity(0.04))
-                .foregroundStyle(isSelected ? Color.white : Color.primary.opacity(0.8))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private var jetBlastCard: some View {
-        let service = FanControlService.shared
-        HStack(spacing: 8) {
-            Image(systemName: "bolt.horizontal.fill")
-                .foregroundStyle(Theme.LiquidGlass.magentaGlow)
-                .font(.system(size: 13, weight: .bold))
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(service.isJetBlastActive ? "Jet Blast Ativo: \(service.jetBlastRemainingSeconds)s" : "Jet Blast (Cooldown Extremo)")
-                    .font(.system(size: 11, weight: .bold))
-                Text("Força 100% de ventoinha instantaneamente por 2 min")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            Button {
-                if service.isJetBlastActive {
-                    service.cancelJetBlast()
-                } else {
-                    service.triggerJetBlast()
-                }
-            } label: {
-                Text(service.isJetBlastActive ? "Parar" : "Disparar")
-                    .font(.system(size: 10, weight: .bold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(service.isJetBlastActive ? Color.red : Theme.LiquidGlass.magentaGlow)
-            .controlSize(.small)
-        }
-        .padding(8)
-        .liquidGlassCard(cornerRadius: 8, glow: service.isJetBlastActive ? Theme.LiquidGlass.magentaGlow : nil)
-        .padding(.top, 2)
     }
 
     private var statusHeader: some View {
-        HStack(spacing: 10) {
-            ZStack {
-                Circle()
-                    .fill((snapshot.isCooling ? Theme.LiquidGlass.cyanGlow : Color.primary).opacity(0.12))
-                    .frame(width: 32, height: 32)
+        HStack(spacing: 8) {
+            Image(systemName: snapshot.isCooling ? "fanblades.fill" : "fanblades")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(snapshot.isCooling ? AnyShapeStyle(Color.cyan)
+                                                     : AnyShapeStyle(Color.secondary))
+                .symbolEffect(.variableColor.iterative, options: .repeating,
+                              isActive: snapshot.isCooling)
+                .frame(width: 24)
 
-                Image(systemName: snapshot.isCooling ? "fanblades.fill" : "fanblades")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(snapshot.isCooling ? Theme.LiquidGlass.cyanGlow : Color.secondary)
-                    .symbolEffect(.variableColor.iterative, options: .repeating,
-                                  isActive: snapshot.isCooling)
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(strings.title)
-                    .font(.system(size: 12, weight: .bold))
-
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 5) {
+                    Text(strings.title)
+                        .font(.system(size: 12, weight: .semibold))
+                    Text(betaLabel)
+                        .font(.system(size: 7.5, weight: .bold))
+                        .foregroundStyle(Color.white)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(Color.accentColor))
+                }
                 Text(statusText)
-                    .font(.system(size: 10, weight: .medium).monospacedDigit())
-                    .foregroundStyle(snapshot.isCooling ? Theme.LiquidGlass.cyanGlow : Color.secondary)
+                    .font(.system(size: 10).monospacedDigit())
+                    .foregroundStyle(snapshot.isCooling ? Color.cyan : Color.secondary)
             }
             Spacer()
             if isWorking { ProgressView().controlSize(.small) }
@@ -299,28 +206,42 @@ struct FanControlCardContent: View {
     }
 
     private var fanRows: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 5) {
             ForEach(snapshot.fans) { fan in
                 HStack(spacing: 6) {
                     Text(String(format: strings.fanNameFormat, fan.index + 1))
-                        .font(.system(size: 11))
+                        .font(.system(size: 10.5))
                         .foregroundStyle(.secondary)
                     Spacer()
-                    HStack(spacing: 4) {
-                        Text(String(format: strings.currentRPMFormat, Int(fan.actualRPM.rounded())))
-                            .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            .foregroundStyle(Color.primary)
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text(String(format: strings.currentRPMFormat,
+                                    Int(fan.actualRPM.rounded())))
+                            .font(.system(size: 10.5, weight: .semibold).monospacedDigit())
                         if fan.isManuallyControlled {
-                            Text("(\(Int(fan.targetRPM.rounded())) RPM alvo)")
+                            Text(String(format: strings.targetRPMFormat,
+                                        Int(fan.targetRPM.rounded())))
                                 .font(.system(size: 9.5).monospacedDigit())
                                 .foregroundStyle(.secondary)
                         }
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.primary.opacity(0.03))
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            }
+        }
+        .padding(.vertical, 1)
+    }
+
+    private var fallbackFanRows: some View {
+        VStack(spacing: 5) {
+            ForEach(fallbackFanSpeeds.indices, id: \.self) { index in
+                HStack(spacing: 6) {
+                    Text(String(format: strings.fanNameFormat, index + 1))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(String(format: strings.currentRPMFormat,
+                                Int(fallbackFanSpeeds[index].rounded())))
+                        .font(.system(size: 10.5, weight: .semibold).monospacedDigit())
+                }
             }
         }
         .padding(.vertical, 1)
@@ -331,58 +252,44 @@ struct FanControlCardContent: View {
         if error == .noFans || error == .unsupportedHardware || error == .alreadyControlled {
             EmptyView()
         } else if accessState == .notRegistered, !snapshot.fans.isEmpty {
-            liquidActionButton(title: strings.allowControl, action: authorize)
+            Button(strings.allowControl, action: authorize)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .frame(maxWidth: .infinity)
         } else if accessState == .requiresApproval, !snapshot.fans.isEmpty {
-            liquidActionButton(title: strings.openSettings, action: authorize)
+            Button(strings.openSettings, action: authorize)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .frame(maxWidth: .infinity)
         } else if accessState == .enabled, controlsCanAppear {
             switch mode {
             case .system:
                 if snapshot.isCooling {
-                    liquidActionButton(title: strings.returnToSystem, action: stopCooling)
+                    Button(strings.returnToSystem, action: stopCooling)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .disabled(isWorking)
+                        .frame(maxWidth: .infinity)
                 }
             case .manual:
-                liquidActionButton(title: strings.applyManual) {
+                Button(strings.applyManual) {
                     coolingLevel = selectedCoolingLevel
                     applyConfiguration(.manual(level: selectedCoolingLevel))
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(isWorking)
+                .frame(maxWidth: .infinity)
             case .curve:
-                liquidActionButton(title: strings.applyCurve, disabled: isWorking || !curveCanRun) {
+                Button(strings.applyCurve) {
                     applyConfiguration(.curve(curves))
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(isWorking || !curveCanRun)
+                .frame(maxWidth: .infinity)
             }
         }
-    }
-
-    private func liquidActionButton(title: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 10))
-                Text(title)
-                    .font(.system(size: 11, weight: .bold))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .background(
-                LinearGradient(
-                    colors: [
-                        Theme.LiquidGlass.cyanGlow,
-                        Theme.LiquidGlass.cyanGlow.opacity(0.85)
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.3), lineWidth: 0.8)
-            )
-            .foregroundStyle(Color.white)
-            .shadow(color: Theme.LiquidGlass.cyanGlow.opacity(0.35), radius: 6, y: 2)
-        }
-        .buttonStyle(.plain)
-        .disabled(disabled || isWorking)
     }
 
     private var statusText: String {
@@ -411,7 +318,8 @@ struct FanControlCardContent: View {
         switch error {
         case .alreadyControlled: return strings.alreadyControlled
         case .unsupportedHardware: return strings.unsupported
-        case .helperUnavailable, .controlFailed: return strings.failed
+        case .helperUnavailable: return strings.helperUnavailable
+        case .controlFailed: return strings.failed
         case .authorizationRequired: return strings.approvalCaption
         case .noFans, .none: break
         }

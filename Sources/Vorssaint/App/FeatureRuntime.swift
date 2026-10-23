@@ -23,6 +23,12 @@ final class FeatureRuntime: ObservableObject {
     /// keys off, including the install-then-uninstall-again case.
     private var loadedThisSession = Set(AppFeature.allCases.filter(\.isAvailable))
 
+    /// What was installed when the app came up and has not been installed
+    /// again since. A feature installed later in the session, a reinstall
+    /// included, has not had its chance yet, so it is never offered for
+    /// uninstalling as unused until the next launch.
+    private var offerableThisSession = Set(AppFeature.allCases.filter(\.isAvailable))
+
     private init() {}
 
     /// True while something that loaded this session is now uninstalled, so
@@ -32,14 +38,34 @@ final class FeatureRuntime: ObservableObject {
         loadedThisSession.contains { !$0.isAvailable }
     }
 
-    /// Relaunches the app in place: a detached `open` fires after the process
-    /// exits, so the fresh instance starts without the uninstalled features.
+    /// Relaunches the app in place: a detached helper waits for this process
+    /// to be gone and only then reopens it, so the fresh instance starts
+    /// without the uninstalled features.
+    ///
+    /// It waits for the process rather than for a fixed moment because
+    /// quitting flushes the clipboard history and every other pending write
+    /// first: a reopen that arrives while the app is still here does nothing,
+    /// and the restart ends as a plain quit.
     func relaunchApp() {
-        guard let bundleID = Bundle.main.bundleIdentifier else { return }
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/sh")
-        task.arguments = ["-c", "sleep 0.6; /usr/bin/open -b '\(bundleID)'"]
-        try? task.run()
+        let path = Bundle.main.bundlePath
+        // Its own session: the reopen fires after we terminate, so the child
+        // has to outlive the session it was started from. It gives up if we
+        // are somehow still here after twenty seconds, so a quit that never
+        // happens cannot reopen the app long afterwards.
+        let script = """
+            waited=0
+            while kill -0 "$1" 2>/dev/null && [ "$waited" -lt 100 ]; do
+                sleep 0.2
+                waited=$((waited + 1))
+            done
+            kill -0 "$1" 2>/dev/null || /usr/bin/open "$2"
+            """
+        let pid = String(ProcessInfo.processInfo.processIdentifier)
+        // Nothing is quit until the helper is running: without it, terminating
+        // would close the app instead of restarting it.
+        guard (try? DetachedProcess.spawn(
+            "/bin/sh", ["-c", script, "vorssaint-relaunch", pid, path])) != nil
+        else { return }
         NSApp.terminate(nil)
     }
 
@@ -70,15 +96,39 @@ final class FeatureRuntime: ObservableObject {
         return !available || feature.isHardwareSupported
     }
 
-    /// Flipping availability runs the feature's binding immediately: off
-    /// tears every resource down on the spot, on restores whatever enabled
-    /// state the feature had (its own keys are never touched).
-    func setAvailable(_ feature: AppFeature, _ available: Bool) {
-        guard mayFlip(feature, to: available) else { return }
-        UserDefaults.standard.set(available, forKey: feature.availabilityKey)
-        if available { loadedThisSession.insert(feature) }
-        Self.bindings[feature]?()
-        finishAvailabilityChange()
+    /// Flipping availability runs each feature's binding immediately, in the
+    /// order given: off tears every resource down on the spot, while a first
+    /// install turns on the feature's main control. Saved choices survive a
+    /// reinstall. One row, the "all" buttons and the Dynamic Island leaving
+    /// with its extensions all pass through here, with one revision bump.
+    /// Install all leaves enable keys alone: it would otherwise switch on
+    /// intrusive features nobody picked, such as focus follows mouse.
+    func setAvailable(_ features: [AppFeature], _ available: Bool,
+                      enablingFirstInstalls: Bool = true) {
+        var changed = false
+        let firstIslandInstall = available && features.contains(.notch)
+            && mayFlip(.notch, to: true)
+            && !UserDefaults.standard.bool(forKey: DefaultsKey.notchInitialExtensionsInstalled)
+        let requested = firstIslandInstall
+            ? features + AppFeature.dynamicIslandInitialExtensions.filter { !features.contains($0) }
+            : features
+        let savedValues = savedPreferences()
+        for feature in requested where mayFlip(feature, to: available) {
+            if available && enablingFirstInstalls {
+                feature.enableOnFirstInstall(in: .standard, savedValues: savedValues)
+            }
+            UserDefaults.standard.set(available, forKey: feature.availabilityKey)
+            if available {
+                loadedThisSession.insert(feature)
+                offerableThisSession.remove(feature)
+            }
+            Self.bindings[feature]?()
+            changed = true
+        }
+        if firstIslandInstall && AppFeature.notch.isAvailable {
+            UserDefaults.standard.set(true, forKey: DefaultsKey.notchInitialExtensionsInstalled)
+        }
+        if changed { finishAvailabilityChange() }
     }
 
     /// Applies a hub preset: its features become the installed set, with
@@ -96,11 +146,18 @@ final class FeatureRuntime: ObservableObject {
         for key in keys {
             UserDefaults.standard.set(true, forKey: key)
         }
+        let savedValues = savedPreferences()
         for feature in AppFeature.allCases
         where mayFlip(feature, to: selected.contains(feature)) {
             let joins = selected.contains(feature)
+            if joins {
+                feature.enableOnFirstInstall(in: .standard, savedValues: savedValues)
+            }
             UserDefaults.standard.set(joins, forKey: feature.availabilityKey)
-            if joins { loadedThisSession.insert(feature) }
+            if joins {
+                loadedThisSession.insert(feature)
+                offerableThisSession.remove(feature)
+            }
             Self.bindings[feature]?()
         }
         // Features that stayed installed still need a sync: their enable
@@ -111,20 +168,45 @@ final class FeatureRuntime: ObservableObject {
         for feature in selected where feature.isAvailable {
             Self.bindings[feature]?()
         }
+        if selected.contains(.notch) && AppFeature.notch.isAvailable {
+            UserDefaults.standard.set(true, forKey: DefaultsKey.notchInitialExtensionsInstalled)
+        }
         finishAvailabilityChange()
     }
 
-    /// Bulk install or uninstall for the hub's "all" buttons: one revision
-    /// bump, every changed feature's binding run.
+    /// Installed switches that were never once turned on, for the Features
+    /// page to offer as one batch, minus the ones the person chose to keep.
+    func neverSwitchedOnFeatures() -> [AppFeature] {
+        let saved = savedPreferences()
+        let kept = Self.keptFeatures()
+        return AppFeature.neverSwitchedOn(isAvailable: \.isAvailable,
+                                          boolFor: UserDefaults.standard.bool(forKey:),
+                                          isSaved: { saved[$0] != nil })
+            .filter { offerableThisSession.contains($0) && !kept.contains($0) }
+    }
+
+    /// Stops offering these features as unused. A later one that turns out
+    /// never used is still offered, on its own merits.
+    func keep(_ features: [AppFeature]) {
+        let kept = Self.keptFeatures().union(features)
+        UserDefaults.standard.set(kept.map(\.rawValue).sorted().joined(separator: ","),
+                                  forKey: DefaultsKey.featureHubKeptFeatures)
+    }
+
+    private static func keptFeatures() -> Set<AppFeature> {
+        Set((UserDefaults.standard.string(forKey: DefaultsKey.featureHubKeptFeatures) ?? "")
+            .split(separator: ",")
+            .compactMap { AppFeature(rawValue: String($0)) })
+    }
+
+    /// Bulk install or uninstall for the hub's "all" buttons.
     func setAllAvailable(_ available: Bool) {
-        var changed = false
-        for feature in AppFeature.allCases where mayFlip(feature, to: available) {
-            UserDefaults.standard.set(available, forKey: feature.availabilityKey)
-            if available { loadedThisSession.insert(feature) }
-            Self.bindings[feature]?()
-            changed = true
-        }
-        if changed { finishAvailabilityChange() }
+        setAvailable(AppFeature.allCases, available, enablingFirstInstalls: false)
+    }
+
+    private func savedPreferences() -> [String: Any] {
+        guard let domain = Bundle.main.bundleIdentifier else { return [:] }
+        return UserDefaults.standard.persistentDomain(forName: domain) ?? [:]
     }
 
     /// Launch path: replaces the old unconditional sync block. Only available
@@ -148,6 +230,7 @@ final class FeatureRuntime: ObservableObject {
     private func finishAvailabilityChange() {
         revision += 1
         CommandBarService.shared.noteHubChange()
+        if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
     }
 
     /// What each feature must re-evaluate when its availability (or a
@@ -164,15 +247,22 @@ final class FeatureRuntime: ObservableObject {
         .windowLayout: {
             WindowUseTracker.shared.syncWithFeatures()
             WindowLayoutService.shared.syncWithPreferences()
+            PointerDisplayService.shared.syncWithPreferences()
         },
         .autoQuit: { AutoQuitService.shared.syncWithPreferences() },
+        .spacesOrder: { SpacesOrderHold.shared.syncWithPreferences() },
         .scrollInverter: { ScrollInverter.shared.syncWithPreferences() },
+        .scrollHorizontal: { ScrollInverter.shared.syncWithPreferences() },
         .focusFollowsMouse: { FocusFollowsMouseService.shared.syncWithPreferences() },
         .smoothScroll: { SmoothScrollService.shared.syncWithPreferences() },
+        .linearScroll: { ScrollInverter.shared.syncWithPreferences() },
+        .mouseAcceleration: { MouseAccelerationService.shared.syncWithPreferences() },
         .mouseNavigation: { MouseNavigationService.shared.syncWithPreferences() },
         .mouseButtonShortcuts: { MouseButtonShortcutService.shared.syncWithPreferences() },
         .middleClick: { MiddleClickService.shared.syncWithPreferences() },
+        .mouseClickDebounce: { MouseClickDebounceService.shared.syncWithPreferences() },
         .keyboardDebounce: { KeyboardDebounceService.shared.syncWithPreferences() },
+        .quitWindowProtection: { QuitProtectionService.shared.syncWithPreferences() },
         .superKey: { SuperKeyService.shared.syncWithPreferences() },
         .textSnippets: {
             TextSnippetService.shared.syncWithPreferences()
@@ -186,6 +276,7 @@ final class FeatureRuntime: ObservableObject {
             ClipboardAutoClearService.shared.syncWithPreferences()
         },
         .mediaTools: {
+            NotchFileToolsService.shared.syncWithPreferences()
             guard !AppFeature.mediaTools.isAvailable else { return }
             MediaService.shared.cancel()
             ScreenRecorderService.shared.closeEditors(ownedBy: .mediaTools)
@@ -193,8 +284,10 @@ final class FeatureRuntime: ObservableObject {
         .pastePlain: { PastePlainService.shared.syncWithPreferences() },
         .finderCutPaste: { FinderCutPaste.shared.syncWithPreferences() },
         .finderRename: { FinderRenameService.shared.syncWithPreferences() },
-        .finderDeleteShortcuts: { FinderDeleteShortcuts.shared.syncWithPreferences() },
-        .shelf: { ShelfService.shared.syncWithPreferences() },
+        .shelf: {
+            ShelfService.shared.syncWithPreferences()
+            NotchFileToolsService.shared.syncWithPreferences()
+        },
         .urlCleaner: { URLCleanerService.shared.syncWithPreferences() },
         .diskImageInstaller: { DiskImageInstallerService.shared.syncWithPreferences() },
         .mixer: {
@@ -202,7 +295,18 @@ final class FeatureRuntime: ObservableObject {
             AppVolumeMixer.shared.syncWithPreferences()
             AudioInputDeviceManager.shared.syncWithPreferences()
         },
-        .soundOutputSwitcher: { SoundOutputSwitcher.shared.syncWithPreferences() },
+        .soundOutputSwitcher: {
+            AppVolumeMixer.shared.syncWithPreferences()
+            SoundOutputSwitcher.shared.syncWithPreferences()
+        },
+        .audioPriority: {
+            // Priority owns no sibling CoreAudio listener stack. Keep the
+            // shared system-device observers alive even when Volume mixer is
+            // not installed, then start/stop the policy that consumes them.
+            AppVolumeMixer.shared.syncWithPreferences()
+            AudioInputDeviceManager.shared.syncWithPreferences()
+            AudioPriorityService.shared.syncWithPreferences()
+        },
         .micMute: { MicMuteService.shared.syncWithPreferences() },
         .musicBlock: { MusicLaunchBlocker.shared.syncWithPreferences() },
         .keepAwake: {
@@ -223,13 +327,57 @@ final class FeatureRuntime: ObservableObject {
         .screenshot: {
             ScreenCaptureService.shared.syncWithPreferences()
             ScreenshotService.shared.syncWithPreferences()
+            RecentCaptureService.shared.syncWithPreferences()
         },
         .screenRecorder: {
             ScreenCaptureService.shared.syncWithPreferences()
             ScreenRecorderService.shared.syncWithPreferences()
+            RecentCaptureService.shared.syncWithPreferences()
         },
         .cameraPreview: { CameraPreviewService.shared.syncWithPreferences() },
+        .wallpaper: { WallpaperService.shared.syncWithPreferences() },
         .radialMenu: { RadialMenuService.shared.syncWithPreferences() },
+        .notch: { NotchService.shared.syncWithPreferences() },
+        .notchGestures: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+        },
+        .notchTimer: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchTimerService.shared.stop() }
+        },
+        .notchAccessories: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchAccessoryService.shared.stop() }
+        },
+        .notchLyrics: {
+            if !NotchLyricsSupport.isEnabled() { NotchLyricsService.shared.stop() }
+        },
+        .notchQueue: { NotchMusicService.shared.syncQueuePreference() },
+        .notchLiveEqualizer: { NotchAudioLevelService.shared.syncWithPreferences() },
+        .notchNotifications: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchNotificationService.shared.stop() }
+        },
+        .notchDownloads: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchDownloadService.shared.stop() }
+        },
+        .notchCalendar: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchCalendarService.shared.stop() }
+        },
+        .notchAgents: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { AgentUsageService.shared.stop() }
+        },
+        .notchWatch: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+            else { NotchWatchService.shared.stop() }
+        },
+        // Leaving folds the wings it rests in, and coming back greets.
+        .notchMascot: {
+            if AppFeature.notch.isAvailable { NotchService.shared.syncWithPreferences() }
+        },
         .scratchpad: { ScratchpadService.shared.syncWithPreferences() },
         .commandBar: { CommandBarService.shared.syncWithPreferences() },
         .cleaner: {

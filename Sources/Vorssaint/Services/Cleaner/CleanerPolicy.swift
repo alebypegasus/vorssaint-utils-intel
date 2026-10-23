@@ -21,25 +21,13 @@ enum CleanerPolicy {
     /// Logs are diagnostic text apps rewrite freely.
     static let precheckLogs = true
 
-    /// Build products, package managers and simulator caches regenerate on demand.
+    /// Build products and simulator caches regenerate on the next build.
     static let precheckDeveloper = true
 
-    /// Browser caches are safe to rebuild and free significant disk space.
-    static let precheckBrowserCaches = true
-
-    /// App communication caches are rebuildable from cloud servers.
-    static let precheckAppMediaCaches = true
-
-    /// System crash dumps and diagnostic logs.
-    static let precheckSystemLogs = true
-
-    /// Stale temporary files and incomplete downloads.
-    static let precheckTemporaryResidue = true
-
-    /// External drive trash folders.
-    static let precheckExternalTrashes = false
-
-    /// Relative to the home folder. Only ever offered when they exist.
+    /// Relative to the home folder. Only ever offered when they exist. The
+    /// DeviceSupport folders are debug symbol caches Xcode rebuilds on the
+    /// next device connection; they quietly grow to tens of gigabytes and
+    /// are a classic slice of the storage macOS files under "Other".
     static let developerJunkPaths: [String] = [
         "/Library/Developer/Xcode/DerivedData",
         "/Library/Developer/Xcode/DocumentationCache",
@@ -47,56 +35,25 @@ enum CleanerPolicy {
         "/Library/Developer/Xcode/iOS DeviceSupport",
         "/Library/Developer/Xcode/watchOS DeviceSupport",
         "/Library/Developer/Xcode/tvOS DeviceSupport",
-        "/Library/Developer/Xcode/Archives",
-        "/Library/Caches/org.swift.swiftpm",
-        "/Library/Caches/CocoaPods",
-        "/Library/Caches/Homebrew",
-        "/Library/Caches/Yarn",
-        "/Library/Caches/pip",
-        "/Library/Caches/go-build",
-        "/Library/Caches/JetBrains",
-        "/Library/Caches/com.microsoft.VSCode",
-        "/.gradle/caches",
-        "/.gradle/daemon",
-        "/.npm/_cacache",
-        "/.cargo/registry/cache",
-        "/.cargo/git/db",
-        "/.cache/pip",
-        "/.cache/pypoetry",
-        "/Library/pnpm/store",
-    ]
-
-    /// Known browser cache locations relative to the home folder.
-    static let browserCachePaths: [(path: String, label: String)] = [
-        ("/Library/Caches/com.apple.Safari", "Safari Cache"),
-        ("/Library/Safari/FaviconsCache", "Safari Favicons"),
-        ("/Library/Caches/Google/Chrome", "Google Chrome Cache"),
-        ("/Library/Application Support/Google/Chrome/Default/Service Worker/CacheStorage", "Chrome Service Workers"),
-        ("/Library/Application Support/Google/Chrome/Default/GPUCache", "Chrome GPU Cache"),
-        ("/Library/Caches/company.thebrowser.Browser", "Arc Browser Cache"),
-        ("/Library/Caches/com.microsoft.edgemac", "Microsoft Edge Cache"),
-        ("/Library/Caches/com.brave.Browser", "Brave Browser Cache"),
-        ("/Library/Caches/org.mozilla.firefox", "Firefox Cache"),
-        ("/Library/Caches/com.operasoftware.Opera", "Opera Cache"),
-        ("/Library/Caches/com.vivaldi.Vivaldi", "Vivaldi Cache"),
-    ]
-
-    /// Known communication and streaming app caches relative to the home folder.
-    static let appMediaCachePaths: [(path: String, label: String)] = [
-        ("/Library/Application Support/Slack/Cache", "Slack Cache"),
-        ("/Library/Application Support/Slack/Service Worker/CacheStorage", "Slack Storage"),
-        ("/Library/Application Support/discord/Cache", "Discord Cache"),
-        ("/Library/Application Support/discord/Code Cache", "Discord Code Cache"),
-        ("/Library/Application Support/discord/GPUCache", "Discord GPU Cache"),
-        ("/Library/Caches/com.spotify.client/Data", "Spotify Data Cache"),
-        ("/Library/Caches/com.spotify.client/Storage", "Spotify Storage"),
-        ("/Library/Group Containers/6N38VWS5BX.ru.keepcoder.Telegram/account-1/postbox/media", "Telegram Media Cache"),
     ]
 
     /// Device backups are the user's safety net: enormous, ancient, and the
     /// other classic tenant of "Other" storage, but never a machine's call
     /// to delete. Every find waits unchecked for the user's eye.
     static let precheckDeviceBackups = false
+
+    /// Forgotten screenshots sit in the user's own folders, so they are
+    /// only ever offered, never pre checked: the size is the useful part.
+    static let precheckScreenshots = false
+
+    /// How long a screenshot must go untouched to count as forgotten. Zero
+    /// turns the search off.
+    static let screenshotAgeChoices = [7, 14, 30, 60, 90]
+    static let defaultScreenshotAgeDays = 30
+
+    static func sanitizedScreenshotAgeDays(_ raw: Int) -> Int {
+        raw <= 0 ? 0 : min(raw, 3650)
+    }
 
     /// Cache folders that never appear in the list at all: this app's own
     /// data and entries known to break things when removed (audio output
@@ -111,18 +68,22 @@ enum CleanerPolicy {
         "com.apple.FontRegistry", "com.apple.ATS",
         "com.apple.akd", "com.apple.AuthKit",
         "com.paceap.", "com.native-instruments", "com.fabfilter",
+        // This cache also holds installed customizations that cannot be rebuilt.
+        "com.spotify.client",
     ]
 
     /// Third party caches whose content the user paid bandwidth or setup
     /// for (offline media, model and browser downloads): shown, never pre
     /// checked.
     private static let sensitiveCachePrefixes = [
-        "com.spotify.client",
         "ms-playwright",
     ]
 
     static func isExcludedCacheEntry(_ name: String) -> Bool {
         let lowered = name.lowercased()
+        // A localization name is not evidence of disposable data. Keep the
+        // leftover exclusion when the same entry is visited as caches or logs.
+        if lowered.hasSuffix(".localized") { return true }
         return hiddenCachePrefixes.contains { lowered.hasPrefix($0.lowercased()) }
     }
 
@@ -141,6 +102,7 @@ enum CleanerPolicy {
     /// checked unless they hold content worth keeping, and plain named
     /// folders only when they are known download or build caches.
     static func precheckCacheEntry(_ name: String) -> Bool {
+        guard !isExcludedCacheEntry(name) else { return false }
         let lowered = name.lowercased()
         if sensitiveCachePrefixes.contains(where: { lowered.hasPrefix($0.lowercased()) }) { return false }
         if CleanerSupport.looksLikeBundleID(name) {

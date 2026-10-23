@@ -17,6 +17,14 @@ enum InstalledApps {
         /// search wants them; every other picker leaves them empty rather than
         /// paying Spotlight for a list nobody is going to type into.
         var alternateNames: [String] = []
+        /// What the running process answers to when the row was built from a
+        /// process rather than a bundle on disk, so the picker stores exactly
+        /// what the taps will compare against.
+        var explicitIdentity: String? = nil
+
+        var identity: String? {
+            explicitIdentity ?? bundleID
+        }
 
         var icon: NSImage {
             NSWorkspace.shared.icon(forFile: url.path)
@@ -27,13 +35,45 @@ enum InstalledApps {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
     }
 
-    static func name(for bundleID: String) -> String {
-        guard let url = url(for: bundleID) else { return bundleID }
-        return FileManager.default.displayName(atPath: url.path)
+    /// A list entry can also be the path of a program that is not packaged as
+    /// an app, which has no bundle identifier to be named by (issue #1009).
+    private static func fileURL(forIdentity identity: String) -> URL? {
+        guard MouseAppExceptionSupport.isExecutablePathIdentity(identity) else {
+            return url(for: identity)
+        }
+        return URL(fileURLWithPath: identity)
+    }
+
+    /// Where a path identity's file sits, spelled from home. Every bundled
+    /// Java runtime is displayed as "java" (issue #1009), so the directory is
+    /// what tells two of them apart in a list. A bundle identifier names its
+    /// app on its own and carries no location.
+    static func location(for identity: String) -> String? {
+        guard MouseAppExceptionSupport.isExecutablePathIdentity(identity) else { return nil }
+        return ((identity as NSString).deletingLastPathComponent as NSString)
+            .abbreviatingWithTildeInPath
+    }
+
+    /// The file manager spells a bundle's name with its ".app" while the
+    /// Finder is set to show every extension. The lists of apps read it
+    /// without, as the application walk does.
+    static func displayName(fromFinderName finderName: String) -> String {
+        var name = finderName
+        if name.hasSuffix(".app") { name.removeLast(4) }
+        return name
+    }
+
+    /// `finderName` is the file manager's name for a path. Only a test passes it.
+    static func name(
+        for bundleID: String,
+        finderName: (String) -> String = { FileManager.default.displayName(atPath: $0) }
+    ) -> String {
+        guard let url = fileURL(forIdentity: bundleID) else { return bundleID }
+        return displayName(fromFinderName: finderName(url.path))
     }
 
     static func icon(for bundleID: String) -> NSImage {
-        if let url = url(for: bundleID) {
+        if let url = fileURL(forIdentity: bundleID) {
             return NSWorkspace.shared.icon(forFile: url.path)
         }
         return NSWorkspace.shared.icon(for: .applicationBundle)
@@ -54,14 +94,54 @@ enum InstalledApps {
         return systemPathPrefixes.contains { path.hasPrefix($0) }
     }
 
+    /// Whether `url` sits somewhere under one of the folders installed apps
+    /// live in - /Applications or ~/Applications - at any depth, not just
+    /// directly inside them. Matches `installedApplications`'s own walk of
+    /// these same two roots, which recurses into subfolders (an installer
+    /// that drops its app inside a vendor subfolder, such as
+    /// /Applications/Vendor/App.app, is exactly what that walk already
+    /// treats as installed) - this used to require the app sit directly in
+    /// one of the roots, which meant a bundle `installedApplications` would
+    /// list could still be refused here.
+    static func isInApplicationsFolder(_ url: URL) -> Bool {
+        let containingDirectory = url.deletingLastPathComponent()
+            .resolvingSymlinksInPath().standardizedFileURL.path
+        let roots = [
+            URL(fileURLWithPath: "/Applications").standardizedFileURL.path,
+            URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Applications")
+                .standardizedFileURL.path,
+        ]
+        return roots.contains { containingDirectory == $0 || containingDirectory.hasPrefix($0 + "/") }
+    }
+
+    /// The apps an app ships for people to open, in its own
+    /// Contents/Applications folder, where Xcode keeps Instruments, FileMerge
+    /// and its other tools, and in Contents/Developer/Applications, where it
+    /// keeps Simulator. Helpers anywhere else in a bundle, such as login
+    /// items or a browser's renderer apps, are not apps a person opens.
+    static func bundledApplications(in appURL: URL, fileManager fm: FileManager = .default) -> [URL] {
+        ["Contents/Applications", "Contents/Developer/Applications"].flatMap { relativePath -> [URL] in
+            let folder = appURL.appendingPathComponent(relativePath, isDirectory: true)
+            guard let names = try? fm.contentsOfDirectory(atPath: folder.path) else { return [] }
+            return names.filter { $0.lowercased().hasSuffix(".app") }.sorted()
+                .map { folder.appendingPathComponent($0, isDirectory: true) }
+        }
+    }
+
+    /// `includeBundledApplications` adds the tools apps ship for people, for
+    /// a search that should find them. Pickers that act on whole apps, such as
+    /// the uninstaller's, leave them out. `roots` replaces the application
+    /// folders, so a test can walk a fixture instead of this Mac.
     static func installedApplications(includeSystemApplications: Bool = false,
-                                      spotlightPaths: [String] = []) -> [InstalledApp] {
+                                      includeBundledApplications: Bool = false,
+                                      spotlightPaths: [String] = [],
+                                      roots folders: [URL]? = nil) -> [InstalledApp] {
         let fm = FileManager.default
-        var roots = [
+        var roots = folders ?? [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
             URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Applications", isDirectory: true),
         ]
-        if includeSystemApplications {
+        if includeSystemApplications, folders == nil {
             roots.append(URL(fileURLWithPath: "/System/Applications", isDirectory: true))
         }
         let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey]
@@ -78,15 +158,18 @@ enum InstalledApps {
                                                 options: [.skipsPackageDescendants]) else {
                 continue
             }
-            for case let url as URL in enumerator {
-                guard url.pathExtension == "app" else { continue }
-                // A link's target decides whether the app is the system's:
-                // the path inside the application folder says nothing.
-                let resolved = url.resolvingSymlinksInPath()
-                let isSystemApp = isSystemApplication(at: url)
-                guard includeSystemApplications || !isSystemApp else { continue }
-                guard seen.insert(resolved.standardizedFileURL.path).inserted else { continue }
-                apps.append(app(at: url, fileManager: fm))
+            for case let found as URL in enumerator {
+                guard found.pathExtension == "app" else { continue }
+                let shipped = includeBundledApplications ? bundledApplications(in: found, fileManager: fm) : []
+                for url in [found] + shipped {
+                    // A link's target decides whether the app is the system's:
+                    // the path inside the application folder says nothing.
+                    let resolved = url.resolvingSymlinksInPath()
+                    let isSystemApp = isSystemApplication(at: url)
+                    guard includeSystemApplications || !isSystemApp else { continue }
+                    guard seen.insert(resolved.standardizedFileURL.path).inserted else { continue }
+                    apps.append(app(at: url, fileManager: fm))
+                }
             }
         }
 
@@ -107,6 +190,13 @@ enum InstalledApps {
             guard fm.fileExists(atPath: path),
                   seen.insert(url.standardizedFileURL.path).inserted else { continue }
             apps.append(app(at: url, fileManager: fm))
+            // A copy of Xcode kept in the home folder ships the same tools as
+            // one in an application folder.
+            guard includeBundledApplications else { continue }
+            for tool in bundledApplications(in: url, fileManager: fm)
+            where seen.insert(tool.resolvingSymlinksInPath().standardizedFileURL.path).inserted {
+                apps.append(app(at: tool, fileManager: fm))
+            }
         }
 
         return apps.sorted {
@@ -166,35 +256,86 @@ enum InstalledApps {
                             isSystem: isSystemApplication(at: url))
     }
 
+    /// A program with no .app bundle (a runtime a game launcher starts, issue #865)
+    /// is listed only for lists that store path identities, because a list that
+    /// takes only apps would drop the pick silently and show a row that does nothing.
+    static func runningApplication(activationPolicy: NSApplication.ActivationPolicy,
+                                   bundleID: String?,
+                                   bundleURL: URL?,
+                                   executableURL: URL?,
+                                   localizedName: String?,
+                                   acceptsExecutables: Bool) -> InstalledApp? {
+        guard activationPolicy == .regular else { return nil }
+
+        if let bundleID, bundleID.isEmpty { return nil }
+        let isAppBundle = bundleURL?.pathExtension.caseInsensitiveCompare("app") == .orderedSame
+
+        if let bundleID, let bundleURL, isAppBundle {
+            let name = localizedName ?? FileManager.default.displayName(atPath: bundleURL.path)
+            return InstalledApp(id: bundleURL.standardizedFileURL.path,
+                                name: name,
+                                bundleID: bundleID,
+                                url: bundleURL,
+                                isSystem: isSystemApplication(at: bundleURL),
+                                explicitIdentity: nil)
+        }
+
+        guard acceptsExecutables, let executableURL else { return nil }
+        guard let identity = MouseAppExceptionSupport.identity(
+            bundleID: bundleID,
+            executablePath: executableURL.path
+        ) else { return nil }
+
+        let isPathIdentity = MouseAppExceptionSupport.isExecutablePathIdentity(identity)
+        let url = isPathIdentity ? URL(fileURLWithPath: identity) : executableURL
+        let name = localizedName ?? FileManager.default.displayName(atPath: url.path)
+
+        return InstalledApp(id: identity,
+                            name: name,
+                            bundleID: isPathIdentity ? nil : identity,
+                            url: url,
+                            isSystem: isSystemApplication(at: url),
+                            explicitIdentity: identity)
+    }
+
+    static func runningApplication(_ app: NSRunningApplication,
+                                   acceptsExecutables: Bool) -> InstalledApp? {
+        runningApplication(activationPolicy: app.activationPolicy,
+                           bundleID: app.bundleIdentifier,
+                           bundleURL: app.bundleURL,
+                           executableURL: app.executableURL,
+                           localizedName: app.localizedName,
+                           acceptsExecutables: acceptsExecutables)
+    }
+
+    static func deduplicatedAndFiltered(_ apps: [InstalledApp],
+                                        excluding excludedIdentities: Set<String>) -> [InstalledApp] {
+        var seen = Set<String>()
+        return apps.filter { app in
+            guard let identity = app.identity,
+                  !excludedIdentities.contains(identity),
+                  seen.insert(identity).inserted else { return false }
+            return true
+        }.sorted {
+            let byName = $0.name.localizedCaseInsensitiveCompare($1.name)
+            // Equal display names — three runtimes all named "java" — fall
+            // back to the identity so the rows hold one order between renders.
+            return byName == .orderedSame
+                ? ($0.identity ?? "") < ($1.identity ?? "")
+                : byName == .orderedAscending
+        }
+    }
+
     static func installedBundleApplications(excluding excludedBundleIDs: Set<String>,
-                                            includeRunningApplications: Bool = false) -> [InstalledApp] {
+                                            includeRunningApplications: Bool = false,
+                                            acceptsExecutables: Bool = false) -> [InstalledApp] {
         var apps = installedApplications(includeSystemApplications: true)
         if includeRunningApplications {
             apps += NSWorkspace.shared.runningApplications.compactMap { runningApp in
-                guard runningApp.activationPolicy == .regular,
-                      let bundleID = runningApp.bundleIdentifier,
-                      !bundleID.isEmpty,
-                      let url = runningApp.bundleURL,
-                      url.pathExtension.caseInsensitiveCompare("app") == .orderedSame else {
-                    return nil
-                }
-                let name = runningApp.localizedName ?? FileManager.default.displayName(atPath: url.path)
-                return InstalledApp(id: url.standardizedFileURL.path,
-                                    name: name,
-                                    bundleID: bundleID,
-                                    url: url,
-                                    isSystem: isSystemApplication(at: url))
+                runningApplication(runningApp, acceptsExecutables: acceptsExecutables)
             }
         }
 
-        var seen = Set<String>()
-        return apps.filter { app in
-            guard let bundleID = app.bundleID,
-                  !excludedBundleIDs.contains(bundleID),
-                  seen.insert(bundleID).inserted else { return false }
-            return true
-        }.sorted {
-            $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-        }
+        return deduplicatedAndFiltered(apps, excluding: excludedBundleIDs)
     }
 }

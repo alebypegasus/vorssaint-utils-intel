@@ -24,6 +24,12 @@ struct ScreenshotCaptureSettings: View {
     @AppStorage(DefaultsKey.screenshotFileNumberNext) private var nextNumber = 1
     @AppStorage(DefaultsKey.screenshotIncludePointer) private var includePointer = false
     @AppStorage(DefaultsKey.screenshotShowLastRegion) private var showLastRegion = true
+    @AppStorage(DefaultsKey.screenshotHighlightWindows) private var highlightWindows = true
+    @AppStorage(DefaultsKey.screenshotLoupeStartsOn) private var loupeStartsOn = false
+    @AppStorage(DefaultsKey.screenshotLoupeRememberZoom) private var rememberLoupeZoom = false
+    @AppStorage(DefaultsKey.screenshotLoupeDefaultZoom) private var loupeDefaultZoom = 1.0
+    @AppStorage(DefaultsKey.screenshotLoupeSteppedZoomByDefault)
+    private var steppedLoupeZoomByDefault = false
     @AppStorage(DefaultsKey.screenshotDownscale) private var downscale = false
     @AppStorage(DefaultsKey.screenshotDelay) private var delay = 0
     @AppStorage(DefaultsKey.screenshotDefaultAction) private var defaultActionRaw = ""
@@ -31,8 +37,17 @@ struct ScreenshotCaptureSettings: View {
         ScreenshotSupport.Tool.defaultOrderStorage
     @AppStorage(DefaultsKey.screenshotToolShortcutsEnabled) private var toolShortcutsEnabled = true
     @AppStorage(DefaultsKey.screenshotCopyToClipboard) private var copyToClipboard = false
+    @AppStorage(DefaultsKey.screenshotAddToShelf) private var addToShelf = false
+    @AppStorage(DefaultsKey.shelfEnabled) private var shelfEnabled = false
+    @AppStorage(AppFeature.shelf.availabilityKey) private var shelfAvailable = false
     @AppStorage(DefaultsKey.screenshotPreviewPosition) private var previewPositionRaw = ""
+    @AppStorage(DefaultsKey.screenshotPreviewTakesFocus) private var previewTakesFocus = true
+    @AppStorage(DefaultsKey.screenshotPreviewEnabled) private var previewEnabled = true
+    @AppStorage(DefaultsKey.screenshotPreviewDuration) private var previewDuration =
+        ScreenshotSupport.defaultConfirmationPreviewDuration
     @AppStorage(DefaultsKey.screenshotSharingEnabled) private var sharingEnabled = true
+    @AppStorage(DefaultsKey.screenshotUploadShortcutEnabled) private var uploadShortcutEnabled = false
+    @AppStorage(DefaultsKey.screenshotUploadDuration) private var uploadDuration = ScreenshotShareDuration.oneHour.rawValue
     @State private var showingSharedLinks = false
     @State private var showingSharePrivacy = false
 
@@ -62,7 +77,6 @@ struct ScreenshotCaptureSettings: View {
                 Text(strings.panelCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                ToolShortcutRows(tool: .screenshot)
                 Toggle(strings.fullScreenShortcutTitle, isOn: $fullScreenShortcutEnabled)
                     .onChange(of: fullScreenShortcutEnabled) { _, _ in
                         ScreenshotService.shared.syncWithPreferences()
@@ -109,7 +123,7 @@ struct ScreenshotCaptureSettings: View {
             } header: {
                 Text(strings.pageTitle)
             }
-            .settingsSectionAnchor(.screenshot)
+            .settingsFormSectionAnchor(.screenshot)
 
             Section {
                 Toggle(strings.freezeToggle, isOn: $freeze)
@@ -129,13 +143,47 @@ struct ScreenshotCaptureSettings: View {
                 .pickerStyle(.segmented)
                 Toggle(strings.pointerToggle, isOn: $includePointer)
                 Toggle(strings.lastRegionToggle, isOn: $showLastRegion)
-                previewPositionRow
-                defaultActionRow
+                Toggle(strings.highlightWindowsToggle, isOn: $highlightWindows)
+                Text(strings.highlightWindowsCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                DisclosureGroup {
+                    Toggle(strings.loupeStartsOnToggle, isOn: $loupeStartsOn)
+                    Toggle(strings.loupeRememberZoomToggle, isOn: $rememberLoupeZoom)
+                    if !rememberLoupeZoom {
+                        Picker(strings.loupeDefaultZoomLabel, selection: $loupeDefaultZoom) {
+                            ForEach(ScreenshotSupport.captureLoupeDefaultZooms, id: \.self) { zoom in
+                                Text(zoom.formatted(
+                                    .number.precision(.fractionLength(0...1))) + "×")
+                                    .tag(zoom)
+                            }
+                        }
+                    }
+                    Picker(strings.loupeWheelZoomLabel,
+                           selection: $steppedLoupeZoomByDefault) {
+                        Text(strings.loupeZoomFast).tag(false)
+                        Text(strings.loupeZoomStepped).tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    Text(strings.loupeZoomOptionCaption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    previewPositionRow
+                    previewFocusRow
+                    defaultActionRow
+                } label: {
+                    Text(FeatureStrings.recorder(l10n.language).moreOptions)
+                }
             }
 
             Section {
-                Toggle(strings.autoCopyToggle, isOn: $copyToClipboard)
+                Toggle(strings.autoCopyToggle, isOn: autoCopyBinding)
                 Text(strings.autoCopyCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle(strings.addToShelfToggle, isOn: addToShelfBinding)
+                    .disabled(!shelfIsOn)
+                Text(strings.addToShelfCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 folderRow
@@ -157,7 +205,26 @@ struct ScreenshotCaptureSettings: View {
 
             Section {
                 Toggle(strings.shareEnabledToggle, isOn: $sharingEnabled)
+                    .onChange(of: sharingEnabled) { _, _ in service.syncWithPreferences() }
                 if sharingEnabled {
+                    Toggle(strings.uploadLastCapture, isOn: $uploadShortcutEnabled)
+                        .onChange(of: uploadShortcutEnabled) { _, _ in service.syncWithPreferences() }
+                    ShortcutPreferenceRow(role: .screenshotUpload,
+                                          isEnabled: uploadShortcutEnabled) {
+                        service.syncWithPreferences()
+                    }
+                    Picker(strings.uploadExpiry, selection: $uploadDuration) {
+                        ForEach(ScreenshotShareDuration.allCases) { duration in
+                            Text(duration.title(strings)).tag(duration.rawValue)
+                        }
+                    }
+                    if uploadShortcutEnabled {
+                        if service.uploadShortcutRegistrationFailed {
+                            Text(l10n.s.shortcutUnavailable)
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        }
+                    }
                     Text(strings.shareCaption)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -196,16 +263,76 @@ struct ScreenshotCaptureSettings: View {
         }
     }
 
+    /// The after-capture action can copy too, so the toggle reads on while
+    /// either one copies. Turning it off clears both. Otherwise captures keep
+    /// reaching the clipboard while the switch shows off.
+    private var autoCopyBinding: Binding<Bool> {
+        Binding {
+            copyToClipboard || defaultAction.copiesToClipboard
+        } set: { isOn in
+            copyToClipboard = isOn
+            if !isOn { defaultActionRaw = defaultAction.withoutCopy.rawValue }
+        }
+    }
+
+    private var defaultAction: ScreenshotDefaultAction {
+        ScreenshotDefaultAction(rawValue: defaultActionRaw) ?? .none
+    }
+
+    private var shelfIsOn: Bool {
+        shelfEnabled && shelfAvailable
+    }
+
+    /// Reads off while the shelf is off, since no capture reaches it then.
+    /// The choice itself is kept for when the shelf comes back.
+    private var addToShelfBinding: Binding<Bool> {
+        Binding {
+            addToShelf && shelfIsOn
+        } set: { isOn in
+            addToShelf = isOn
+        }
+    }
+
     private var defaultActionRow: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Picker(strings.defaultActionLabel, selection: $defaultActionRaw) {
-                Text(strings.defaultActionNone).tag(ScreenshotDefaultAction.none.rawValue)
-                Text(strings.saveButton).tag(ScreenshotDefaultAction.save.rawValue)
-                Text(strings.defaultActionSaveAndCopy).tag(ScreenshotDefaultAction.saveAndCopy.rawValue)
-                Text(strings.copyButton).tag(ScreenshotDefaultAction.copy.rawValue)
-                Text(strings.editButton).tag(ScreenshotDefaultAction.edit.rawValue)
+            ScreenshotDefaultActionPicker(strings: strings, selection: $defaultActionRaw)
+            if defaultActionRaw != ScreenshotDefaultAction.edit.rawValue {
+                Text(strings.defaultActionCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            Text(strings.defaultActionCaption)
+            if usesAutomaticConfirmationPreview {
+                Toggle(strings.confirmationPreviewToggle, isOn: $previewEnabled)
+                if previewEnabled {
+                    Picker(strings.confirmationPreviewDurationLabel, selection: $previewDuration) {
+                        ForEach(ScreenshotSupport.confirmationPreviewDurations, id: \.self) { seconds in
+                            if seconds == 0 {
+                                Text(strings.confirmationPreviewUntilDismissed).tag(0)
+                            } else {
+                                Text(String(format: strings.delaySecondsFormat, seconds)).tag(seconds)
+                            }
+                        }
+                    }
+                }
+                Text(strings.confirmationPreviewCaption)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var usesAutomaticConfirmationPreview: Bool {
+        guard let action = ScreenshotDefaultAction(rawValue: defaultActionRaw) else { return false }
+        switch action {
+        case .save, .saveAndCopy, .copy: return true
+        case .none, .edit: return false
+        }
+    }
+
+    private var previewFocusRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(strings.previewFocusToggle, isOn: $previewTakesFocus)
+            Text(strings.previewFocusCaption)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -255,15 +382,16 @@ struct ScreenshotCaptureSettings: View {
             HStack {
                 Text(strings.subfolderLabel)
                     .lineLimit(1)
-                TextField("", text: $saveSubfolder)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 150)
+                Spacer(minLength: 12)
                 if !saveSubfolder.isEmpty {
                     Text(ScreenshotSupport.expandSaveSubfolder(saveSubfolder, date: Date()))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
+                TextField("", text: $saveSubfolder)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 150)
             }
             .fixedSize(horizontal: false, vertical: true)
             Text(strings.subfolderCaption)
@@ -277,13 +405,14 @@ struct ScreenshotCaptureSettings: View {
             HStack {
                 Text(strings.fileNamePatternLabel)
                     .lineLimit(1)
-                TextField("", text: $fileNamePattern)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(maxWidth: 150)
+                Spacer(minLength: 12)
                 Text(fileNamePreview)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                TextField("", text: $fileNamePattern)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 150)
             }
             .fixedSize(horizontal: false, vertical: true)
             Text(strings.fileNamePatternCaption)
@@ -520,6 +649,21 @@ private struct ScreenshotSharedLinksView: View {
                 showingDeleteError = true
             }
             deletingID = nil
+        }
+    }
+}
+
+struct ScreenshotDefaultActionPicker: View {
+    let strings: ScreenshotFeatureStrings
+    @Binding var selection: String
+
+    var body: some View {
+        Picker(strings.defaultActionLabel, selection: $selection) {
+            Text(strings.defaultActionNone).tag(ScreenshotDefaultAction.none.rawValue)
+            Text(strings.saveButton).tag(ScreenshotDefaultAction.save.rawValue)
+            Text(strings.defaultActionSaveAndCopy).tag(ScreenshotDefaultAction.saveAndCopy.rawValue)
+            Text(strings.copyButton).tag(ScreenshotDefaultAction.copy.rawValue)
+            Text(strings.editButton).tag(ScreenshotDefaultAction.edit.rawValue)
         }
     }
 }

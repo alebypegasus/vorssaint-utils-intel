@@ -5,16 +5,20 @@
 import PackageDescription
 
 let package = Package(
-    name: "VorssaintUtils",
+    name: "Vorssaint",
     platforms: [.macOS(.v14)],
     targets: [
+        .systemLibrary(
+            name: "HIDEventSystem",
+            path: "Sources/HIDEventSystem"
+        ),
         .systemLibrary(
             name: "VMStatisticsCompat",
             path: "Sources/VMStatisticsCompat"
         ),
         .executableTarget(
             name: "Vorssaint",
-            dependencies: ["VMStatisticsCompat"],
+            dependencies: ["VMStatisticsCompat", "HIDEventSystem"],
             path: "Sources/Vorssaint"
         )
     ]
