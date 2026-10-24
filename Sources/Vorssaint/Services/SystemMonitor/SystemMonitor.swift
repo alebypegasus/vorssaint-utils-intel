@@ -914,8 +914,10 @@ final class SystemMonitor: ObservableObject {
             }
             if plan.needGPUTemperature {
                 if take(plan.temperatureKind) {
+                    let directGPU = self.maxTemperature(of: self.gpuKeys)
+                    let effectiveGPU = directGPU ?? (cpuTemperaturePlatform == .intelFamily ? next.cpuTemperature : nil)
                     next.gpuTemperature = TemperatureSensorSelector.stabilizedTemperature(
-                        self.maxTemperature(of: self.gpuKeys),
+                        effectiveGPU,
                         cache: &self.gpuTemperatureCache,
                         now: now,
                         maxAge: temperatureBridge,
@@ -1076,10 +1078,12 @@ final class SystemMonitor: ObservableObject {
                 || name.hasPrefix("Tg")
                 || name.hasPrefix("TG")
                 || name == "TCGC"
+                || name.hasPrefix("TC0G")
                 || name.range(of: "^TB[0-9]T$", options: .regularExpression) != nil
         }
         cpuKeys = all.filter {
             $0.name != "TCGC" &&
+            !$0.name.hasPrefix("TC0G") &&
             TemperatureSensorSelector.isCPUTemperatureKey($0.name,
                                                           platform: cpuTemperaturePlatform)
         }
@@ -1092,7 +1096,9 @@ final class SystemMonitor: ObservableObject {
         // core sensors with no reading at all.
         let preferredNames = Set(preferredCPUKeys.map(\.name))
         fallbackCPUKeys = cpuKeys.filter { !preferredNames.contains($0.name) }
-        gpuKeys = all.filter { $0.name.hasPrefix("Tg") || $0.name.hasPrefix("TG") || $0.name == "TCGC" }
+        gpuKeys = all.filter {
+            $0.name.hasPrefix("Tg") || $0.name.hasPrefix("TG") || $0.name == "TCGC" || $0.name.hasPrefix("TC0G")
+        }
         batteryKeys = all.filter { $0.name.hasPrefix("TB") }
     }
 
