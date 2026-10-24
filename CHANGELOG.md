@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.7.0] - 2026-10-23
+
+### Summary
+Universal Edition with native Apple Silicon (`arm64`) and Intel (`x86_64`) architecture support, synced with upstream Vorssaint.
+
+### Added
+- Native Universal 2 binary support for Apple Silicon (`arm64`) and Intel (`x86_64`) Macs.
+- Intel CPU core temperature sensor mapping (`TC0C`-`TCFC`, `TC0D`-`TC3D`, `TC0P`, `TC0E`, `TC0F`, `TCXC`, `TCSA`).
+- Intel CPU package and system power reading fallbacks (`PCPC`, `PCPG`, `PCPT`, `PCPR`).
+- Intel integrated and discrete GPU temperature detection and fallback.
+- Support for external HDR and Hackintosh displays with EDR headroom boost.
+- System processor brand string and frequency discovery helpers.
+
 ### Summary
 Clearer screenshot tools, more reliable clipboard history and Command Bar answers, and better monitoring and headphone detection.
 
