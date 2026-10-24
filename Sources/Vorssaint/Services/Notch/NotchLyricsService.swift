@@ -373,7 +373,7 @@ private final class NotchLyricsDownload: NSObject, URLSessionDataDelegate {
         configuration.httpCookieStorage = nil
         configuration.httpShouldSetCookies = false
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Developer"
-        configuration.httpAdditionalHeaders = ["User-Agent": "Vorssaint/\(version) (https://github.com/vorssaint/vorssaint-utils)", "Accept": "application/json"]
+        configuration.httpAdditionalHeaders = ["User-Agent": "Vorssaint/\(version) (https://github.com/alebypegasus/vorssaint-utils-intel)", "Accept": "application/json"]
         let delegate = NotchLyricsDownload(maximumBytes: maximumBytes, completion: completion)
         let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
         session.dataTask(with: url).resume()

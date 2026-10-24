@@ -5,36 +5,46 @@
   </picture>
 </p>
 
-<h1 align="center">Vorssaint Utils</h1>
+<h1 align="center">Vorssaint Utils (Universal Edition)</h1>
 
 <p align="center">
   One menu bar icon doing the job of a dozen paid Mac apps.<br>
-  <strong>Universal Edition (Apple Silicon &amp; Intel)</strong> · Maintained by <a href="https://github.com/alebypegasus">@alebypegasus</a>.<br>
+  <strong>Native Universal 2 (Apple Silicon &amp; Intel x86_64)</strong> · Fork maintained by <a href="https://github.com/alebypegasus">@alebypegasus</a>.<br>
   Free, open source, and everything runs locally on your Mac.
 </p>
 
 <p align="center">
-  <a href="https://vorssaint.com">Website</a> ·
+  <a href="#about-this-fork">About this Fork</a> ·
   <a href="#install">Install</a> ·
   <a href="#everything-it-does">Features</a> ·
   <a href="#private-by-default">Privacy</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
-  <a href="mailto:hello@vorssaint.com">Contact</a> ·
-  <a href="https://discord.gg/M6BwWH4BJp">Discord</a>
+  <a href="https://github.com/alebypegasus/vorssaint-utils-intel/releases">Releases</a>
 </p>
 
 <p align="center">
   <a href="https://github.com/alebypegasus/vorssaint-utils-intel/releases"><img src="https://img.shields.io/github/v/release/alebypegasus/vorssaint-utils-intel?label=release&color=4c8dff" alt="Latest release"></a>
   <a href="https://github.com/alebypegasus/vorssaint-utils-intel/releases"><img src="https://img.shields.io/github/downloads/alebypegasus/vorssaint-utils-intel/total?color=4c8dff" alt="Downloads"></a>
   <a href="https://github.com/alebypegasus/vorssaint-utils-intel/actions/workflows/ci.yml"><img src="https://github.com/alebypegasus/vorssaint-utils-intel/actions/workflows/ci.yml/badge.svg?branch=main&event=push" alt="CI status"></a>
+  <a href="https://github.com/alebypegasus/vorssaint-utils-intel/actions/workflows/auto-upstream-sync-and-release.yml"><img src="https://github.com/alebypegasus/vorssaint-utils-intel/actions/workflows/auto-upstream-sync-and-release.yml/badge.svg?branch=main" alt="Upstream Sync & Release"></a>
   <a href="#what-you-need"><img src="https://img.shields.io/badge/macOS-14%2B%20Universal%20(Apple%20Silicon%20%26%20Intel)-black" alt="macOS 14 and newer, Apple Silicon & Intel"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="License GPL 3.0 or later"></a>
 </p>
 
 > [!NOTE]
-> **Vorssaint Utils (Universal Edition)** provides full native universal support for **Apple Silicon (`arm64`)** and **Intel (`x86_64`)** Macs. It includes SMC temperature sensor mapping for Intel CPU cores (`TC0C`-`TCFC`, `TC0D`-`TC3D`, `TC0P`), Intel CPU package/system power fallbacks (`PCPC`, `PCPG`, `PCPT`), and HDR headroom support.
+> ### 🍎 & 💻 About this Fork (Universal & Intel Edition)
+> This repository is a maintained fork of the original [vorssaint/vorssaint-utils](https://github.com/vorssaint/vorssaint-utils).
 >
-> Special thanks to the upstream [Vorssaint](https://github.com/vorssaint/vorssaint-utils) team for the foundation.
+> While the upstream project is strictly compiled for Apple Silicon (`arm64`), **this fork brings full native Universal 2 architecture support (`arm64` + `x86_64`)**, ensuring it runs natively on both Apple Silicon Macs and Intel Macs (including Hackintosh computers).
+>
+> **Key Enhancements in this Fork:**
+> - **Universal 2 Binaries:** `Vorssaint`, `com.vorssaint.utils.fan-control` helper, and `libVorssaintNowPlaying.dylib` are all compiled with dual-slice (`arm64` and `x86_64`) fat architectures.
+> - **Intel SMC Sensors & Metrics:** Native sensor key support for Intel CPU Core/Die temperatures (`TC0C`-`TCFC`, `TC0D`-`TC3D`, `TC0P`), Intel CPU Package and System Power reading in Watts (`PCPC`, `PCPG`, `PCPT`, `PCPR`), and Intel/AMD integrated and discrete GPU monitoring (`TCGC`, `TG*`).
+> - **HDR Headroom & Display Controls:** Support for external displays and Hackintosh video setups.
+> - **Automated In-App Updates:** The application's built-in self-updater checks this repository (`alebypegasus/vorssaint-utils-intel`) so Intel and Universal users receive automatic updates without risking ARM-only overwrites.
+> - **Continuous Upstream Sync CI/CD:** A scheduled GitHub Actions workflow checks the upstream repository every 6 hours, automatically merges updates, compiles Universal 2 binaries, verifies them via unit tests and selftest, packages the `.dmg`, and creates releases.
+>
+> All credit for original product design and features goes to the upstream [Vorssaint](https://github.com/vorssaint/vorssaint-utils) team.
 
 <p align="center">
   <a href="https://buymeacoffee.com/vorssaint">
@@ -176,53 +186,25 @@ Reorder or hide panel sections, choose a compact layout, and export settings to 
 
 ## Install
 
-With [Homebrew](https://brew.sh):
+Grab the Universal DMG from the [Releases Page](https://github.com/alebypegasus/vorssaint-utils-intel/releases):
 
-```sh
-brew install --cask vorssaint
-```
-
-Or grab the disk image from the [releases page](https://github.com/vorssaint/vorssaint-utils/releases) and drag Vorssaint into Applications.
-
-Builds are signed with an Apple Developer ID and notarized, so macOS opens them without a fuss and your permissions survive updates.
-
-## Uninstall
-
-With Homebrew:
-
-```sh
-brew uninstall --cask vorssaint
-```
-
-To remove Vorssaint completely, including its settings and permissions:
-
-```sh
-./Tools/uninstall.sh
-```
-
-## Private by default
-
-Vorssaint is local-first, with no account, analytics or tracking. The network is touched only by things you can see: update checks, the speed test, Homebrew actions, optional online lyric lookup, temporary screenshot or recording links and feedback you explicitly send. The full story is in the [privacy notes](docs/PRIVACY.md).
-
-Permissions get the same treatment. Every one is optional, the app explains each in plain words, shows which features actually use it, and even tells you when a permission you granted is no longer needed by anything, with a shortcut to revoke it.
-
-<p align="center">
-  <img src="docs/assets/readme/permissions.png" width="720" alt="The Permissions page showing what each permission does, which features use it, and an unused permission warning">
-</p>
-
-See the [permissions guide](docs/PERMISSIONS.md) for which features need access and what remains available without it.
+1. Download `Vorssaint-<version>.dmg`.
+2. Open the disk image and drag **Vorssaint** into your **Applications** folder.
+3. Launch Vorssaint. All future updates are checked and installed automatically directly through this fork's releases.
 
 ## What you need
 
-- A Mac with Apple Silicon
-- macOS 14 Sonoma or newer
+- A Mac with **Apple Silicon (`arm64`)** or **Intel (`x86_64`)**
+- macOS 14 Sonoma, macOS 15 Sequoia, or macOS 26 Tahoe / newer
 
 ### Build it yourself
 
 ```sh
-git clone https://github.com/vorssaint/vorssaint-utils.git
-cd vorssaint-utils
-./build.sh --dev            # build the separate Developer variant
+git clone https://github.com/alebypegasus/vorssaint-utils-intel.git
+cd vorssaint-utils-intel
+./build.sh                  # builds Universal 2 (Apple Silicon & Intel)
+./build.sh --dev --install  # or build and launch developer variant
+```
 ./build.sh --dev --install  # install and launch it
 ```
 
