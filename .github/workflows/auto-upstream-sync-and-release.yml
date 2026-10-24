@@ -1,0 +1,51 @@
+name: Upstream Sync & Universal Release
+
+on:
+  schedule:
+    # Run automatically every 6 hours to check for upstream updates
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: 'Upstream release tag to sync (leave blank to auto-detect latest release)'
+        required: false
+        default: ''
+      force:
+        description: 'Force rebuild and re-release even if already published'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: upstream-sync-release
+  cancel-in-progress: false
+
+jobs:
+  sync-and-release:
+    name: Sync, Build Universal 2 & Release
+    runs-on: macos-26
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git Identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Run Automated Upstream Sync & Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_UPSTREAM_TAG: ${{ github.event.inputs.upstream_tag }}
+          INPUT_FORCE: ${{ github.event.inputs.force }}
+        run: |
+          chmod +x Tools/sync-and-release.sh
+          ./Tools/sync-and-release.sh
