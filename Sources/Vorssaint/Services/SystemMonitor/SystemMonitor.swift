@@ -915,7 +915,8 @@ final class SystemMonitor: ObservableObject {
             if plan.needGPUTemperature {
                 if take(plan.temperatureKind) {
                     let directGPU = self.maxTemperature(of: self.gpuKeys)
-                    let effectiveGPU = directGPU ?? (cpuTemperaturePlatform == .intelFamily ? next.cpuTemperature : nil)
+                    let cpuFallback = next.cpuTemperature ?? self.cpuTemperatureCache?.value ?? self.cpuTemperature()
+                    let effectiveGPU = directGPU ?? (cpuTemperaturePlatform == .intelFamily ? cpuFallback : nil)
                     next.gpuTemperature = TemperatureSensorSelector.stabilizedTemperature(
                         effectiveGPU,
                         cache: &self.gpuTemperatureCache,
