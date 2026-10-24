@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -70,3 +70,29 @@ jobs:
 
       - name: Unit tests
         run: ./build.sh --test
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Vorssaint-Universal-DMG
+          path: dist/*.dmg
+          if-no-files-found: error
+
+      - name: Publish Preview Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
+        with:
+          tag_name: preview
+          name: "Vorssaint Utils (Preview Build)"
+          prerelease: true
+          make_latest: false
+          files: dist/*.dmg
+          body: |
+            ### 🚀 Vorssaint Utils — Universal Preview Build
+            Esta versão prévia é gerada automaticamente a cada push na branch `main`.
+
+            - **Commit**: `${{ github.sha }}`
+            - **Arquitetura**: Universal (Apple Silicon & Intel)
+            
+            > [!NOTE]
+            > Baixe o arquivo `.dmg` abaixo. Arraste o Vorssaint para a pasta `/Applications`.
