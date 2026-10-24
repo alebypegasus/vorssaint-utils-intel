@@ -484,10 +484,8 @@ extension AppFeature {
              .connectedDevices:
             return true
         case .focusFollowsMouse, .scrollHorizontal, .linearScroll, .diskImageInstaller, .audioPriority,
-             .wallpaper, .killProcess, .portManager, .notchMascot, .spacesOrder:
+             .wallpaper, .killProcess, .portManager, .fanControl, .notchMascot, .spacesOrder:
             return false
-        case .fanControl:
-            return true
         }
     }
 

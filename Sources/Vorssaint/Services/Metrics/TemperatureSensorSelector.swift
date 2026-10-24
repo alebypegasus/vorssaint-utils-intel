@@ -186,15 +186,15 @@ enum TemperatureSensorSelector {
         return generation
     }
 
+    private static func isPlausibleTemperature(_ value: Double) -> Bool {
+        value >= minimumChipTemperature && value < 125
+    }
+
     private static func isIntelProcessor(in brand: String) -> Bool {
         brand.localizedCaseInsensitiveContains("Intel")
             || brand.localizedCaseInsensitiveContains("Core")
             || brand.localizedCaseInsensitiveContains("Xeon")
             || brand.localizedCaseInsensitiveContains("Pentium")
             || brand.localizedCaseInsensitiveContains("Celeron")
-    }
-
-    private static func isPlausibleTemperature(_ value: Double) -> Bool {
-        value >= minimumChipTemperature && value < 125
     }
 }
