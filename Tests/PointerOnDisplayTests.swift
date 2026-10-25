@@ -245,12 +245,12 @@ enum PointerOnDisplayContract {
                     hop.start()
                     let movesImmediately = !raises && here
                     let options: NSApplication.ActivationOptions = here || raises ? [] : [.activateAllWindows]
-                    let expectedCalls = ["visible", "raise:1:1"]
-                        + (movesImmediately ? ["front:1:1"] : [])
-                        + ["yield", "activate"]
-                        + (acceptsActivation ? [] : ["fallback"])
-                        + (movesImmediately ? ["press"] : [])
-                        + ["wait"]
+                    var expectedCalls = ["visible", "raise:1:1"]
+                    if movesImmediately { expectedCalls.append("front:1:1") }
+                    expectedCalls += ["yield", "activate"]
+                    if !acceptsActivation { expectedCalls.append("fallback") }
+                    if movesImmediately { expectedCalls.append("press") }
+                    expectedCalls.append("wait")
                     let state = "raise=\(raises), app visible=\(here), activation accepted=\(acceptsActivation)"
                     suite.expect(HopCalls.values == expectedCalls,
                                  "Space hop ordering for \(state), found \(HopCalls.values)")
