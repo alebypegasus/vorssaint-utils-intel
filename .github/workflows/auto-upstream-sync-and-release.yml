@@ -47,5 +47,6 @@ jobs:
           INPUT_UPSTREAM_TAG: ${{ github.event.inputs.upstream_tag }}
           INPUT_FORCE: ${{ github.event.inputs.force }}
         run: |
+          git config --unset-all http.https://github.com/.extraheader 2>/dev/null || true
           chmod +x Tools/sync-and-release.sh
           ./Tools/sync-and-release.sh
