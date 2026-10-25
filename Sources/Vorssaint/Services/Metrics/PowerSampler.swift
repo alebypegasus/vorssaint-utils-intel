@@ -94,7 +94,6 @@ final class PowerSampler {
                 if !Self.hasInternalBattery {
                     dcInRailKey = smc.key(named: Self.dcInRailPowerKey)
                 }
-                }
             }
             reading.systemWatts = plausibleWatts(systemKey)
             reading.adapterWatts = plausibleWatts(adapterKey)
