@@ -885,45 +885,63 @@ def main():
           + declaration(mixer, "    func switchToNextSoundOutput(") + "}\n}\n")
     write("MixerOutputAdjustment.swift", "import CoreAudio\nimport Foundation\n"
           + "extension MixerOutputAdjustmentContract {\nfinal class Mixer {\n"
+          + declaration(mixer, "    enum OutputKeyResult:")
+          + declaration(mixer, "    private struct OutputKeyWrite {")
           + declaration(mixer, "    private struct OutputAdjustment {")
           + declaration(mixer, "    private struct OutputStep {")
           + "private var queuedOutputSteps: [OutputStep] = []\nvar outputStepReadInFlight = false\nvar outputStepReadGeneration = 0\n"
-          + "private var lastOutputStep: (device: AudioObjectID, lifetime: UUID, from: Double, to: Double)?\n"
           + "static func hasSettableOutputVolume(for device: AudioObjectID) -> Bool { true }\n"
-          + "static func outputVolume(for device: AudioObjectID) -> Float32? { Hardware.volume }\n"
-          + "static func outputMuted(for device: AudioObjectID) -> Bool? { Hardware.muted }\n"
+          + "static func outputVolume(for device: AudioObjectID) -> Float32? {\n"
+          + "Hardware.volumeReads += 1; if let read = Hardware.readVolume { return read() }; return Hardware.volume\n}\n"
+          + "static func outputMuted(for device: AudioObjectID) -> Bool? {\n"
+          + "Hardware.muteReads += 1; if let read = Hardware.readMute { return read() }; return Hardware.muted\n}\n"
+          + "static func requiresQuantizedOutputKeys(for device: AudioObjectID) -> Bool { Hardware.requiresQuantizedKeys }\n"
+          + "static func hasSettableScalarOutput(for device: AudioObjectID, matching volume: Double) -> Bool { Hardware.supportsScalarConversion }\n"
+          + "static func quantizedOutputVolume(_ volume: Double, for device: AudioObjectID) -> Double? {\n"
+          + "let value = Float32(volume); Hardware.queries.append(value)\n"
+          + "if let quantizes = Hardware.quantizes { return quantizes(value).map(Double.init) }; return Double(value)\n}\n"
           + "var systemOutputVolume: Double?\nvar systemOutputMuted: Bool?\n"
           + "var outputControlListenerDevice: AudioObjectID?\n"
           + "var outputControlListenerAddresses: [AudioObjectPropertyAddress] = []\n"
           + "var outputControlRefreshGeneration = 0\n"
           + "private var pendingOutputAdjustment: OutputAdjustment?\nprivate var outputWriteInFlight: OutputAdjustment?\n"
-          + "let outputControlLock = NSLock()\nvar outputControlLifetime = UUID()\nlet halQueue = Queue()\n"
+          + "let outputControlLock = NSLock()\nvar outputControlLifetime = UUID()\nvar outputKeyGeneration = 0\nvar nativeOutputKeyLifetime: UUID?\nlet halQueue = Queue()\n"
           + "var controlRefreshes: [AudioObjectID] = []\nvar listenerRefreshes = 0\n"
           + "static let outputControlListenerCallback: AudioObjectPropertyListenerProc = { _, _, _, _ in noErr }\n"
           + "var listenerClient: UnsafeMutableRawPointer? { nil }\n"
           + "static func defaultOutputDeviceID() -> AudioObjectID? { Hardware.device }\n"
-          + "static func setOutputVolume(_ value: Float, for device: AudioObjectID) -> Bool {\n"
+          + "static func setOutputVolume(_ value: Float, for device: AudioObjectID, permitsFallback: Bool = true) -> Bool {\n"
           + "Hardware.writes.append(.init(device: device, volume: value, muted: nil))\n"
-          + "if let accepts = Hardware.accepts { Hardware.volume = accepts(value) }\n"
+          + "if Hardware.succeeds { Hardware.volume = Hardware.accepts?(value) ?? value }\n"
           + "let after = Hardware.afterVolumeWrite; Hardware.afterVolumeWrite = nil; after?()\nreturn Hardware.succeeds\n}\n"
+          + "static func setOutputScalarVolume(_ volume: Double, for device: AudioObjectID) -> Bool { Hardware.scalarWrites += 1; return setOutputVolume(Float32(volume), for: device) }\n"
           + "@discardableResult static func setOutputMuted(_ value: Bool, for device: AudioObjectID) -> Bool {\n"
           + "guard Hardware.muted != nil else { return false }\n"
-          + "Hardware.writes.append(.init(device: device, volume: nil, muted: value)); return Hardware.succeeds\n}\n"
+          + "Hardware.writes.append(.init(device: device, volume: nil, muted: value)); if Hardware.succeeds { Hardware.muted = value }; return Hardware.succeeds\n}\n"
           + "func scheduleListenerRefresh() { listenerRefreshes += 1 }\n"
           + "func scheduleOutputControlRefresh(for device: AudioObjectID) { controlRefreshes.append(device) }\n"
           + "func selectOutput(_ device: AudioObjectID?, volume: Double?, muted: Bool?) {\n"
           + "removeOutputControlListeners(); outputControlListenerDevice = device; applyOutputControls(volume: volume, muted: muted)\n}\n"
           + "func readSnapshot(volume: Double?, muted: Bool?) { applyOutputControls(volume: volume, muted: muted) }\n"
           + "".join(declaration(mixer, prefix) for prefix in [
-              "    func requestOutputAdjustment(", "    private func removeOutputControlListeners(",
+              "    func requestOutputAdjustment(", "    private func enqueueOutputAdjustment(", "    private func removeOutputControlListeners(",
               "    func requestOutputStep(", "    func requestOutputMuteToggle(",
-              "    private func enqueueOutputKey(", "    private func settleQueuedOutputSteps(",
+              "    private func enqueueOutputKey(", "    private func readOutputForQueuedKeys(",
+              "    private func settleQueuedOutputSteps(",
               "    private func applyQueuedOutputSteps(",
-              "    private func roundedBackStepLevel(", "    private func rememberOutputStep(",
+              "    private func isCurrentOutputKey(", "    private func finishOutputAdjustment(",
+              "    private func confirmDirectOutputAdjustment(", "    private static func outputAdjustmentIsConfirmed(",
+              "    private func beginOutputKeyAdjustment(", "    private func confirmOutputKeyAdjustment(",
+              "    private func scheduleOutputKeyConfirmation(", "    private static func outputKeyVolumeTarget(",
               "    private func isCurrentOutputAdjustment(", "    private var hasCurrentOutputAdjustment:",
               "    private func applyOutputControls(", "    private func drainOutputAdjustment(",
-              "    func setCurrentOutputVolume(", "    static func setSystemOutputVolume("])
-          + "}\n}\n")
+              "    static func setSystemOutputVolume("])
+          + "}\n}\n"
+          + "extension MixerOutputAdjustmentContract.Panel {\n"
+          + "typealias NotchService = MixerOutputAdjustmentContract.NotchService\n"
+          + declaration("Sources/Vorssaint/UI/MenuPanel/MixerSection.swift", "    private func setSystemOutputVolume(")
+            .replace("private func", "func", 1)
+          + "}\n")
     write("MixerHeadphonesDisconnect.swift", "import CoreAudio\nimport Foundation\n"
           + "extension MixerHeadphonesDisconnectContract.Mixer {\n"
           + "".join(declaration(mixer, prefix).replace("private ", "", 1) for prefix in [
@@ -1272,6 +1290,7 @@ def main():
           + declaration(notch, "    private func schedulePointerFollow()").replace("private func", "func", 1)
           + declaration(notch, "    private func followPointer()").replace("private func", "func", 1)
           + declaration(notch, "    private func move(to screen:").replace("private func", "func", 1)
+          + declaration(notch, "    private func cancelRelocation()").replace("private func", "func", 1)
           + "}\n}\n")
     write("NotchMirrors.swift", "import AppKit\nextension NotchMirrorContract {\nfinal class Service: State {\n"
           + "".join(declaration(notch, prefix).replace("    private ", "    ", 1) for prefix in [
