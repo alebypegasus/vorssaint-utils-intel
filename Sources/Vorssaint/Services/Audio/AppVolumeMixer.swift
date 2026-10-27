@@ -174,12 +174,19 @@ final class AppVolumeMixer: ObservableObject {
     /// Deliberately not `buildQueue`: creating a tap and its aggregate device
     /// takes far longer than reading a property, and the panel must never wait
     /// behind one to learn which devices exist.
+    enum OutputKeyResult: Equatable {
+        case applied, superseded, unconfirmed, fallback
+        var handled: Bool { self != .fallback }
+    }
+
     private struct OutputAdjustment {
         let device: AudioObjectID
         let lifetime: UUID
+        let keyGeneration: Int
         var volume: Double?
         var muted: Bool?
-        var completion: (Bool) -> Void
+        var step: OutputStep?
+        var completion: (OutputKeyResult) -> Void
     }
     private var pendingOutputAdjustment: OutputAdjustment?
     private var outputWriteInFlight: OutputAdjustment?
@@ -187,18 +194,25 @@ final class AppVolumeMixer: ObservableObject {
     /// `level` toggles mute.
     private struct OutputStep {
         let level: ((Double) -> Double)?
-        let completion: (Bool) -> Void
+        let completion: (OutputKeyResult) -> Void
+    }
+    private struct OutputKeyWrite {
+        let adjustment: OutputAdjustment
+        let expectedVolume: Double?
+        var volumeTolerance: Double = 0.0001
+        let muted: Bool?
+        let volumeWritten: Bool
+        var muteWritten = false
     }
     private var queuedOutputSteps: [OutputStep] = []
     private var outputStepReadInFlight = false
     private var outputStepReadGeneration = 0
-    /// The level the last volume key asked for and the reading it stepped
-    /// from. An output with coarse steps rounds a step narrower than its own
-    /// back to that reading, and stepping from the reading again would hold
-    /// it there for good.
-    private var lastOutputStep: (device: AudioObjectID, lifetime: UUID, from: Double, to: Double)?
     private let outputControlLock = NSLock()
     private var outputControlLifetime = UUID()
+    private var outputKeyGeneration = 0
+    /// HAL-queue only. Once a lifetime needs native keys, its volume and
+    /// mute presses must keep the same ordering through the system.
+    private var nativeOutputKeyLifetime: UUID?
     private let halQueue = DispatchQueue(label: "com.vorssaint.utils.mixer.hal", qos: .userInitiated)
 
     private init() {}
@@ -415,10 +429,9 @@ final class AppVolumeMixer: ObservableObject {
         let pending = pendingOutputAdjustment
         pendingOutputAdjustment = nil
         // Superseded keys are handled: replaying them would adjust the new output.
-        pending?.completion(true)
+        pending?.completion(.superseded)
         outputStepReadInFlight = false
-        lastOutputStep = nil
-        settleQueuedOutputSteps(handled: true)
+        settleQueuedOutputSteps(result: .superseded)
     }
 
     private func scheduleOutputControlRefresh(for device: AudioObjectID) {
@@ -524,25 +537,34 @@ final class AppVolumeMixer: ObservableObject {
     /// a write intended for the previous output.
     func requestOutputAdjustment(volume: Double? = nil, muted: Bool? = nil,
                                  completion: @escaping (Bool) -> Void = { _ in }) {
+        enqueueOutputAdjustment(volume: volume, muted: muted) { completion($0.handled) }
+    }
+
+    private func enqueueOutputAdjustment(volume: Double? = nil, muted: Bool? = nil,
+                                         step: OutputStep? = nil,
+                                         completion: @escaping (OutputKeyResult) -> Void) {
         guard let device = outputControlListenerDevice,
               volume?.isFinite != false,
               volume == nil || systemOutputVolume != nil,
-              muted == nil || systemOutputMuted != nil else { completion(false); return }
+              muted == nil || systemOutputMuted != nil else { completion(.fallback); return }
         // A direct control change supersedes keys pressed before it. The HAL
         // read for those keys may still finish later, so invalidate its value.
-        outputStepReadGeneration &+= 1
-        settleQueuedOutputSteps(handled: true)
-        // A key records its own step again right after this.
-        lastOutputStep = nil
+        if step == nil {
+            outputStepReadGeneration &+= 1
+            outputControlLock.withLock { outputKeyGeneration &+= 1 }
+            settleQueuedOutputSteps(result: .superseded)
+        }
         outputControlRefreshGeneration &+= 1
         let previous = pendingOutputAdjustment
         var adjustment = previous ?? OutputAdjustment(device: device,
-            lifetime: outputControlLock.withLock { outputControlLifetime }, completion: completion)
+            lifetime: outputControlLock.withLock { outputControlLifetime },
+            keyGeneration: outputControlLock.withLock { outputKeyGeneration }, completion: completion)
         adjustment.completion = completion
+        adjustment.step = step
         if let volume {
             let value = min(1, max(0, volume))
             adjustment.volume = value
-            systemOutputVolume = value
+            if step == nil { systemOutputVolume = value }
             // Many outputs still play faintly at a scalar of zero; macOS mutes
             // there, so do the same. A level the percent labels show as 0%
             // counts: a key steps from the level the output reports, so a
@@ -550,50 +572,48 @@ final class AppVolumeMixer: ObservableObject {
             if systemOutputMuted != nil, muted == nil {
                 let mutes = MixerRoutingSupport.mutesOutput(atVolume: value)
                 adjustment.muted = mutes
-                systemOutputMuted = mutes
+                if step == nil { systemOutputMuted = mutes }
             }
         }
-        if let muted { adjustment.muted = muted; systemOutputMuted = muted }
+        if let muted {
+            adjustment.muted = muted
+            if step == nil { systemOutputMuted = muted }
+        }
         pendingOutputAdjustment = adjustment
-        previous?.completion(true)
+        previous?.completion(.superseded)
         drainOutputAdjustment()
     }
 
-    /// A volume key steps from the level the output reports now, not from the
-    /// last published reading: after sleep an output can come back at another
-    /// level without notifying, and stepping from the stale reading left the
-    /// island at 21% while the speakers played at 2%. Keys pressed while that
-    /// read runs queue behind it, and keys during this app's own write carry on
-    /// from the level already requested. So does the key after a step the
-    /// output rounded back to where it was, as one with 3 dB steps does with a
-    /// sixteenth. `level` receives the audible level (0 while muted) and
-    /// returns the one to set.
+    /// A key reads the output before stepping. Keys wait for the previous
+    /// write and its readback, so a USB device's rounded level becomes the
+    /// starting point for the next press. `level` receives zero while muted.
     func requestOutputStep(level: @escaping (Double) -> Double,
-                           completion: @escaping (Bool) -> Void = { _ in }) {
+                           completion: @escaping (OutputKeyResult) -> Void = { _ in }) {
         enqueueOutputKey(OutputStep(level: level, completion: completion),
                          isAvailable: systemOutputVolume != nil)
     }
 
     /// The mute key rides the same read and queue as the volume keys, so it
-    /// toggles the state the output reports now (a stale reading asked for the
-    /// state already in place and the key did nothing), and a volume key right
-    /// after it steps from the level that one read fetched.
-    func requestOutputMuteToggle(completion: @escaping (Bool) -> Void = { _ in }) {
+    /// toggles the state the output reports now. A following volume key waits
+    /// for that toggle and then reads the resulting audible level.
+    func requestOutputMuteToggle(completion: @escaping (OutputKeyResult) -> Void = { _ in }) {
         enqueueOutputKey(OutputStep(level: nil, completion: completion),
                          isAvailable: systemOutputMuted != nil)
     }
 
     private func enqueueOutputKey(_ step: OutputStep, isAvailable: Bool) {
-        guard let device = outputControlListenerDevice, isAvailable else {
-            step.completion(false)
+        guard outputControlListenerDevice != nil, isAvailable else {
+            step.completion(.fallback)
             return
         }
         queuedOutputSteps.append(step)
-        guard !outputStepReadInFlight else { return }
-        guard !hasCurrentOutputAdjustment else {
-            applyQueuedOutputSteps()
-            return
-        }
+        readOutputForQueuedKeys()
+    }
+
+    private func readOutputForQueuedKeys() {
+        guard let device = outputControlListenerDevice, !queuedOutputSteps.isEmpty,
+              !outputStepReadInFlight else { return }
+        guard !hasCurrentOutputAdjustment else { return }
         outputStepReadInFlight = true
         let readGeneration = outputStepReadGeneration
         let lifetime = outputControlLock.withLock { outputControlLifetime }
@@ -612,17 +632,9 @@ final class AppVolumeMixer: ObservableObject {
                 guard current else { return }
                 self.outputStepReadInFlight = false
                 guard isDefault else {
-                    // The keys were meant for an output that has since been
-                    // replaced, as headphones taking over. Replaying a volume
-                    // key natively would step the new output a full step per
-                    // press, so those settle as handled, the way a pending
-                    // adjustment does when its output changes. A native mute
-                    // is the same toggle, so mute keys go back to the system
-                    // and still mute what now plays. The mixer resubscribes
-                    // to that output.
-                    let steps = self.queuedOutputSteps
-                    self.queuedOutputSteps.removeAll()
-                    for step in steps { step.completion(step.level != nil) }
+                    // Both mute and volume belong to the output that was
+                    // selected when pressed. Never replay either on its replacement.
+                    self.settleQueuedOutputSteps(result: .superseded)
                     if current { self.scheduleListenerRefresh() }
                     return
                 }
@@ -636,66 +648,36 @@ final class AppVolumeMixer: ObservableObject {
                     if self.systemOutputVolume != volume { self.systemOutputVolume = volume }
                     if self.systemOutputMuted != muted { self.systemOutputMuted = muted }
                 }
-                self.applyQueuedOutputSteps(reading: fresh ? volume : nil)
+                self.applyQueuedOutputSteps()
             }
         }
     }
 
-    private func settleQueuedOutputSteps(handled: Bool) {
+    private func settleQueuedOutputSteps(result: OutputKeyResult) {
         let steps = queuedOutputSteps
         queuedOutputSteps.removeAll()
-        for step in steps { step.completion(handled) }
+        for step in steps { step.completion(result) }
     }
 
-    /// `reading` is the output's own level, when these keys have just read it.
-    private func applyQueuedOutputSteps(reading: Double? = nil) {
-        let steps = queuedOutputSteps
-        queuedOutputSteps.removeAll()
-        var reading = reading
-        for step in steps {
-            if let level = step.level {
-                guard let volume = systemOutputVolume else {
-                    step.completion(false)
-                    continue
-                }
-                // Still at the level the last key stepped from, the output
-                // rounded that step back: go on from the level it asked for.
-                let start = reading.flatMap { roundedBackStepLevel($0, continuing: level) } ?? volume
-                let from = reading ?? lastOutputStep?.from ?? volume
-                let target = level(systemOutputMuted == true ? 0 : start)
-                requestOutputAdjustment(volume: target) { [weak self] applied in
-                    // A step the output refused carries nothing over.
-                    if !applied, self?.lastOutputStep?.to == target { self?.lastOutputStep = nil }
-                    step.completion(applied)
-                }
-                rememberOutputStep(from: from, to: target)
-                // Keys after the first in a burst continue from this one.
-                reading = nil
-            } else {
-                guard let muted = systemOutputMuted else {
-                    step.completion(false)
-                    continue
-                }
-                requestOutputAdjustment(muted: !muted, completion: step.completion)
+    /// Apply one key at a time. The driver's accepted level, rather than the
+    /// requested scalar, is needed before the next key can choose its target.
+    private func applyQueuedOutputSteps() {
+        guard !hasCurrentOutputAdjustment, !queuedOutputSteps.isEmpty else { return }
+        let step = queuedOutputSteps.removeFirst()
+        if let level = step.level, let volume = systemOutputVolume {
+            let target = level(systemOutputMuted == true ? 0 : volume)
+            guard target.isFinite else {
+                step.completion(.fallback)
+                applyQueuedOutputSteps()
+                return
             }
+            enqueueOutputAdjustment(volume: target, step: step, completion: step.completion)
+        } else if step.level == nil, let muted = systemOutputMuted {
+            enqueueOutputAdjustment(muted: !muted, step: step, completion: step.completion)
+        } else {
+            step.completion(.fallback)
+            applyQueuedOutputSteps()
         }
-    }
-
-    /// The level the last key asked for, while the current output still
-    /// reads the level that key stepped from and `level` keeps going the same
-    /// way. A key back the other way steps from the reading, which the output
-    /// never left.
-    private func roundedBackStepLevel(_ reading: Double, continuing level: (Double) -> Double) -> Double? {
-        guard let step = lastOutputStep, step.device == outputControlListenerDevice,
-              step.lifetime == outputControlLock.withLock({ outputControlLifetime }),
-              abs(reading - step.from) < 0.0001,
-              (level(step.to) - step.to) * (step.to - step.from) > 0 else { return nil }
-        return step.to
-    }
-
-    private func rememberOutputStep(from: Double, to: Double) {
-        guard let device = outputControlListenerDevice else { return }
-        lastOutputStep = (device, outputControlLock.withLock { outputControlLifetime }, from, to)
     }
 
     private func isCurrentOutputAdjustment(_ adjustment: OutputAdjustment) -> Bool {
@@ -708,61 +690,357 @@ final class AppVolumeMixer: ObservableObject {
 
     private func applyOutputControls(volume: Double?, muted: Bool?) {
         guard !hasCurrentOutputAdjustment else { return }
-        // Read at any other level than the one the last key stepped from, that
-        // step landed or the output has moved since, so nothing carries over.
-        if let step = lastOutputStep, volume.map({ abs($0 - step.from) >= 0.0001 }) ?? true {
-            lastOutputStep = nil
-        }
         if systemOutputVolume != volume { systemOutputVolume = volume }
         if systemOutputMuted != muted { systemOutputMuted = muted }
+    }
+
+    private func isCurrentOutputKey(_ adjustment: OutputAdjustment) -> Bool {
+        outputControlLock.withLock {
+            outputControlLifetime == adjustment.lifetime && outputKeyGeneration == adjustment.keyGeneration
+        }
     }
 
     private func drainOutputAdjustment() {
         guard outputWriteInFlight == nil, let adjustment = pendingOutputAdjustment else { return }
         pendingOutputAdjustment = nil
         guard isCurrentOutputAdjustment(adjustment), outputControlListenerDevice == adjustment.device else {
-            adjustment.completion(true)
+            adjustment.completion(.superseded)
             return
         }
         outputWriteInFlight = adjustment
         halQueue.async { [weak self] in
             guard let self else { return }
+            if adjustment.step != nil {
+                self.beginOutputKeyAdjustment(adjustment)
+                return
+            }
             let device = adjustment.device
+            guard self.isCurrentOutputAdjustment(adjustment), Self.defaultOutputDeviceID() == device else {
+                self.finishOutputAdjustment(adjustment, result: .superseded)
+                return
+            }
+            var confirmation = adjustment
+            // A coarse output may round a slider too. This is only an ACK
+            // target; the slider still writes exactly the level requested.
+            if let volume = adjustment.volume, Self.requiresQuantizedOutputKeys(for: device),
+               let current = Self.outputVolume(for: device).map(Double.init),
+               Self.hasSettableScalarOutput(for: device, matching: current),
+               let converted = Self.quantizedOutputVolume(volume, for: device),
+               converted.isFinite, (0...1).contains(converted) {
+                confirmation.volume = converted
+            }
             var success = self.isCurrentOutputAdjustment(adjustment) && Self.defaultOutputDeviceID() == device
             if success, let volume = adjustment.volume { success = Self.setOutputVolume(Float(volume), for: device) }
-            if success, let muted = adjustment.muted, self.isCurrentOutputAdjustment(adjustment) {
+            let volumeWritten = success && adjustment.volume != nil
+            if success, let muted = adjustment.muted, self.isCurrentOutputAdjustment(adjustment),
+               Self.defaultOutputDeviceID() == device {
                 success = Self.setOutputMuted(muted, for: device)
             }
-            DispatchQueue.main.async {
-                self.outputWriteInFlight = nil
-                let current = self.isCurrentOutputAdjustment(adjustment)
-                adjustment.completion(!current || success)
-                if self.pendingOutputAdjustment != nil {
-                    self.drainOutputAdjustment()
-                } else if current {
-                    self.scheduleOutputControlRefresh(for: device)
-                } else {
-                    self.scheduleListenerRefresh()
-                }
+            if success || volumeWritten { self.confirmDirectOutputAdjustment(confirmation) }
+            else { self.finishOutputAdjustment(adjustment, result: .fallback) }
+        }
+    }
+
+    private static func outputAdjustmentIsConfirmed(_ adjustment: OutputAdjustment,
+                                                    volume: Double?, muted: Bool?) -> Bool {
+        if let expected = adjustment.volume,
+           volume.map({ $0.isFinite && abs($0 - expected) < 0.005 }) != true { return false }
+        if let expected = adjustment.muted, muted != expected { return false }
+        return true
+    }
+
+    /// Keep keys behind a slider until all requested properties are observed.
+    /// Unlike a mute key, even a silent slider must wait for its volume ACK.
+    private func confirmDirectOutputAdjustment(_ adjustment: OutputAdjustment, remainingReads: Int = 3) {
+        guard isCurrentOutputAdjustment(adjustment), Self.defaultOutputDeviceID() == adjustment.device else {
+            finishOutputAdjustment(adjustment, result: .superseded)
+            return
+        }
+        let volume = Self.outputVolume(for: adjustment.device).map(Double.init)
+        let muted = Self.outputMuted(for: adjustment.device)
+        if Self.outputAdjustmentIsConfirmed(adjustment, volume: volume, muted: muted) {
+            finishOutputAdjustment(adjustment, result: .applied)
+        } else if remainingReads > 0 {
+            halQueue.asyncAfter(deadline: .now() + 0.02) { [weak self] in
+                self?.confirmDirectOutputAdjustment(adjustment, remainingReads: remainingReads - 1)
+            }
+        } else {
+            finishOutputAdjustment(adjustment, result: .unconfirmed)
+        }
+    }
+
+    private func finishOutputAdjustment(_ adjustment: OutputAdjustment, result: OutputKeyResult,
+                                        volume: Double? = nil, muted: Bool? = nil) {
+        // This method runs on the HAL queue. A listener may not have reached
+        // main yet when the default changes during a read or a failed write.
+        let result = Self.defaultOutputDeviceID() == adjustment.device ? result : .superseded
+        let current = adjustment.step == nil ? isCurrentOutputAdjustment(adjustment)
+            : isCurrentOutputKey(adjustment)
+        if current, result == .unconfirmed || (adjustment.step != nil && result == .fallback) {
+            // Unconfirmed writes must not leave future keys on an ineffective
+            // path. Later presses go native; never replay a key whose write
+            // was accepted and may still arrive late.
+            nativeOutputKeyLifetime = adjustment.lifetime
+        }
+        DispatchQueue.main.async {
+            self.outputWriteInFlight = nil
+            let current = adjustment.step == nil ? self.isCurrentOutputAdjustment(adjustment)
+                : self.isCurrentOutputKey(adjustment)
+            let result = current ? result : .superseded
+            if adjustment.step == nil, result == .unconfirmed, self.pendingOutputAdjustment == nil {
+                // These keys arrived while the slider was awaiting an ACK.
+                // Consume them before its callback can enqueue a new press.
+                // New presses use the native path, without an indefinite
+                // barrier that depends on matching an old slider target.
+                self.settleQueuedOutputSteps(result: .unconfirmed)
+            }
+            if result == .applied, adjustment.step != nil, self.pendingOutputAdjustment == nil {
+                self.applyOutputControls(volume: volume, muted: muted)
+            }
+            adjustment.completion(result)
+            if self.pendingOutputAdjustment != nil {
+                self.drainOutputAdjustment()
+            } else if current, result != .superseded {
+                self.readOutputForQueuedKeys()
+                self.scheduleOutputControlRefresh(for: adjustment.device)
+            } else {
+                // The default changed before its listener arrived. These
+                // queued keys still belong to the same, superseded output.
+                if current { self.settleQueuedOutputSteps(result: .superseded) }
+                self.scheduleListenerRefresh()
             }
         }
     }
 
-    @discardableResult
-    func setCurrentOutputVolume(_ volume: Double) -> Bool {
-        let clamped = min(max(volume, 0), 1)
-        guard Self.setSystemOutputVolume(clamped) else {
-            scheduleListenerRefresh()
-            return false
+    /// Choose the device's next representable level before writing anything.
+    /// A successful HAL write may finish asynchronously, so an unchanged
+    /// immediate readback must never trigger a second, louder request.
+    private func beginOutputKeyAdjustment(_ adjustment: OutputAdjustment) {
+        let device = adjustment.device
+        guard isCurrentOutputKey(adjustment), Self.defaultOutputDeviceID() == device else {
+            finishOutputAdjustment(adjustment, result: .superseded)
+            return
         }
-        // A direct change starts the next key from its own level.
-        lastOutputStep = nil
-        if systemOutputVolume != clamped { systemOutputVolume = clamped }
-        // The write above moved the mute switch with the level; the published
-        // state follows it on an output that has the switch.
-        let mutes = MixerRoutingSupport.mutesOutput(atVolume: clamped)
-        if systemOutputMuted != nil, systemOutputMuted != mutes { systemOutputMuted = mutes }
-        return true
+        if nativeOutputKeyLifetime == adjustment.lifetime {
+            finishOutputAdjustment(adjustment, result: .fallback)
+            return
+        }
+        let muted = Self.outputMuted(for: device)
+        let volume = Self.outputVolume(for: device).map(Double.init)
+        guard let step = adjustment.step else { return }
+        if let level = step.level {
+            guard let volume, volume.isFinite else {
+                finishOutputAdjustment(adjustment, result: .fallback)
+                return
+            }
+            // Down while muted must not turn the stored level into sound.
+            if muted == true, level(0) == 0 {
+                finishOutputAdjustment(adjustment, result: .applied, volume: volume, muted: muted)
+                return
+            }
+            guard let target = Self.outputKeyVolumeTarget(for: device, from: volume, muted: muted, level: level) else {
+                finishOutputAdjustment(adjustment, result: .fallback)
+                return
+            }
+            guard isCurrentOutputKey(adjustment), Self.defaultOutputDeviceID() == device else {
+                finishOutputAdjustment(adjustment, result: .superseded)
+                return
+            }
+            let changesVolume = abs(target.volume - volume) >= 0.0001
+            if changesVolume {
+                let success = target.usesScalar ? Self.setOutputScalarVolume(target.volume, for: device)
+                    : Self.setOutputVolume(Float(target.volume), for: device, permitsFallback: false)
+                guard success else {
+                    finishOutputAdjustment(adjustment, result: .fallback)
+                    return
+                }
+            }
+            confirmOutputKeyAdjustment(OutputKeyWrite(adjustment: adjustment, expectedVolume: target.volume,
+                                                       volumeTolerance: target.usesScalar ? 0.0001 : 0.005,
+                                                       muted: target.muted, volumeWritten: changesVolume))
+        } else if let muted {
+            confirmOutputKeyAdjustment(OutputKeyWrite(adjustment: adjustment, expectedVolume: nil,
+                                                       muted: !muted, volumeWritten: false))
+        } else {
+            finishOutputAdjustment(adjustment, result: .fallback)
+        }
+    }
+
+    /// Hold this key's place in the queue while the HAL applies its write.
+    /// Retries only read. A timeout after an accepted write consumes the key
+    /// without replay or confirmation, since that write can still arrive late.
+    private func confirmOutputKeyAdjustment(_ pending: OutputKeyWrite, remainingReads: Int = 3) {
+        var write = pending
+        let adjustment = write.adjustment
+        let device = adjustment.device
+        guard isCurrentOutputKey(adjustment), Self.defaultOutputDeviceID() == device else {
+            finishOutputAdjustment(adjustment, result: .superseded)
+            return
+        }
+        let actual = Self.outputVolume(for: device).map(Double.init)
+        // A regular output may report whole percentages. Accept that
+        // rounding, but never unmute an unchanged high scalar or a level the
+        // UI still considers silence. An explicit mute needs no scalar ACK.
+        if let expected = write.expectedVolume, write.muted != true,
+           actual.map({ $0.isFinite && abs($0 - expected) < write.volumeTolerance
+               && (write.muted != false || !MixerRoutingSupport.mutesOutput(atVolume: $0)) }) != true {
+            scheduleOutputKeyConfirmation(write, remainingReads: remainingReads)
+            return
+        }
+        var actualMuted = Self.outputMuted(for: device)
+        if let muted = write.muted, actualMuted != muted {
+            if !write.muteWritten {
+                // In particular, never unmute a stale, higher stored volume
+                // before the requested low volume has been read back.
+                guard isCurrentOutputKey(adjustment), Self.defaultOutputDeviceID() == device else {
+                    finishOutputAdjustment(adjustment, result: .superseded)
+                    return
+                }
+                guard Self.setOutputMuted(muted, for: device) else {
+                    finishOutputAdjustment(adjustment, result: write.volumeWritten ? .unconfirmed : .fallback)
+                    return
+                }
+                write.muteWritten = true
+                actualMuted = Self.outputMuted(for: device)
+            }
+            guard actualMuted == muted else {
+                scheduleOutputKeyConfirmation(write, remainingReads: remainingReads)
+                return
+            }
+        }
+        guard isCurrentOutputKey(adjustment), Self.defaultOutputDeviceID() == device else {
+            finishOutputAdjustment(adjustment, result: .superseded)
+            return
+        }
+        finishOutputAdjustment(adjustment, result: .applied, volume: actual, muted: actualMuted)
+    }
+
+    private func scheduleOutputKeyConfirmation(_ write: OutputKeyWrite, remainingReads: Int) {
+        guard remainingReads > 0 else {
+            finishOutputAdjustment(write.adjustment, result: .unconfirmed)
+            return
+        }
+        halQueue.asyncAfter(deadline: .now() + 0.02) { [weak self] in
+            self?.confirmOutputKeyAdjustment(write, remainingReads: remainingReads - 1)
+        }
+    }
+
+    /// Some USB drivers expose plateaus through scalar/dB conversion. Use
+    /// those only as a target hint, with mandatory readback after the write.
+    /// Continuous or missing USB conversions go native before any write;
+    /// regular outputs keep their ordinary scalar request and balance.
+    private static func outputKeyVolumeTarget(for device: AudioObjectID, from volume: Double,
+                                              muted: Bool?, level: (Double) -> Double)
+        -> (volume: Double, muted: Bool?, usesScalar: Bool)? {
+        guard volume.isFinite, (0...1).contains(volume) else { return nil }
+        let from = muted == true ? 0 : volume
+        let requested = level(from)
+        guard requested.isFinite else { return nil }
+        let first = min(1, max(0, requested))
+        if first == from {
+            return (volume, muted == nil ? nil : MixerRoutingSupport.mutesOutput(atVolume: first), false)
+        }
+        guard requiresQuantizedOutputKeys(for: device) else {
+            return (first, muted == nil ? nil : MixerRoutingSupport.mutesOutput(atVolume: first), false)
+        }
+        guard hasSettableScalarOutput(for: device, matching: volume) else { return nil }
+        let direction = first > from ? 1.0 : -1.0
+        var targets = [first]
+        // Production keys advance by 1/16 or 1/64. No HAL calls in this loop.
+        while targets.count < 64, let last = targets.last, last > 0, last < 1 {
+            let next = level(last)
+            guard next.isFinite else { return nil }
+            let clamped = min(1, max(0, next))
+            guard (clamped - last) * direction > 0 else { return nil }
+            targets.append(clamped)
+        }
+        let deadline = ProcessInfo.processInfo.systemUptime + 0.05
+        var queries = 0
+        func converted(_ target: Double) -> Double? {
+            guard queries < 11, ProcessInfo.processInfo.systemUptime <= deadline else { return nil }
+            queries += 1
+            guard let value = quantizedOutputVolume(target, for: device), value.isFinite,
+                  (0...1).contains(value), ProcessInfo.processInfo.systemUptime <= deadline else { return nil }
+            return value
+        }
+        guard let baseline = converted(volume), abs(baseline - volume) < 0.0001 else { return nil }
+        // Equivalence alone does not promise a hardware step. Require an
+        // observed plateau, not just a successful continuous round trip.
+        let probe = volume >= 1.0 / 1024 ? volume - 1.0 / 1024 : volume + 1.0 / 1024
+        guard let nearby = converted(probe), abs(nearby - baseline) < 0.0001,
+              let initial = converted(first), (initial - from) * direction >= -0.0001 else { return nil }
+        func advances(_ value: Double, at index: Int) -> Bool {
+            if muted != nil, MixerRoutingSupport.mutesOutput(atVolume: targets[index]) { return true }
+            return (value - from) * direction >= 0.0001
+                && (direction < 0 || !MixerRoutingSupport.mutesOutput(atVolume: value))
+        }
+        var chosen = initial
+        var index = 0
+        if !advances(initial, at: 0) {
+            var low = 0
+            var high = targets.count - 1
+            guard high > low, let end = converted(targets[high]), advances(end, at: high),
+                  (end - initial) * direction >= 0 else { return nil }
+            var lowValue = initial
+            var highValue = end
+            while high - low > 1 {
+                let middle = (low + high) / 2
+                guard let value = converted(targets[middle]),
+                      (value - lowValue) * direction >= -0.0001,
+                      (highValue - value) * direction >= -0.0001 else { return nil }
+                if advances(value, at: middle) { high = middle; highValue = value }
+                else { low = middle; lowValue = value }
+            }
+            index = high
+            chosen = highValue
+        }
+        guard let canonical = converted(chosen), abs(canonical - chosen) < 0.0001 else { return nil }
+        let mutes = MixerRoutingSupport.mutesOutput(atVolume: targets[index])
+            || MixerRoutingSupport.mutesOutput(atVolume: chosen)
+        return (chosen, muted == nil ? nil : mutes, true)
+    }
+
+    private static func requiresQuantizedOutputKeys(for device: AudioObjectID) -> Bool {
+        var transport: UInt32 = 0
+        guard read(device, kAudioDevicePropertyTransportType, &transport) else { return true }
+        return transport == kAudioDeviceTransportTypeUSB
+    }
+
+    /// Virtual main volume can aggregate channels while preserving balance.
+    /// Its curve must not be inferred from one channel's conversion. Only a
+    /// matching, settable main scalar is eligible for the single-write path.
+    private static func hasSettableScalarOutput(for device: AudioObjectID, matching volume: Double) -> Bool {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyVolumeScalar,
+                                                 mScope: kAudioObjectPropertyScopeOutput,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var settable = DarwinBoolean(false)
+        var actual: Float32 = 0
+        return AudioObjectHasProperty(device, &address)
+            && AudioObjectIsPropertySettable(device, &address, &settable) == noErr && settable.boolValue
+            && read(device, kAudioDevicePropertyVolumeScalar, &actual, scope: kAudioObjectPropertyScopeOutput)
+            && actual.isFinite && abs(Double(actual) - volume) < 0.0001
+    }
+
+    private static func quantizedOutputVolume(_ volume: Double, for device: AudioObjectID) -> Double? {
+        var value = Float32(volume)
+        for selector in [kAudioDevicePropertyVolumeScalarToDecibels, kAudioDevicePropertyVolumeDecibelsToScalar] {
+            var address = AudioObjectPropertyAddress(mSelector: selector,
+                                                     mScope: kAudioObjectPropertyScopeOutput,
+                                                     mElement: kAudioObjectPropertyElementMain)
+            var size = UInt32(MemoryLayout<Float32>.size)
+            guard AudioObjectHasProperty(device, &address),
+                  AudioObjectGetPropertyData(device, &address, 0, nil, &size, &value) == noErr,
+                  size == UInt32(MemoryLayout<Float32>.size), value.isFinite else { return nil }
+        }
+        return Double(value)
+    }
+
+    private static func setOutputScalarVolume(_ volume: Double, for device: AudioObjectID) -> Bool {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyVolumeScalar,
+                                                 mScope: kAudioObjectPropertyScopeOutput,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var value = Float32(volume)
+        return AudioObjectSetPropertyData(device, &address, 0, nil, UInt32(MemoryLayout<Float32>.size), &value) == noErr
     }
 
     /// A value the UI would round to 100% counts as unity. Without an output
@@ -2358,7 +2636,8 @@ final class AppVolumeMixer: ObservableObject {
                                           &nextDeviceID)
     }
 
-    private static func setOutputVolume(_ volume: Float32, for deviceID: AudioObjectID) -> Bool {
+    private static func setOutputVolume(_ volume: Float32, for deviceID: AudioObjectID,
+                                        permitsFallback: Bool = true) -> Bool {
         let clamped = min(max(volume, 0), 1)
         for selector in outputVolumeSelectors {
             var address = AudioObjectPropertyAddress(mSelector: selector,
@@ -2377,9 +2656,8 @@ final class AppVolumeMixer: ObservableObject {
                                                     nil,
                                                     UInt32(MemoryLayout<Float32>.size),
                                                     &nextVolume)
-            if status == noErr {
-                return true
-            }
+            if status == noErr { return true }
+            if !permitsFallback { return false }
         }
         return false
     }
