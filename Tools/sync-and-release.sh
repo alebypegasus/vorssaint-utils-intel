@@ -202,7 +202,11 @@ echo "✓ Unit tests passed."
 # 9. Package DMG
 echo "▸ Packaging DMG installer…"
 ./Tools/make-dmg.sh
-DMG_PATH=$(ls dist/Vorssaint-*.dmg 2>/dev/null | head -1 || true)
+if [[ -f "dist/Vorssaint-${VERSION}.dmg" ]]; then
+    DMG_PATH="dist/Vorssaint-${VERSION}.dmg"
+else
+    DMG_PATH=$(ls -t dist/Vorssaint-*.dmg 2>/dev/null | head -1 || true)
+fi
 if [[ -z "$DMG_PATH" || ! -f "$DMG_PATH" ]]; then
     echo "❌ DMG file not found in dist/" >&2
     exit 1
@@ -231,8 +235,11 @@ fi
 # 11. Create or Update GitHub Release
 echo "▸ Publishing GitHub Release $TAG…"
 UPSTREAM_BODY=$(gh api "repos/$UPSTREAM_REPO/releases/tags/$TAG" --jq .body 2>/dev/null || echo "")
-if [[ -z "$UPSTREAM_BODY" && -n "$LATEST_UPSTREAM_TAG" ]]; then
+if [[ -z "$UPSTREAM_BODY" || "$UPSTREAM_BODY" == *"Not Found"* ]] && [[ -n "$LATEST_UPSTREAM_TAG" ]]; then
     UPSTREAM_BODY=$(gh api "repos/$UPSTREAM_REPO/releases/tags/$LATEST_UPSTREAM_TAG" --jq .body 2>/dev/null || echo "")
+fi
+if [[ "$UPSTREAM_BODY" == *"Not Found"* || "$UPSTREAM_BODY" == *"API rate limit"* ]]; then
+    UPSTREAM_BODY=""
 fi
 
 RELEASE_NOTES=$(cat <<EOF
