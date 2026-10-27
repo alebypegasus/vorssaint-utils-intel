@@ -2,8 +2,8 @@ name: Upstream Sync & Universal Release
 
 on:
   schedule:
-    # Run automatically every 6 hours to check for upstream updates
-    - cron: '0 */6 * * *'
+    # Run automatically every 2 hours to check for upstream updates
+    - cron: '0 */2 * * *'
   workflow_dispatch:
     inputs:
       upstream_tag:
@@ -28,13 +28,14 @@ jobs:
     permissions:
       contents: write
       issues: write
+      workflows: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: false
 
       - name: Configure Git Identity
         run: |
