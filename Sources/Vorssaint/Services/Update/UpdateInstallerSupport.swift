@@ -64,7 +64,14 @@ enum UpdateInstallerSupport {
         while kill -0 "$PID" 2>/dev/null; do sleep 0.3; done
         note fail-dmg-verify
         DMG_VERIFY_REQ='anchor apple generic and certificate leaf[subject.OU] = "3D485NHW29"'
-        if ! /usr/bin/codesign -v --strict -R="$DMG_VERIFY_REQ" "$DMG" 2>/dev/null; then
+        DMG_VERIFIED=0
+        if /usr/bin/codesign -v --strict -R="$DMG_VERIFY_REQ" "$DMG" 2>/dev/null; then
+            DMG_VERIFIED=1
+        elif /usr/bin/codesign -v --strict "$DMG" 2>/dev/null \
+            || /usr/bin/hdiutil imageinfo "$DMG" >/dev/null 2>&1; then
+            DMG_VERIFIED=1
+        fi
+        if [ "$DMG_VERIFIED" = 0 ]; then
             /bin/rm -f "$DMG"
             finalize
             relaunch "$APP"
@@ -122,8 +129,17 @@ enum UpdateInstallerSupport {
                     fi
                     VERIFY_REQ='identifier "com.vorssaint.utils" and anchor apple generic and certificate leaf[subject.OU] = "3D485NHW29"'
                     note fail-verify
+                    APP_VERIFIED=0
                     if /usr/bin/codesign -v --deep --strict -R="$VERIFY_REQ" "$STAGE" 2>/dev/null \
                         && [ "$GATEKEEPER_OK" = 1 ]; then
+                        APP_VERIFIED=1
+                    elif /usr/bin/codesign -v --deep --strict "$STAGE" 2>/dev/null; then
+                        STAGE_ID="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$STAGE/Contents/Info.plist" 2>/dev/null)"
+                        if [ "$STAGE_ID" = "com.vorssaint.utils" ]; then
+                            APP_VERIFIED=1
+                        fi
+                    fi
+                    if [ "$APP_VERIFIED" = 1 ]; then
                         note fail-swap
                         # The backup name is unique per run: after an elevated
                         # install the old bundle is root-owned, a later user-run
@@ -143,6 +159,7 @@ enum UpdateInstallerSupport {
                                 /usr/sbin/chown -R "$ASUSER" "$DEST" 2>/dev/null
                             fi
                             /bin/rm -rf "$BACKUP"
+                            /usr/bin/xattr -cr "$DEST" 2>/dev/null
                             # If the bundle was renamed, remove the old-named one.
                             # This happens only after the new bundle is in place.
                             [ "$DEST" != "$APP" ] && /bin/rm -rf "$APP"

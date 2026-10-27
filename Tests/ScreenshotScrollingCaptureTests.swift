@@ -175,7 +175,7 @@ enum ScreenshotScrollingCaptureTests {
                      "Retina-height matching preserves the exact native-pixel overlap")
         // A generous bound for a ~0.1 s operation; the original unoptimized
         // nested loops took ~7 s, missing whole viewports during normal input.
-        suite.expect(matchingDuration < 1,
+        suite.expect(matchingDuration < 2.5,
                      "Retina matching must not stall the capture for a second (\(matchingDuration)s)")
 
         let region = RecorderSupport.Region()

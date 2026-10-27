@@ -145,5 +145,6 @@ echo "▸ Compressing…"
 mkdir -p dist
 rm -f "$OUT"
 hdiutil convert "$RW" -format UDZO -imagekey zlib-level=9 -o "$OUT" -quiet
+codesign -s - --force "$OUT" 2>/dev/null || true
 
 echo "✓ DMG ready: $OUT"
