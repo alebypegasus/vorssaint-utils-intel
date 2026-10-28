@@ -707,7 +707,7 @@ enum FeatureCatalogTests {
                      "the companion leaves with the island but only comes when picked, with a page of its own")
         suite.expect(AppPermission.allCases.map(\.rawValue) == [
             "accessibility", "screenRecording", "fullDiskAccess", "filesAndFolders", "notifications",
-            "automationFinder", "automationTerminal", "automationPlayback", "audioCapture", "microphone", "camera",
+            "automationFinder", "automationPlayback", "audioCapture", "microphone", "camera",
             "appManagement", "calendar",
         ], "permission portal contains every supported permission")
         let onboardingViewSource = (try? String(
@@ -780,6 +780,15 @@ enum FeatureCatalogTests {
         suite.expect(compactHubContent.contains("ScrollView{VStack(")
                 && !compactHubContent.contains("LazyVStack("),
                "the Features page measures its cards eagerly instead of estimating their height during scrolling")
+        // The first-run feature picker had the same loop: its lazy stack sat in
+        // the step's plain stack under the onboarding scroll view and froze the
+        // app while scrolling the catalog. Same kind of source check.
+        let purposeStepSource = onboardingFeatureSource
+            .components(separatedBy: "private struct PurposeStep: View {").dropFirst().first ?? ""
+        let compactPurposeBody = compactMember("var body: some View {", in: purposeStepSource)
+        suite.expect(compactPurposeBody.contains("ForEach(FeatureGroup.allCases")
+                && !compactPurposeBody.contains("LazyVStack("),
+               "the onboarding feature picker measures its cards eagerly instead of estimating their height during scrolling")
         // A lazy stack on the Monitor page re-measures and re-anchors its rows
         // without settling once the Bars options make the menu bar card taller,
         // which hangs Settings on the first scroll. The same kind of source
@@ -1667,11 +1676,10 @@ enum FeatureCatalogTests {
                "pasting copied images as files engages the shared Finder feature")
         suite.expect(AppFeature.quickToggles.permissions == [.automationFinder],
                "the quick toggles need no permission beyond the Trash's Finder ask")
-        suite.expect(activeSet(.automationTerminal) == [.homebrew], "homebrew drives the Terminal")
         suite.expect(activeSet(.appManagement) == [.homebrew, .appUpdates, .diskImageInstaller],
                "package, update and disk-image installs declare App Management access")
-        suite.expect(AppFeature.homebrew.permissions == [.automationTerminal, .appManagement],
-               "the package manager declares both permissions used by its operations")
+        suite.expect(AppFeature.homebrew.permissions == [.appManagement],
+               "the package manager needs no Automation: the person's own terminal runs its commands")
         suite.expect(activeSet(.audioCapture) == [.mixer], "the mixer is the only audio capture user")
         suite.expect(activeSet(.audioCapture, available: Set(AppFeature.allCases).subtracting([.mixer])) == [],
                "audio capture reads as unused once the mixer is off in the hub")
