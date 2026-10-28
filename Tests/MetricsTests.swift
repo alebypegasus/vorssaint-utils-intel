@@ -37,7 +37,10 @@ struct MetricsTests {
                 SuperKeyTapContract.run(suite)
                 PointerScreenContract.run(suite)
             }),
-            ("scroll-modifier", { ScrollHorizontalModifierTests.run(suite) }),
+            ("scroll-modifier", {
+                ScrollHorizontalModifierTests.run(suite)
+                ScrollZoomFocusTests.run(suite)
+            }),
             ("linear-scroll", { LinearScrollTapTests.run(suite) }),
             ("preferences", { PreferencesFeatureTests.run(suite) }),
             ("app-management", {
@@ -134,6 +137,8 @@ struct MetricsTests {
                 UtilitiesFeatureTests.run(suite)
                 TextSnippetExpansionTests.run(suite)
                 QuickTogglesAlertTests.run(suite)
+                QuickTogglesQuitAllTests.run(suite)
+                QuitAppsRuntimeTests.run(suite)
                 PortManagerRefreshTests.run(suite)
             }),
             ("settings", {

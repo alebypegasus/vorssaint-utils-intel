@@ -199,13 +199,13 @@ extension Strings {
         colorPickerPickNow: "Preleva colore",
         micMuteName: "Silenzia microfono",
         micUnmuteName: "Riattiva microfono",
-        micMuteCaption: "Taglia il microfono del Mac con un clic o un’abbreviazione, in qualsiasi app.",
-        micMutedHUD: "Microfono silenziato",
+        micMuteCaption: "Usa i controlli di silenziamento o del volume in ingresso di ogni microfono. Siri e alcune app potrebbero ancora sentirti. Non blocca ogni accesso al microfono.",
+        micMutedHUD: "Silenziamento attivato",
         micUnmutedHUD: "Silenziamento disattivato",
         micMutePartialHUD: "Alcuni microfoni non sono stati silenziati",
         micUnmutePartialHUD: "Alcuni microfoni sono ancora silenziati",
-        micMuteMenuBarToggle: "Mostra nella barra dei menu quando è silenziato",
-        micMuteMenuBarCaption: "Un microfono barrato in rosso appare accanto all’icona dell’app nella barra dei menu mentre questa funzione lo silenzia.",
+        micMuteMenuBarToggle: "Mostra nella barra dei menu quando attivo",
+        micMuteMenuBarCaption: "Il microfono rosso nella barra dei menu indica che la funzione è attiva. Non garantisce che tutte le app smettano di acquisire audio.",
         pastePlainName: "Incolla come testo semplice",
         pastePlainCaption: "Incolla ciò che hai copiato senza colori, font o formattazione. L’originale resta negli appunti.",
         launcherName: "Pannello rapido",
@@ -1071,6 +1071,10 @@ extension Strings {
         invertVerticalScroll: "Inverti lo scorrimento verticale",
         invertHorizontalScroll: "Inverti lo scorrimento orizzontale",
         scrollHorizontalName: "Scorrimento orizzontale tenendo premuto un tasto",
+        zoomSection: "Zoom",
+        zoomControlNote: "Control + scorrimento ingrandisce il contenuto dell’app anziché lo schermo di macOS. Lo zoom da tastiera attiva la finestra sotto il puntatore.",
+        verticalZoom: "Zoom",
+        pinchZoom: "Zoom con pizzico",
         scrollHorizontalModifierLabel: "Tasto modificatore",
         scrollHorizontalCommandKey: "Comando",
         scrollHorizontalCaption: "Tieni premuto solo il tasto scelto per scorrere in orizzontale con la rotellina verticale del mouse. Le altre combinazioni di tasti restano invariate.",
@@ -1109,6 +1113,8 @@ extension Strings {
         shelfShortcutFinderSelection: "Aggiungi la selezione del Finder con la scorciatoia",
         shelfShortcutFinderSelectionCaption: "Con il Finder in primo piano, la scorciatoia apre il ripiano con i file selezionati già dentro. Senza selezione si apre come sempre.",
         spacesOrderName: "Mantieni gli Spazi in ordine fisso",
-        spacesOrderCaption: "Impedisce a macOS di riordinare gli Spazi in base all’uso più recente, così restano nell’ordine che hai scelto. L’impostazione precedente torna quando disattivi questa opzione. Il Dock potrebbe riavviarsi una volta per applicare la modifica."
+        spacesOrderCaption: "Impedisce a macOS di riordinare gli Spazi in base all’uso più recente, così restano nell’ordine che hai scelto. L’impostazione precedente torna quando disattivi questa opzione. Il Dock potrebbe riavviarsi una volta per applicare la modifica.",
+        quitAppsName: "Esci dalle app",
+        quitAppsCaption: "Elenca le app aperte per uscirne una alla volta, tutte insieme o tutte tranne quella in primo piano. Mostra sempre l’elenco prima di chiudere qualcosa."
     )
 }

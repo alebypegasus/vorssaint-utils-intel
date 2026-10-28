@@ -531,7 +531,7 @@ final class NotchService: ObservableObject {
               countdown.ongoing ? NotchCalendarSupport.showsTimeLeft()
                 : NotchCalendarSupport.showsCountdown(chosen: calendar.isChosen(countdown.event))
         else { return false }
-        return countdown.isShown(at: Date())
+        return countdown.isShown(at: Date(), leadTime: calendar.countdownLeadTime)
     }
 
     var hasKeepAwakeActivity: Bool {
@@ -720,9 +720,9 @@ final class NotchService: ObservableObject {
         let title = trimmed.isEmpty ? FeatureStrings.notchCalendar(language).untitled : trimmed
         let titleSide = NotchCalendarSupport.stripDotWidth + NotchCalendarSupport.stripTitleSpacing
             + width(title, .systemFont(ofSize: 11, weight: .semibold))
-        // The widest clock the hour can show, so the island keeps its size
+        // The widest clock the selected lead can show, so the island keeps its size
         // while the minutes count down.
-        let clockSide = width("00:00", .monospacedDigitSystemFont(ofSize: 13, weight: .medium))
+        let clockSide = width(calendarClockShape, .monospacedDigitSystemFont(ofSize: 13, weight: .medium))
             + NotchCalendarSupport.stripClockSpacing
             + width(NotchCalendarSupport.timeText(countdown, locale: language.formattingLocale()),
                     .monospacedDigitSystemFont(ofSize: 11, weight: .medium))
@@ -768,11 +768,15 @@ final class NotchService: ObservableObject {
         }
     }
 
-    /// An event's dot and the widest clock its hour can show, so the island
+    private var calendarClockShape: String {
+        NotchCalendarSupport.countdownShape(leadTime: NotchCalendarService.shared.countdownLeadTime)
+    }
+
+    /// An event's dot and the widest clock its selected lead can show, so the island
     /// keeps its size while the minutes count down.
     private var calendarClockWidth: CGFloat {
         NotchCalendarSupport.stripDotWidth + NotchCalendarSupport.stripClockSpacing
-            + ("00:00" as NSString).size(withAttributes: [
+            + (calendarClockShape as NSString).size(withAttributes: [
                 .font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium)
             ]).width.rounded(.up)
     }
@@ -1056,7 +1060,8 @@ final class NotchService: ObservableObject {
             return layout.timerSurface(reading: NotchTimerSupport.compactText(for: timer.session, at: timer.now,
                                                                               locale: Locale(identifier: language.rawValue)),
                                        companion: companion, workingAgents: working,
-                                       downloadPercent: download?.fraction != nil, geometry: geometry, language: language)
+                                       downloadPercent: download?.fraction != nil, geometry: geometry, language: language,
+                                       calendarLeadTime: NotchCalendarService.shared.countdownLeadTime)
         case .downloads:
             return layout.downloadSurface(name: download?.name ?? FeatureStrings.notchFiles(language).downloadsTitle,
                                           hasProgress: download?.fraction != nil, geometry: geometry, language: language)
@@ -1070,11 +1075,11 @@ final class NotchService: ObservableObject {
             if let companion {
                 return layout.calendarPairSurface(companion: companion, workingAgents: working,
                                                   downloadPercent: download?.fraction != nil, geometry: geometry,
-                                                  language: language)
+                                                  language: language, calendarLeadTime: NotchCalendarService.shared.countdownLeadTime)
             }
             return layout.calendarSurface(title: layout.calendarTitle(countdown, language: language),
                                           time: NotchCalendarSupport.timeText(countdown, locale: language.formattingLocale()),
-                                          geometry: geometry)
+                                          geometry: geometry, calendarLeadTime: NotchCalendarService.shared.countdownLeadTime)
         case .watch:
             let watch = NotchWatchService.shared
             return layout.watchSurface(reading: watch.headline, thumbnail: watch.showsThumbnail, geometry: geometry)

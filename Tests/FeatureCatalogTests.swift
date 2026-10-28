@@ -386,18 +386,18 @@ enum FeatureCatalogTests {
 
         // MARK: Features hub catalog
 
-        suite.expect(AppFeature.allCases.count == 77, "feature catalog has 77 features")
+        suite.expect(AppFeature.allCases.count == 79, "feature catalog has 79 features")
         suite.expect(Set(AppFeature.allCases.map(\.rawValue)).count == AppFeature.allCases.count,
                "feature ids are unique")
         suite.expect(AppFeature.allCases.map(\.rawValue) == [
             "switcher", "dockPreview", "dockClick", "windowMaximizer", "windowLayout", "autoQuit", "spacesOrder",
-            "scrollInverter", "scrollHorizontal", "focusFollowsMouse", "smoothScroll", "linearScroll", "mouseAcceleration", "mouseNavigation", "mouseButtonShortcuts", "middleClick",
+            "scrollInverter", "scrollHorizontal", "scrollZoom", "focusFollowsMouse", "smoothScroll", "linearScroll", "mouseAcceleration", "mouseNavigation", "mouseButtonShortcuts", "middleClick",
             "mouseClickDebounce", "keyboardDebounce", "textSnippets", "superKey", "quitWindowProtection",
             "clipboardHistory", "pastePlain", "finderCutPaste", "finderRename", "shelf", "urlCleaner",
             "diskImageInstaller",
             "mixer", "soundOutputSwitcher", "audioPriority", "micMute", "musicBlock",
             "keepAwake", "brightness", "extraBrightness", "bluetoothSleep",
-            "quickLauncher", "quickToggles", "colorPicker", "screenOCR", "cleaningMode", "mediaTools",
+            "quickLauncher", "quickToggles", "quitApps", "colorPicker", "screenOCR", "cleaningMode", "mediaTools",
             "cleaner", "uninstaller", "homebrew", "appUpdates", "screenshot", "cameraPreview",
             "radialMenu", "scratchpad", "commandBar", "screenRecorder", "wallpaper", "killProcess", "portManager", "notch", "notchCalendar", "notchNotifications", "notchGestures", "notchTimer", "notchAccessories", "notchLyrics", "notchQueue", "notchLiveEqualizer", "notchDownloads", "notchAgents", "notchWatch", "notchMascot",
             "monitorCPU", "monitorGPU", "monitorMemory", "monitorNetwork", "monitorDisk", "monitorPower",
@@ -558,6 +558,9 @@ enum FeatureCatalogTests {
         suite.expect(runtimeSource.contains(
             "setAvailable(AppFeature.allCases, available, enablingFirstInstalls: false)"),
                "install all makes features available without switching on their behavior")
+        suite.expect(runtimeSource.contains(
+            ".scrollZoom: { ScrollInverter.shared.syncWithPreferences() }"),
+               "installing, relaunching, or removing Zoom re-syncs the shared scroll tap")
 
         // Most updating installs never saved an availability, so this list is
         // what they have: a feature leaving it would vanish for all of them.
@@ -588,7 +591,8 @@ enum FeatureCatalogTests {
         suite.expect((AppFeature.availabilityDefaults[AppFeature.linearScroll.availabilityKey] as? Bool) == false
                 && (AppFeature.availabilityDefaults[AppFeature.focusFollowsMouse.availabilityKey] as? Bool) == false
                 && (AppFeature.availabilityDefaults[AppFeature.fanControl.availabilityKey] as? Bool) == false
-                && (AppFeature.availabilityDefaults[AppFeature.notchMascot.availabilityKey] as? Bool) == false,
+                && (AppFeature.availabilityDefaults[AppFeature.notchMascot.availabilityKey] as? Bool) == false
+                && (AppFeature.availabilityDefaults[AppFeature.quitApps.availabilityKey] as? Bool) == false,
                "features added after the list was frozen wait on the Features page instead of installing themselves")
         let linearScrollSuiteName = "com.vorssaint.tests.linear-scroll-availability.\(UUID().uuidString)"
         if let linearDefaults = UserDefaults(suiteName: linearScrollSuiteName) {
@@ -1558,6 +1562,10 @@ enum FeatureCatalogTests {
         suite.expect(activeSet(.accessibility, on: [DefaultsKey.scrollInverterHorizontalEnabled])
                 .contains(.scrollInverter),
                "horizontal-only inversion counts as using accessibility")
+        suite.expect(activeSet(.accessibility, available: [.scrollZoom], on: [DefaultsKey.verticalZoomEnabled])
+                == [.scrollZoom]
+                && activeSet(.accessibility, available: [], on: [DefaultsKey.verticalZoomEnabled]).isEmpty,
+               "Zoom alone owns accessibility only while installed")
         suite.expect(AppFeature.scrollInverter.enabledKeys == [DefaultsKey.scrollInverterEnabled,
                                                            DefaultsKey.scrollInverterHorizontalEnabled],
                "the inversion feature tracks only its own axes")
@@ -1676,6 +1684,17 @@ enum FeatureCatalogTests {
                "pasting copied images as files engages the shared Finder feature")
         suite.expect(AppFeature.quickToggles.permissions == [.automationFinder],
                "the quick toggles need no permission beyond the Trash's Finder ask")
+        suite.expect(AppFeature.quitApps.permissions.isEmpty
+                && AppFeature.quitApps.onboardingPermissions.isEmpty
+                && AppFeature.quitApps.enabledKeys.isEmpty
+                && AppFeature.quitApps.energyProfile == .idle
+                && AppFeature.quitApps.group == .tools
+                && AppFeature.quitApps.symbolName == "xmark.app",
+               "Quit apps is an on-demand tool that needs no permission and keeps nothing running")
+        suite.expect(AppFeature.quitApps.settingsDestination
+                == FeatureSettingsDestination(.quickTools, sectionAnchor: .quitApps)
+                && !FeaturePreset.allCases.contains { $0.features.contains(.quitApps) },
+               "Quit apps opens its own Quick tools section and joins no preset")
         suite.expect(activeSet(.appManagement) == [.homebrew, .appUpdates, .diskImageInstaller],
                "package, update and disk-image installs declare App Management access")
         suite.expect(AppFeature.homebrew.permissions == [.appManagement],
@@ -2196,6 +2215,8 @@ enum FeatureCatalogTests {
                "cleaner settings, including WhatsApp downloads, follow the cleaner module")
         suite.expect(pageVisible(.quickTools, available: [.quickToggles]),
                "the quick toggles alone keep the quick tools page")
+        suite.expect(pageVisible(.quickTools, available: [.quitApps]),
+               "Quit apps alone keeps the quick tools page")
         suite.expect(pageVisible(.clipboard, available: [.finderCutPaste]),
                "the image paste option keeps the Clipboard page available")
         suite.expect(AppFeature.allCases.allSatisfy { feature in
