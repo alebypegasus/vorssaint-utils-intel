@@ -20,7 +20,7 @@ Universal Edition with native Apple Silicon (`arm64`) and Intel (`x86_64`) archi
 - System processor brand string and frequency discovery helpers.
 
 ### Summary
-Safer Shelf drags and app removal, with more reliable window switching, quit protection, keyboard shortcuts, clipboard navigation, screenshots, image exports, audio, URL Cleaner and Settings. New controls add an all-windows shortcut, Claude account selection, configurable calendar countdowns, mouse-wheel zoom and app quitting, alongside clipboard source icons, more switcher columns, smoother sliders, English command search and command-line settings backups.
+Safer Shelf drags and app removal, with more reliable window switching, quit protection, keyboard shortcuts, clipboard navigation, screenshots, image exports, audio, display recovery, network readings, URL Cleaner and Settings. New controls add an all-windows shortcut, Claude account selection, configurable calendar countdowns, mouse-wheel zoom and app quitting, alongside clipboard source icons, more switcher columns, smoother sliders, English command search and command-line settings backups.
 
 ### Added
 - The window switcher has an optional All windows shortcut that cycles through individual windows across apps in every layout, including Large icons. Settings → Window switcher → All windows. Thanks to BrainAPP for the suggestion.
@@ -47,6 +47,8 @@ Safer Shelf drags and app removal, with more reliable window switching, quit pro
 - The window switcher allows up to 10 columns while preserving Auto and screen-width limits. Settings → Window switcher → Options → Maximum columns. Thanks to @EugeneCarldotme.
 
 ### Fixed
+- Display controls restore manually disabled monitors to their off state after wake while keeping the last usable display on. Explicit restoration remains available. Thanks to @Fenrir200678.
+- Network readings avoid counting mirrored virtual interfaces twice, keep routed bridges counted and start a fresh baseline when switching connections to prevent false traffic spikes. Thanks to @Zekuath.
 - Super key modifiers reach session-based hotkey tools regardless of startup order, including after login. Shortcut recording still owns the source key and its solo actions. Thanks to @complicat9d for the diagnosis.
 - Dynamic Island's clipboard supports Control-N and Control-P to move through history, matching the separate clipboard panel. Thanks to @avgrpg for the report.
 - The uninstaller checks Homebrew again for each app and pauses removal when its package status cannot be verified, with a refresh action to retry. Thanks to @tzimpel.
@@ -96,7 +98,7 @@ Safer Shelf drags and app removal, with more reliable window switching, quit pro
 - Screenshot area selection keeps its crosshair over other apps, and card shadows follow the captured window's own rounded corners.
 
 ### Contributors
-Thanks to @0miicr0n, @AB-boi, @ahmadhatahet, @ALaunert, @anschmieg, @Aryan-Saini, @asim-sde, @avgrpg, @BerkUyku, @Blasted246, @buhbyehotmail, @complicat9d, @derpyjoystick, @Dexist-hub, @DigitalWestern, @dimashpt, @dimitarmanov, @dongzoor, @DrakeEvans, @eliamarinen, @EugeneCarldotme, @fablau, @Forenzo, @g1obalworlds, @globeatin, @Goonwb, @hash00, @hertza-haeon, @hrithiksaini99, @i0208, @ilvesBogdan, @iva-zhu, @Jacob-9909, @jainnam-1993, @JB-OD, @JeanBaeez, @kidtaroi, @Likheet, @LJXXXD, @MartinSchlender, @Mikkeep, @mthsmb, @muratozturk5, @nikigan, @oc7opu5, @othmanehousni, @ozanuslan, @pedro-fontinele, @pedrozimmermannsoares, @raymondchins, @RKeyProg, @rochapaesc, @ruvelro, @saarmiara, @saiganeshreddy7, @sakemyali, @samanyudas, @shlee0932-afk, @Spokplacenta, @stors789, @TarGz, @thedankest, @tzimpel, @ve3dy, @ygh1254, @yousefhamza, @ywu73 and @Zekuath.
+Thanks to @0miicr0n, @AB-boi, @ahmadhatahet, @ALaunert, @anschmieg, @Aryan-Saini, @asim-sde, @avgrpg, @BerkUyku, @Blasted246, @buhbyehotmail, @complicat9d, @derpyjoystick, @Dexist-hub, @DigitalWestern, @dimashpt, @dimitarmanov, @dongzoor, @DrakeEvans, @eliamarinen, @EugeneCarldotme, @fablau, @Fenrir200678, @Forenzo, @g1obalworlds, @globeatin, @Goonwb, @hash00, @hertza-haeon, @hrithiksaini99, @i0208, @ilvesBogdan, @iva-zhu, @Jacob-9909, @jainnam-1993, @JB-OD, @JeanBaeez, @kidtaroi, @Likheet, @LJXXXD, @MartinSchlender, @Mikkeep, @mthsmb, @muratozturk5, @nikigan, @oc7opu5, @othmanehousni, @ozanuslan, @pedro-fontinele, @pedrozimmermannsoares, @raymondchins, @RKeyProg, @rochapaesc, @ruvelro, @saarmiara, @saiganeshreddy7, @sakemyali, @samanyudas, @shlee0932-afk, @Spokplacenta, @stors789, @TarGz, @thedankest, @tzimpel, @ve3dy, @ygh1254, @yousefhamza, @ywu73 and @Zekuath.
 
 ## [3.4.2] - 2026-10-21
 
