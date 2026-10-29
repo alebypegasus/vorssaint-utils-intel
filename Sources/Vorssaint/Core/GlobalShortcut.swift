@@ -128,6 +128,9 @@ struct GlobalShortcut: Equatable, Hashable {
                                                 modifiers: [.command])
     static let switcherWindowDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_Grave),
                                                       modifiers: [.command])
+    // Opt-in only: the existing app and current-app window shortcuts keep their behavior.
+    static let switcherAllWindowsDefault = GlobalShortcut(keyCode: Int64(kVK_Tab),
+                                                          modifiers: [.option])
     static let clipboardDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_V),
                                                  modifiers: [.control, .option, .command])
     static let soundOutputSwitcherDefault = GlobalShortcut(keyCode: Int64(kVK_ANSI_S),
@@ -705,6 +708,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     case shelf
     case switcher
     case switcherWindow
+    case switcherAllWindows
     case clipboard
     case soundOutputSwitcher
     case pastePlain
@@ -742,6 +746,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .shelf: return DefaultsKey.shelfShortcut
         case .switcher: return DefaultsKey.switcherShortcut
         case .switcherWindow: return DefaultsKey.switcherWindowShortcut
+        case .switcherAllWindows: return DefaultsKey.switcherAllWindowsShortcut
         case .clipboard: return DefaultsKey.clipboardHistoryShortcut
         case .soundOutputSwitcher: return DefaultsKey.soundOutputSwitcherShortcut
         case .pastePlain: return DefaultsKey.pastePlainShortcut
@@ -779,6 +784,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .shelf: return .shelfDefault
         case .switcher: return .switcherDefault
         case .switcherWindow: return .switcherWindowDefault
+        case .switcherAllWindows: return .switcherAllWindowsDefault
         case .clipboard: return .clipboardDefault
         case .soundOutputSwitcher: return .soundOutputSwitcherDefault
         case .pastePlain: return .pastePlainDefault
@@ -824,6 +830,8 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .switcherWindow:
             return [SwitcherNativeSymbolicHotKey.nextWindow.rawValue,
                     SwitcherNativeSymbolicHotKey.previousWindow.rawValue]
+        case .switcherAllWindows:
+            return SwitcherNativeSymbolicHotKey.ids
         default:
             return []
         }
@@ -835,6 +843,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .shelf: return strings.shelfName
         case .switcher: return strings.switcherShortcutHintApps
         case .switcherWindow: return strings.switcherShortcutHintWindows
+        case .switcherAllWindows: return FeatureStrings.switcherShortcuts(L10n.shared.language).allWindows
         case .clipboard: return FeatureStrings.clipboard(L10n.shared.language).title
         case .soundOutputSwitcher: return strings.soundOutputSwitcherTitle
         case .pastePlain: return strings.pastePlainName
@@ -905,6 +914,8 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         case .keepAwake: return [DefaultsKey.hotkeyEnabled]
         case .shelf: return [DefaultsKey.shelfEnabled, DefaultsKey.shelfShortcutEnabled]
         case .switcher, .switcherWindow: return [DefaultsKey.switcherEnabled]
+        case .switcherAllWindows:
+            return [DefaultsKey.switcherEnabled, DefaultsKey.switcherAllWindowsShortcutEnabled]
         case .clipboard: return [DefaultsKey.clipboardHistoryEnabled,
                                  DefaultsKey.clipboardHistoryShortcutEnabled]
         case .soundOutputSwitcher: return [DefaultsKey.soundOutputSwitcherEnabled]
@@ -944,7 +955,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
         switch self {
         case .keepAwake: return .keepAwake
         case .shelf: return .shelf
-        case .switcher, .switcherWindow: return .switcher
+        case .switcher, .switcherWindow, .switcherAllWindows: return .switcher
         case .clipboard: return .clipboardHistory
         case .soundOutputSwitcher: return .soundOutputSwitcher
         case .pastePlain: return .pastePlain
@@ -988,7 +999,7 @@ enum GlobalShortcutRole: CaseIterable, Identifiable {
     /// promise refuses the combination instead of making it.
     var supportsTakeOver: Bool {
         switch self {
-        case .switcher, .switcherWindow, .radialMenu: return false
+        case .switcher, .switcherWindow, .switcherAllWindows, .radialMenu: return false
         default: return true
         }
     }
