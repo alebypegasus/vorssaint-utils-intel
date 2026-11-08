@@ -787,6 +787,24 @@ enum MetricsFeatureTests {
         suite.expectClose(TemperatureSensorSelector.displayedCPUTemperature(
             readings: intelSensors, platform: .intelFamily
         ) ?? -1, 58.0, "Intel platform selects the hottest CPU core sensor reading")
+        // Temperature keys read with --sensors on a MacBookPro16,1 (Core i9-9880H,
+        // Intel UHD 630 + Radeon Pro 5300M), macOS 26.7.1. The integrated GPU
+        // reports as TCGC, inside the CPU's TC namespace.
+        let macBookPro16_1Keys = ["TC0E", "TC0F", "TC0P", "TC1C", "TC8C", "TCGC", "TCMX", "TCSA", "TCXC",
+                                  "TG0P", "TG1P", "TGDD", "TGVP", "TB0T", "TA0V", "TH0a", "Ts0P"]
+        suite.expect(macBookPro16_1Keys.filter(TemperatureSensorSelector.isGPUTemperatureKey)
+                == ["TCGC", "TG0P", "TG1P", "TGDD", "TGVP"],
+               "Intel GPU discovery covers the discrete GPU and the integrated TCGC sensor")
+        suite.expect(macBookPro16_1Keys.filter {
+                    TemperatureSensorSelector.isCPUTemperatureKey($0, platform: .intelFamily)
+                        && !TemperatureSensorSelector.isGPUTemperatureKey($0)
+                } == ["TC0E", "TC0F", "TC0P", "TC1C", "TC8C", "TCMX", "TCSA", "TCXC"],
+               "Intel CPU discovery keeps the package sensors and leaves the integrated GPU out")
+        suite.expect(TemperatureSensorSelector.isGPUTemperatureKey("Tg0D")
+                && TemperatureSensorSelector.isGPUTemperatureKey("TC0G")
+                && !TemperatureSensorSelector.isGPUTemperatureKey("Tp01")
+                && !TemperatureSensorSelector.isGPUTemperatureKey("TC0P"),
+               "the shared GPU rule keeps Apple Silicon's Tg sensors and no CPU sensor")
         suite.expect(TemperatureSensorSelector.isCPUTemperatureKey("Tf4E", platform: .appleM3Family)
                 && !TemperatureSensorSelector.isCPUTemperatureKey("Tf4E", platform: .appleM4Family)
                 && TemperatureSensorSelector.isCPUTemperatureKey("Tp01", platform: .appleM4Family),

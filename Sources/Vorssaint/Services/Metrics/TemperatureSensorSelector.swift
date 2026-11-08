@@ -194,6 +194,14 @@ enum TemperatureSensorSelector {
         return platform == .appleM3Family && key.hasPrefix("Tf")
     }
 
+    /// Graphics sensors: Tg… on Apple Silicon; on Intel Macs TG… for the
+    /// discrete GPU and its proximity, and TCGC or TC0G… for the integrated GPU
+    /// inside the CPU package. Those last two also start with TC, so CPU
+    /// discovery has to leave them out explicitly.
+    static func isGPUTemperatureKey(_ key: String) -> Bool {
+        key.hasPrefix("Tg") || key.hasPrefix("TG") || key == "TCGC" || key.hasPrefix("TC0G")
+    }
+
     static func stabilizedTemperature(_ reading: Double?,
                                       cache: inout CachedSensorReading?,
                                       now: TimeInterval,
