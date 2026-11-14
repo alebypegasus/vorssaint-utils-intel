@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use sysinfo::{Components, Disks, Networks, Pid, System};
 
 #[cfg(windows)]
@@ -11,24 +11,26 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+#[derive(Clone)]
 pub struct AppRuntimeState {
-    sys: Mutex<System>,
-    networks: Mutex<Networks>,
-    disks: Mutex<Disks>,
-    components: Mutex<Components>,
-    keep_awake: Mutex<bool>,
+    sys: Arc<Mutex<System>>,
+    networks: Arc<Mutex<Networks>>,
+    disks: Arc<Mutex<Disks>>,
+    components: Arc<Mutex<Components>>,
+    keep_awake: Arc<Mutex<bool>>,
+    initialized: Arc<Mutex<bool>>,
 }
 
 impl AppRuntimeState {
     pub fn new() -> Self {
-        let mut sys = System::new_all();
-        sys.refresh_all();
+        // Defer sysinfo/WMI initialization off the main STA thread so tao::OleInitialize succeeds.
         Self {
-            sys: Mutex::new(sys),
-            networks: Mutex::new(Networks::new_with_refreshed_list()),
-            disks: Mutex::new(Disks::new_with_refreshed_list()),
-            components: Mutex::new(Components::new_with_refreshed_list()),
-            keep_awake: Mutex::new(false),
+            sys: Arc::new(Mutex::new(System::new())),
+            networks: Arc::new(Mutex::new(Networks::new())),
+            disks: Arc::new(Mutex::new(Disks::new())),
+            components: Arc::new(Mutex::new(Components::new())),
+            keep_awake: Arc::new(Mutex::new(false)),
+            initialized: Arc::new(Mutex::new(false)),
         }
     }
 }
@@ -178,7 +180,7 @@ fn read_core_audio_master() -> MasterAudioState {
     };
 
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
         let result = (|| -> windows::core::Result<MasterAudioState> {
             let enumerator: IMMDeviceEnumerator =
                 CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
@@ -191,7 +193,9 @@ fn read_core_audio_master() -> MasterAudioState {
                 muted,
             })
         })();
-        CoUninitialize();
+        if hr.is_ok() {
+            CoUninitialize();
+        }
         result.unwrap_or(MasterAudioState {
             volume: 65,
             muted: false,
@@ -216,7 +220,7 @@ fn write_core_audio_master(volume: Option<u8>, muted: Option<bool>) -> Result<Ma
     };
 
     unsafe {
-        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
         let result = (|| -> windows::core::Result<MasterAudioState> {
             let enumerator: IMMDeviceEnumerator =
                 CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
@@ -236,7 +240,9 @@ fn write_core_audio_master(volume: Option<u8>, muted: Option<bool>) -> Result<Ma
                 muted: current_muted,
             })
         })();
-        CoUninitialize();
+        if hr.is_ok() {
+            CoUninitialize();
+        }
         result.map_err(|e| format!("Audio endpoint error: {e}"))
     }
 }
@@ -257,11 +263,29 @@ fn hidden_command(program: &str) -> Command {
 }
 
 #[tauri::command]
-pub fn get_system_telemetry(state: tauri::State<AppRuntimeState>) -> SystemTelemetry {
+pub async fn get_system_telemetry(state: tauri::State<'_, AppRuntimeState>) -> Result<SystemTelemetry, String> {
+    let runtime = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || collect_system_telemetry(&runtime))
+        .await
+        .map_err(|e| format!("Telemetry worker error: {e}"))
+}
+
+fn collect_system_telemetry(state: &AppRuntimeState) -> SystemTelemetry {
+    let first_run = {
+        let mut init = state.initialized.lock().expect("initialized mutex poisoned");
+        let was_init = *init;
+        *init = true;
+        !was_init
+    };
+
     let mut sys = state.sys.lock().expect("sys mutex poisoned");
-    sys.refresh_cpu_usage();
-    sys.refresh_memory();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    if first_run {
+        sys.refresh_all();
+    } else {
+        sys.refresh_cpu_usage();
+        sys.refresh_memory();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    }
 
     let cpu_cores: Vec<f32> = sys.cpus().iter().map(|c| c.cpu_usage()).collect();
     let cpu_percent = sys.global_cpu_usage();
@@ -298,6 +322,7 @@ pub fn get_system_telemetry(state: tauri::State<AppRuntimeState>) -> SystemTelem
             memory_mb: (proc_.memory() as f64) / 1_048_576.0,
         })
         .collect();
+    drop(sys);
     processes.sort_by(|a, b| {
         b.cpu_percent
             .partial_cmp(&a.cpu_percent)
@@ -311,7 +336,7 @@ pub fn get_system_telemetry(state: tauri::State<AppRuntimeState>) -> SystemTelem
     processes.truncate(12);
 
     let mut components = state.components.lock().expect("components mutex poisoned");
-    components.refresh(false);
+    components.refresh(first_run);
     let mut cpu_temp_c: Option<f32> = None;
     let mut gpu_temp_c: Option<f32> = None;
     let mut battery_temp_c: Option<f32> = None;
@@ -337,9 +362,10 @@ pub fn get_system_telemetry(state: tauri::State<AppRuntimeState>) -> SystemTelem
             cpu_temp_c = Some(temp);
         }
     }
+    drop(components);
 
     let mut disks_guard = state.disks.lock().expect("disks mutex poisoned");
-    disks_guard.refresh(false);
+    disks_guard.refresh(first_run);
     let disks: Vec<DiskVolume> = disks_guard
         .iter()
         .map(|d| {
@@ -361,9 +387,10 @@ pub fn get_system_telemetry(state: tauri::State<AppRuntimeState>) -> SystemTelem
             }
         })
         .collect();
+    drop(disks_guard);
 
     let mut networks_guard = state.networks.lock().expect("networks mutex poisoned");
-    networks_guard.refresh(false);
+    networks_guard.refresh(first_run);
     let mut download_kb_per_sec = 0.0;
     let mut upload_kb_per_sec = 0.0;
     let mut networks = Vec::new();
@@ -382,6 +409,7 @@ pub fn get_system_telemetry(state: tauri::State<AppRuntimeState>) -> SystemTelem
             });
         }
     }
+    drop(networks_guard);
 
     let (battery_percent, battery_charging) = read_windows_power_status();
     let keep_awake_active = *state.keep_awake.lock().expect("keep_awake mutex poisoned");
