@@ -1,276 +1,286 @@
+import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
+  AppAudioSession,
   InstalledAppEntry,
   JunkCategory,
   ListeningPortEntry,
   OpenWindowEntry,
+  OverlayMode,
+  PickedColorResult,
+  ScreenshotResult,
   SystemTelemetry,
   WingetPackage,
 } from '../types/vorssaint';
 
-type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
-
-let cachedInvoke: InvokeFn | null | undefined = undefined;
-
-async function getTauriInvoke(): Promise<InvokeFn | null> {
-  if (cachedInvoke !== undefined) {
-    return cachedInvoke;
-  }
-  const hasTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-  if (!hasTauri) {
-    cachedInvoke = null;
-    return null;
-  }
-  try {
-    const core = await import('@tauri-apps/api/core');
-    cachedInvoke = core.invoke;
-    return cachedInvoke;
-  } catch {
-    cachedInvoke = null;
-    return null;
-  }
+export function isTauriRuntime(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
 
-export async function isTauriRuntime(): Promise<boolean> {
-  return (await getTauriInvoke()) !== null;
-}
-
-let simTick = 0;
-
-function fallbackTelemetry(keepAwakeActive: boolean, masterVolume: number, masterMuted: boolean): SystemTelemetry {
-  simTick += 1;
-  const wave = Math.sin(simTick * 0.45);
-  const cpuPercent = Math.round((24 + wave * 9 + (simTick % 3) * 2) * 10) / 10;
-  const gpuPercent = Math.round((18 + Math.cos(simTick * 0.35) * 11) * 10) / 10;
-  return {
-    hostName: 'VORSSAINT-WIN11',
-    osVersion: 'Windows 11 Pro (x64)',
-    cpuBrand: 'Intel Core Ultra / AMD Ryzen (Preview Mode)',
-    cpuPercent,
-    cpuCores: Array.from({ length: 12 }, (_, idx) =>
-      Math.max(4, Math.min(92, Math.round(cpuPercent + Math.sin(simTick * 0.5 + idx) * 14)))
-    ),
-    cpuTempC: 46 + Math.round(wave * 3),
-    gpuPercent,
-    gpuTempC: 41 + Math.round(wave * 2),
-    memoryUsedGb: 11.4,
-    memoryTotalGb: 32.0,
-    memoryPressure: 'Normal',
-    batteryPercent: 86,
-    batteryCharging: true,
-    batteryTempC: 29,
-    uptimeSeconds: 18420 + simTick * 2,
-    downloadKbPerSec: Math.round(Math.max(12, 340 + Math.sin(simTick) * 180)),
-    uploadKbPerSec: Math.round(Math.max(4, 58 + Math.cos(simTick * 0.8) * 26)),
-    keepAwakeActive,
-    masterVolume,
-    masterMuted,
-    disks: [
-      {
-        name: 'Windows NVMe',
-        mount: 'C:\\',
-        fileSystem: 'NTFS',
-        totalGb: 953.0,
-        availableGb: 412.6,
-        usedPercent: 56.7,
-        isRemovable: false,
-      },
-      {
-        name: 'Projects',
-        mount: 'D:\\',
-        fileSystem: 'NTFS',
-        totalGb: 1863.0,
-        availableGb: 1180.4,
-        usedPercent: 36.6,
-        isRemovable: false,
-      },
-    ],
-    networks: [
-      {
-        name: 'Wi-Fi 6E AX211',
-        rxKbPerSec: 340,
-        txKbPerSec: 58,
-        totalRxMb: 4218.5,
-        totalTxMb: 814.2,
-      },
-      {
-        name: 'Ethernet Realtek 2.5GbE',
-        rxKbPerSec: 0,
-        txKbPerSec: 0,
-        totalRxMb: 120.0,
-        totalTxMb: 28.4,
-      },
-    ],
-    topProcesses: [
-      { pid: 14820, name: 'Code.exe', cpuPercent: 9.4, memoryMb: 942.0 },
-      { pid: 8112, name: 'msedgewebview2.exe', cpuPercent: 6.1, memoryMb: 418.4 },
-      { pid: 3340, name: 'Discord.exe', cpuPercent: 3.8, memoryMb: 362.1 },
-      { pid: 1924, name: 'explorer.exe', cpuPercent: 2.3, memoryMb: 214.5 },
-      { pid: 22910, name: 'vorssaint-utils.exe', cpuPercent: 1.4, memoryMb: 98.0 },
-    ],
-  };
-}
-
-export async function fetchSystemTelemetry(
-  keepAwakeFallback = false,
-  volumeFallback = 68,
-  mutedFallback = false
-): Promise<SystemTelemetry> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    try {
-      return await invoke<SystemTelemetry>('get_system_telemetry');
-    } catch {
-      // fall through to preview telemetry if called outside desktop shell
-    }
+export async function safeListen<T>(
+  event: string,
+  handler: (payload: T) => void
+): Promise<UnlistenFn> {
+  if (!isTauriRuntime()) {
+    return () => {};
   }
-  return fallbackTelemetry(keepAwakeFallback, volumeFallback, mutedFallback);
+  return listen<T>(event, (ev) => handler(ev.payload));
 }
 
-export async function toggleKeepAwake(enabled: boolean, keepDisplayOn: boolean): Promise<boolean> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    return invoke<boolean>('set_keep_awake', { enabled, keepDisplayOn });
-  }
-  return enabled;
+export async function setIslandBounds(
+  width: number,
+  height: number,
+  focusWindow = false
+): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('set_island_bounds', { width, height, focusWindow });
 }
 
-export async function setMasterAudio(volume?: number, muted?: boolean): Promise<{ volume: number; muted: boolean }> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    return invoke<{ volume: number; muted: boolean }>('set_master_audio', {
-      volume: volume ?? null,
-      muted: muted ?? null,
-    });
+export async function setIslandVisible(visible: boolean): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('set_island_visible', { visible });
+}
+
+export async function toggleTrayPanel(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('toggle_panel');
+}
+
+export async function hideTrayPanel(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('hide_panel');
+}
+
+export async function openSettingsWindow(page?: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('open_settings_window', { page: page ?? null });
+}
+
+export async function openOverlay(mode: OverlayMode): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('open_overlay', { mode });
+}
+
+export async function hideOverlay(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('hide_overlay');
+}
+
+export async function quitApp(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('quit_app');
+}
+
+export async function fetchSystemTelemetry(): Promise<SystemTelemetry> {
+  if (!isTauriRuntime()) {
+    return {
+      hostName: 'Windows-PC',
+      osVersion: 'Windows 11',
+      cpuBrand: 'x64 Processor',
+      cpuPercent: 18,
+      cpuCores: [14, 22, 19, 12, 24, 16, 15, 11],
+      cpuTempC: 52,
+      gpuPercent: 9,
+      gpuTempC: 48,
+      memoryUsedGb: 10.2,
+      memoryTotalGb: 32,
+      memoryPressure: 'Normal',
+      batteryPercent: 86,
+      batteryCharging: true,
+      batteryTempC: null,
+      uptimeSeconds: 18420,
+      downloadKbPerSec: 128,
+      uploadKbPerSec: 34,
+      keepAwakeActive: false,
+      masterVolume: 68,
+      masterMuted: false,
+      darkMode: true,
+      activeWindowTitle: 'Vorssaint Utils',
+      mediaSession: null,
+      disks: [
+        {
+          name: 'Windows',
+          mount: 'C:\\',
+          fileSystem: 'NTFS',
+          totalGb: 512,
+          availableGb: 214,
+          usedPercent: 58,
+          isRemovable: false,
+        },
+      ],
+      networks: [
+        {
+          name: 'Wi-Fi',
+          rxKbPerSec: 128,
+          txKbPerSec: 34,
+          totalRxMb: 420,
+          totalTxMb: 92,
+        },
+      ],
+      topProcesses: [],
+    };
   }
-  return { volume: volume ?? 68, muted: muted ?? false };
+  return invoke<SystemTelemetry>('get_system_telemetry');
+}
+
+export async function setKeepAwake(enabled: boolean, keepDisplayOn: boolean): Promise<boolean> {
+  if (!isTauriRuntime()) return enabled;
+  return invoke<boolean>('set_keep_awake', { enabled, keepDisplayOn });
+}
+
+export async function setMasterAudio(
+  volume?: number,
+  muted?: boolean
+): Promise<{ volume: number; muted: boolean }> {
+  if (!isTauriRuntime()) return { volume: volume ?? 65, muted: muted ?? false };
+  return invoke('set_master_audio', {
+    volume: volume ?? null,
+    muted: muted ?? null,
+  });
+}
+
+export async function listAudioSessions(): Promise<AppAudioSession[]> {
+  if (!isTauriRuntime()) return [];
+  return invoke<AppAudioSession[]>('list_audio_sessions');
+}
+
+export async function setAppAudio(
+  pid: number,
+  volume?: number,
+  muted?: boolean
+): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('set_app_audio', {
+    pid,
+    volume: volume ?? null,
+    muted: muted ?? null,
+  });
+}
+
+export async function sendMediaAction(action: 'playPause' | 'next' | 'prev'): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('send_media_action', { action });
 }
 
 export async function setDisplayBrightness(level: number): Promise<number> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    return invoke<number>('set_display_brightness', { level });
-  }
-  return level;
+  if (!isTauriRuntime()) return level;
+  return invoke<number>('set_display_brightness', { level });
 }
 
-export async function fetchOpenWindows(): Promise<OpenWindowEntry[]> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    return invoke<OpenWindowEntry[]>('list_open_windows');
-  }
-  return [
-    { hwnd: 1001, pid: 14820, title: 'vorssaint-utils-intel — Visual Studio Code', processName: 'Code.exe' },
-    { hwnd: 1002, pid: 8112, title: 'GitHub Releases — Vorssaint Universal', processName: 'msedge.exe' },
-    { hwnd: 1003, pid: 3340, title: 'Discord — #dev-windows', processName: 'Discord.exe' },
-    { hwnd: 1004, pid: 1924, title: 'File Explorer — C:\\Projects', processName: 'explorer.exe' },
-    { hwnd: 1005, pid: 9012, title: 'Windows Terminal — PowerShell', processName: 'WindowsTerminal.exe' },
-  ];
+export async function setWindowsDarkMode(enabled: boolean): Promise<boolean> {
+  if (!isTauriRuntime()) return enabled;
+  return invoke<boolean>('set_windows_dark_mode', { enabled });
+}
+
+export async function lockWorkstation(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('lock_workstation');
+}
+
+export async function emptyRecycleBin(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('empty_recycle_bin');
+}
+
+export async function listOpenWindows(): Promise<OpenWindowEntry[]> {
+  if (!isTauriRuntime()) return [];
+  return invoke<OpenWindowEntry[]>('list_open_windows');
 }
 
 export async function focusWindow(hwnd: number): Promise<void> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    await invoke<void>('focus_window', { hwnd });
-  }
+  if (!isTauriRuntime()) return;
+  await invoke('focus_window', { hwnd });
 }
 
-export async function snapActiveWindow(layout: string): Promise<void> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    await invoke<void>('snap_active_window', { layout });
-  }
+export async function toggleWindowPin(hwnd?: number): Promise<boolean> {
+  if (!isTauriRuntime()) return false;
+  return invoke<boolean>('toggle_window_pin', { hwnd: hwnd ?? null });
 }
 
-export async function fetchListeningPorts(): Promise<ListeningPortEntry[]> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    return invoke<ListeningPortEntry[]>('list_listening_ports');
+export async function snapActiveWindow(preset: string, hwnd?: number): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('snap_active_window', { preset, hwnd: hwnd ?? null });
+}
+
+export async function pickScreenColor(): Promise<PickedColorResult> {
+  if (!isTauriRuntime()) {
+    return { hex: '#38BDF8', r: 56, g: 189, b: 248, x: 0, y: 0 };
   }
-  return [
-    { protocol: 'TCP', localAddress: '127.0.0.1:1420', port: 1420, pid: 22910, processName: 'vite.exe' },
-    { protocol: 'TCP', localAddress: '0.0.0.0:3000', port: 3000, pid: 17620, processName: 'node.exe' },
-    { protocol: 'TCP', localAddress: '127.0.0.1:5432', port: 5432, pid: 6140, processName: 'postgres.exe' },
-    { protocol: 'TCP', localAddress: '127.0.0.1:8080', port: 8080, pid: 24110, processName: 'cargo.exe' },
-  ];
+  return invoke<PickedColorResult>('pick_screen_color');
+}
+
+export async function captureScreenPng(): Promise<ScreenshotResult | null> {
+  if (!isTauriRuntime()) return null;
+  return invoke<ScreenshotResult>('capture_screen_png');
+}
+
+export async function copyToClipboard(text: string): Promise<void> {
+  if (!isTauriRuntime()) {
+    await navigator.clipboard?.writeText(text).catch(() => {});
+    return;
+  }
+  await invoke('copy_text_to_clipboard', { text });
+}
+
+export async function openPathInExplorer(path: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('open_path_in_explorer', { path });
+}
+
+export async function openExternalUrl(url: string): Promise<void> {
+  if (!isTauriRuntime()) {
+    window.open(url, '_blank');
+    return;
+  }
+  await invoke('open_external_url', { url });
+}
+
+export async function launchWindowsUtility(command: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('launch_windows_utility', { command });
+}
+
+export async function listListeningPorts(): Promise<ListeningPortEntry[]> {
+  if (!isTauriRuntime()) return [];
+  return invoke<ListeningPortEntry[]>('list_listening_ports');
 }
 
 export async function killProcessByPid(pid: number): Promise<boolean> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    return invoke<boolean>('kill_process', { pid });
-  }
-  return true;
+  if (!isTauriRuntime()) return false;
+  return invoke<boolean>('kill_process', { pid });
 }
 
 export async function scanJunkCaches(): Promise<JunkCategory[]> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    return invoke<JunkCategory[]>('scan_junk_caches');
-  }
-  return [
-    { id: 'user-temp', label: 'Windows User Temp (%TEMP%)', path: 'C:\\Users\\user\\AppData\\Local\\Temp', sizeMb: 428.4, fileCount: 1842 },
-    { id: 'crash-dumps', label: 'Windows CrashDumps', path: 'C:\\Users\\user\\AppData\\Local\\CrashDumps', sizeMb: 112.0, fileCount: 6 },
-    { id: 'npm-cache', label: 'npm / Node Local Cache', path: 'C:\\Users\\user\\AppData\\Local\\npm-cache', sizeMb: 286.2, fileCount: 4120 },
-    { id: 'pip-cache', label: 'Python pip Cache', path: 'C:\\Users\\user\\AppData\\Local\\pip\\Cache', sizeMb: 94.6, fileCount: 192 },
-  ];
+  if (!isTauriRuntime()) return [];
+  return invoke<JunkCategory[]>('scan_junk_caches');
 }
 
-export async function cleanJunkCaches(categoryIds: string[]): Promise<number> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    return invoke<number>('clean_junk_caches', { categoryIds });
-  }
-  return 921.2;
+export async function cleanJunkCaches(ids: string[]): Promise<number> {
+  if (!isTauriRuntime()) return 0;
+  return invoke<number>('clean_junk_caches', { ids });
 }
 
-export async function fetchInstalledApps(): Promise<InstalledAppEntry[]> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    return invoke<InstalledAppEntry[]>('list_installed_apps');
-  }
-  return [
-    { name: 'Git', publisher: 'The Git Development Community', version: '2.56.0', installLocation: 'C:\\Program Files\\Git', uninstallString: '' },
-    { name: 'Node.js', publisher: 'OpenJS Foundation', version: '26.13.1', installLocation: 'C:\\Program Files\\nodejs', uninstallString: '' },
-    { name: 'Visual Studio Code', publisher: 'Microsoft Corporation', version: '1.99.0', installLocation: 'C:\\Users\\user\\AppData\\Local\\Programs\\Microsoft VS Code', uninstallString: '' },
-    { name: 'Discord', publisher: 'Discord Inc.', version: '1.0.9182', installLocation: 'C:\\Users\\user\\AppData\\Local\\Discord', uninstallString: '' },
-  ];
+export async function listInstalledApps(): Promise<InstalledAppEntry[]> {
+  if (!isTauriRuntime()) return [];
+  return invoke<InstalledAppEntry[]>('list_installed_apps');
 }
 
-export async function triggerUninstallApp(uninstallString: string): Promise<string> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    return invoke<string>('uninstall_app', { uninstallString });
-  }
-  return 'Launched native Windows uninstaller (requires Tauri Windows desktop runtime)';
+export async function triggerUninstallApp(uninstallString: string): Promise<void> {
+  if (!isTauriRuntime()) return;
+  await invoke('uninstall_app', { uninstallString });
 }
 
-export async function searchWingetPackages(query: string): Promise<WingetPackage[]> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    return invoke<WingetPackage[]>('winget_search', { query });
-  }
-  return [
-    { name: 'PowerToys (Preview)', id: 'Microsoft.PowerToys', version: '0.89.0' },
-    { name: 'Everything', id: 'voidtools.Everything', version: '1.4.1.1026' },
-    { name: 'ShareX', id: 'ShareX.ShareX', version: '17.0.0' },
-  ].filter((p) => !query.trim() || `${p.name} ${p.id}`.toLowerCase().includes(query.toLowerCase()));
+export async function wingetSearch(query: string): Promise<WingetPackage[]> {
+  if (!isTauriRuntime()) return [];
+  return invoke<WingetPackage[]>('winget_search', { query });
 }
 
-export async function fetchWingetUpdates(): Promise<WingetPackage[]> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    return invoke<WingetPackage[]>('winget_list_updates');
-  }
-  return [
-    { name: 'Visual Studio Code', id: 'Microsoft.VisualStudioCode', version: '1.98.2', availableVersion: '1.99.0' },
-    { name: 'Git for Windows', id: 'Git.Git', version: '2.55.0', availableVersion: '2.56.0' },
-  ];
+export async function wingetListUpdates(): Promise<WingetPackage[]> {
+  if (!isTauriRuntime()) return [];
+  return invoke<WingetPackage[]>('winget_list_updates');
 }
 
-export async function installWingetPackage(packageId: string): Promise<string> {
-  const invoke = await getTauriInvoke();
-  if (invoke) {
-    return invoke<string>('winget_install', { packageId });
-  }
-  return `Queued winget install --id ${packageId}`;
+export async function wingetInstall(id: string, upgrade = false): Promise<string> {
+  if (!isTauriRuntime()) return 'Simulated';
+  return invoke<string>('winget_install', { id, upgrade });
 }

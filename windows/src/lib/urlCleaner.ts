@@ -5,61 +5,59 @@ const TRACKING_PARAMS = new Set([
   'utm_term',
   'utm_content',
   'utm_id',
+  'utm_name',
   'fbclid',
   'gclid',
+  'gclsrc',
   'dclid',
-  'gbraid',
-  'wbraid',
   'msclkid',
   'mc_cid',
   'mc_eid',
-  'yclid',
   'igshid',
   'si',
-  'feature',
-  'ref',
-  'ref_src',
   'spm',
+  'ref_src',
+  'ref_url',
+  'yclid',
   '_hsenc',
   '_hsmi',
   'mkt_tok',
+  'trk',
+  'trkcampaign',
+  'sc_cid',
+  'share_id',
 ]);
 
-export interface UrlCleanResult {
-  cleaned: string;
-  removedCount: number;
-  removedKeys: string[];
-  valid: boolean;
-}
+export function cleanUrl(raw: string): { cleaned: string; removedCount: number; valid: boolean } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { cleaned: '', removedCount: 0, valid: false };
 
-export function cleanTrackingUrl(rawInput: string): UrlCleanResult {
-  const trimmed = rawInput.trim();
-  if (!trimmed) {
-    return { cleaned: '', removedCount: 0, removedKeys: [], valid: false };
-  }
-
-  let candidate = trimmed;
-  if (!/^https?:\/\//i.test(candidate) && candidate.includes('.')) {
-    candidate = `https://${candidate}`;
+  let normalized = trimmed;
+  if (!/^https?:\/\//i.test(normalized)) {
+    if (normalized.includes('.') && !normalized.includes(' ')) {
+      normalized = `https://${normalized}`;
+    } else {
+      return { cleaned: trimmed, removedCount: 0, valid: false };
+    }
   }
 
   try {
-    const parsed = new URL(candidate);
-    const removedKeys: string[] = [];
+    const parsed = new URL(normalized);
+    let removedCount = 0;
     for (const key of Array.from(parsed.searchParams.keys())) {
       const lower = key.toLowerCase();
       if (TRACKING_PARAMS.has(lower) || lower.startsWith('utm_')) {
-        removedKeys.push(key);
         parsed.searchParams.delete(key);
+        removedCount += 1;
       }
     }
-    return {
-      cleaned: parsed.toString(),
-      removedCount: removedKeys.length,
-      removedKeys,
-      valid: true,
-    };
+    return { cleaned: parsed.toString(), removedCount, valid: true };
   } catch {
-    return { cleaned: rawInput, removedCount: 0, removedKeys: [], valid: false };
+    return { cleaned: trimmed, removedCount: 0, valid: false };
   }
+}
+
+export function isLikelyUrl(text: string): boolean {
+  const t = text.trim();
+  return /^https?:\/\/\S+$/i.test(t);
 }

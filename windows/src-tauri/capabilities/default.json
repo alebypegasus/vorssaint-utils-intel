@@ -1,9 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for Vorssaint Windows Edition",
-  "windows": ["main"],
+  "description": "Default capabilities for all native Vorssaint Windows surfaces",
+  "windows": ["island", "panel", "settings", "overlay"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "core:event:default",
+    "core:window:default"
   ]
 }

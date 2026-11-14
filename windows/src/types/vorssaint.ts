@@ -1,104 +1,98 @@
-export type LocaleCode = 'en' | 'pt' | 'es';
-export type ThemeMode = 'dark' | 'light';
+export type LocaleCode = 'pt' | 'en' | 'es';
+export type AppAppearanceMode = 'dark' | 'light';
+export type WindowKind = 'island' | 'panel' | 'settings' | 'overlay';
+export type OverlayMode = 'command' | 'clipboard' | 'radial' | 'cleaning';
 
-export type PanelTabId =
+export type FeatureGroupId =
+  | 'dynamicIsland'
+  | 'mouse'
+  | 'windows'
+  | 'sound'
+  | 'keyboard'
+  | 'energy'
+  | 'monitor'
+  | 'files'
+  | 'utilities'
+  | 'system';
+
+export type SettingsPageId =
+  | 'general'
+  | 'panelConfig'
+  | 'features'
+  | 'notch'
+  | 'notchMascot'
+  | 'monitor'
+  | 'energy'
+  | 'mixer'
+  | 'brightness'
+  | 'windowLayout'
+  | 'switcher'
+  | 'shortcuts'
+  | 'commandBar'
+  | 'radialMenu'
+  | 'clipboard'
+  | 'textSnippets'
+  | 'urlCleaner'
+  | 'cleaner'
+  | 'uninstaller'
+  | 'killProcess'
+  | 'portManager'
+  | 'appUpdates'
+  | 'screenshot'
+  | 'shelf'
+  | 'about'
+  | 'releaseNotes';
+
+export type IslandModuleId =
+  | 'controls'
+  | 'music'
+  | 'files'
+  | 'timer'
+  | 'calendar'
+  | 'clipboard'
+  | 'scratchpad'
+  | 'mixer'
+  | 'camera'
+  | 'agents'
+  | 'system';
+
+export type TrayPanelSectionId =
   | 'keepAwake'
   | 'mixer'
+  | 'brightness'
   | 'system'
   | 'network'
   | 'disk'
   | 'power'
-  | 'fanControl'
-  | 'brightness'
+  | 'fan'
   | 'utilities'
-  | 'controls'
-  | 'wallpaper';
-
-export type UtilitySubview =
-  | 'home'
-  | 'metricCPU'
-  | 'metricGPU'
-  | 'metricMemory'
-  | 'clipboard'
-  | 'cleaner'
-  | 'winget'
-  | 'media'
-  | 'windowLayout'
-  | 'uninstaller'
-  | 'portManager'
-  | 'killProcess'
-  | 'urlCleaner'
-  | 'appUpdates';
-
-export type SettingsSectionId =
-  | 'general'
-  | 'features'
-  | 'energy'
-  | 'monitor'
-  | 'sound'
-  | 'mouseKeyboard'
-  | 'switcher'
-  | 'windowLayout'
-  | 'quitOnClose'
-  | 'clipboard'
-  | 'textSnippets'
-  | 'shelf'
-  | 'dynamicIsland'
-  | 'tools'
-  | 'shortcuts'
-  | 'backup'
-  | 'about';
-
-export type OverlayId =
-  | 'commandBar'
-  | 'appSwitcher'
-  | 'radialMenu'
-  | 'fileShelf'
-  | 'scratchpad'
-  | 'screenCapture'
-  | 'cleaningMode'
-  | 'about';
-
-export type FeatureGroupId =
-  | 'windowsDock'
-  | 'mouseKeyboard'
-  | 'clipboardFiles'
-  | 'sound'
-  | 'energyDisplay'
-  | 'tools'
-  | 'dynamicIsland'
-  | 'monitor';
-
-export type PermissionKey =
-  | 'accessibility'
-  | 'screenRecording'
-  | 'fullDiskAccess'
-  | 'notifications'
-  | 'audioCapture'
-  | 'microphone'
-  | 'camera'
-  | 'appManagement'
-  | 'calendar';
+  | 'toggles';
 
 export interface FeatureDefinition {
-  id: string;
+  key: string;
   group: FeatureGroupId;
-  name: Record<LocaleCode, string>;
-  description: Record<LocaleCode, string>;
-  icon: string;
-  moduleTab?: PanelTabId;
-  runtimeBadge: 'keyboard' | 'mouse' | 'audio' | 'idle' | 'beta';
-  isBeta?: boolean;
-  permission?: PermissionKey;
-  defaultInstalled: boolean;
+  title: Record<LocaleCode, string>;
+  summary: Record<LocaleCode, string>;
+  settingsPage?: SettingsPageId;
+  shortcut?: string;
+  permission?: 'accessibility' | 'disk' | 'capture' | 'bluetooth';
 }
 
 export interface BundleDefinition {
-  id: 'essentials' | 'windows' | 'battery' | 'developer';
-  name: Record<LocaleCode, string>;
-  description: Record<LocaleCode, string>;
-  icon: string;
-  featureIds: string[];
+  id: string;
+  title: Record<LocaleCode, string>;
+  summary: Record<LocaleCode, string>;
+  featureKeys: string[];
+}
+
+export interface SidebarGroupDef {
+  id: string;
+  title: Record<LocaleCode, string>;
+  items: {
+    page: SettingsPageId;
+    title: Record<LocaleCode, string>;
+    icon: string;
+  }[];
 }
 
 export interface ProcessEntry {
@@ -126,6 +120,13 @@ export interface NetAdapter {
   totalTxMb: number;
 }
 
+export interface MediaSessionInfo {
+  appName: string;
+  title: string;
+  artist: string;
+  isPlaying: boolean;
+}
+
 export interface SystemTelemetry {
   hostName: string;
   osVersion: string;
@@ -147,9 +148,20 @@ export interface SystemTelemetry {
   keepAwakeActive: boolean;
   masterVolume: number;
   masterMuted: boolean;
+  darkMode: boolean;
+  activeWindowTitle: string;
+  mediaSession: MediaSessionInfo | null;
   disks: DiskVolume[];
   networks: NetAdapter[];
   topProcesses: ProcessEntry[];
+}
+
+export interface AppAudioSession {
+  id: string;
+  pid: number;
+  name: string;
+  volume: number;
+  muted: boolean;
 }
 
 export interface OpenWindowEntry {
@@ -187,25 +199,56 @@ export interface WingetPackage {
   name: string;
   id: string;
   version: string;
-  availableVersion?: string | null;
+  availableVersion: string | null;
 }
 
-export interface MixerAppChannel {
-  id: string;
-  name: string;
-  outputDevice: string;
-  volume: number; // 0..200 (boost > 100)
-  muted: boolean;
-  color: string;
-  active: boolean;
+export interface PickedColorResult {
+  hex: string;
+  r: number;
+  g: number;
+  b: number;
+  x: number;
+  y: number;
+}
+
+export interface ScreenshotResult {
+  path: string;
+  fileName: string;
+  width: number;
+  height: number;
+  sizeKb: number;
 }
 
 export interface ClipboardItem {
   id: string;
   text: string;
-  sourceApp: string;
-  timestamp: string;
-  pinned: boolean;
+  kind: 'text' | 'url' | 'code' | 'color';
+  source: string;
+  timestamp: number;
+  pinned?: boolean;
+}
+
+export interface ShelfDropFile {
+  name: string;
+  path: string;
+  kind: string;
+  sizeLabel: string;
+}
+
+export interface ShelfItem {
+  id: string;
+  name: string;
+  path: string;
+  kind: 'file' | 'image' | 'pdf' | 'code' | 'archive';
+  sizeLabel: string;
+  addedAt: number;
+}
+
+export interface ScratchpadNote {
+  id: string;
+  title: string;
+  body: string;
+  updatedAt: number;
 }
 
 export interface TextSnippet {
@@ -215,78 +258,30 @@ export interface TextSnippet {
   category: string;
 }
 
-export interface ShelfItem {
-  id: string;
-  name: string;
-  kind: 'file' | 'image' | 'link' | 'snippet';
-  sizeLabel: string;
-  addedAt: string;
-}
-
-export interface ScratchpadNote {
-  id: string;
-  title: string;
-  content: string;
-  updatedAt: string;
-}
-
 export interface DynamicIslandAgent {
-  id: 'claude' | 'codex' | 'copilot';
+  id: string;
   name: string;
-  model: string;
-  state: 'active' | 'idle';
-  tokensUsed: number;
-  sessionCostUsd: number;
-  taskSummary: string;
+  provider: 'Claude' | 'Codex' | 'Gemini';
+  task: string;
+  status: 'running' | 'done' | 'waiting';
+  elapsedSec: number;
 }
 
-export interface ControlToggleState {
-  switcher: boolean;
-  switcherLargeIcons: boolean;
-  taskbarPreview: boolean;
-  taskbarClickMinimize: boolean;
-  windowMaximizer: boolean;
-  windowEdgeSnap: boolean;
-  autoQuitOnClose: boolean;
-  scrollInverter: boolean;
-  smoothScroll: boolean;
-  linearScroll: boolean;
-  focusFollowsMouse: boolean;
-  mouseAccelDisabled: boolean;
-  clipboardHistory: boolean;
-  explorerCutPaste: boolean;
-  explorerBatchRename: boolean;
-  urlAutoClean: boolean;
-  audioPriority: boolean;
-  micMuteShortcut: boolean;
-  musicBlock: boolean;
-  keepAwakeDisplay: boolean;
-  extraBrightness: boolean;
-  bluetoothSleep: boolean;
-  dynamicIslandEnabled: boolean;
-  dynamicIslandLyrics: boolean;
-  dynamicIslandEqualizer: boolean;
-  dynamicIslandAgents: boolean;
-  dynamicIslandMascot: boolean;
-  separateMenuMetrics: boolean;
-  launchAtStartup: boolean;
-}
-
-export interface AppSettings {
-  theme: ThemeMode;
-  locale: LocaleCode;
-  activeTab: PanelTabId;
-  activeSubview: UtilitySubview;
-  activeSettingsSection: SettingsSectionId;
-  installedFeatures: Record<string, boolean>;
-  toggles: ControlToggleState;
-  keepAwakeDuration: 'indefinite' | '30m' | '1h' | '2h' | '4h';
+export interface VorssaintSettings {
+  language: LocaleCode;
+  appearance: AppAppearanceMode;
+  accentHex: string;
+  islandVisible: boolean;
+  islandPinned: boolean;
+  islandSilhouette: 'pill' | 'notch';
+  islandOpenOnHover: boolean;
+  islandMascotEnabled: boolean;
+  islandLiquidGlass: boolean;
+  keepDisplayOn: boolean;
   brightnessLevel: number;
-  nightWarmth: number;
-  softwareDimming: number;
-  fanPreset: 'auto' | 'silent' | 'balanced' | 'performance';
-  fanRpm: number;
-  wallpaperCategory: 'studio' | 'architecture' | 'landscape' | 'dynamic';
-  selectedWallpaperId: string;
-  shortcuts: Record<string, string>;
+  nightLightWarmth: number;
+  autoCleanUrls: boolean;
+  clipboardMaxItems: number;
+  installedFeatures: Record<string, boolean>;
+  panelVisibleSections: Record<TrayPanelSectionId, boolean>;
 }

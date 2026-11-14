@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default capability for Vorssaint Windows Edition","local":true,"windows":["main"],"permissions":["core:default"]}}
+{"default":{"identifier":"default","description":"Default capabilities for all native Vorssaint Windows surfaces","local":true,"windows":["island","panel","settings","overlay"],"permissions":["core:default","core:event:default","core:window:default"]}}
