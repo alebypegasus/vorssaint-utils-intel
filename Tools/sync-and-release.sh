@@ -140,10 +140,12 @@ fi
 if [[ -n "$SYNC_REF" ]]; then
     echo "▸ Merging $SYNC_REF into current branch…"
     if ! git merge --no-edit -X patience "$SYNC_REF" -m "chore(sync): sync upstream $SYNC_REF with Universal 2 support" 2>/dev/null; then
-        echo "⚠️ Merge notice: resolving conflicts in build/workflow files…"
-        # Always keep our custom build scripts, DMG packager, and workflows
-        git checkout --ours build.sh Tools/make-dmg.sh .github/workflows/ 2>/dev/null || true
-        git add build.sh Tools/make-dmg.sh .github/workflows/ 2>/dev/null || true
+        echo "⚠️ Merge notice: resolving conflicts in build/workflow/version files…"
+        # Always keep our custom build scripts, DMG packager, workflows, and fork README
+        git checkout --ours build.sh Tools/make-dmg.sh Tools/sync-and-release.sh .github/workflows/ README.md 2>/dev/null || true
+        # Take upstream CHANGELOG, Info.plist, and SwitcherModelFeatureTests before version alignment below
+        git checkout --theirs CHANGELOG.md Resources/Info.plist Tests/SwitcherModelFeatureTests.swift 2>/dev/null || true
+        git add build.sh Tools/make-dmg.sh Tools/sync-and-release.sh .github/workflows/ README.md CHANGELOG.md Resources/Info.plist Tests/SwitcherModelFeatureTests.swift 2>/dev/null || true
 
         UNRESOLVED=$(git diff --name-only --diff-filter=U || true)
         if [[ -n "$UNRESOLVED" ]]; then
@@ -271,6 +273,14 @@ else
         --title "Vorssaint Utils $TAG (Universal Apple Silicon & Intel)" \
         --notes "$RELEASE_NOTES"
 fi
+
+# Close stale upstream sync conflict issues once a release succeeds
+OPEN_CONFLICT_ISSUES=$(gh issue list -R "$CURRENT_REPO" --state open --search "Upstream Sync Conflict" --json number --jq '.[].number' 2>/dev/null || true)
+for issue_num in ${(f)OPEN_CONFLICT_ISSUES}; do
+    if [[ -n "$issue_num" ]]; then
+        gh issue close "$issue_num" -R "$CURRENT_REPO" --comment "✅ Synced and released $TAG cleanly; closing stale conflict alert." >/dev/null 2>&1 || true
+    fi
+done
 
 echo "=========================================================="
 echo "🎉 Successfully built and published $TAG!"

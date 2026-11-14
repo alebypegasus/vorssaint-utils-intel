@@ -1,6 +1,11 @@
 name: Upstream Sync & Universal Release
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'Resources/Info.plist'
+      - 'Tools/sync-and-release.sh'
   schedule:
     # Run automatically every 2 hours to check for upstream updates
     - cron: '0 */2 * * *'

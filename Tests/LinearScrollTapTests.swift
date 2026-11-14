@@ -2,7 +2,6 @@
 // Copyright (C) 2026 Vorssaint
 
 import CoreGraphics
-import Carbon.HIToolbox
 import Foundation
 
 /// The raw wheel tap's handler is extracted from ScrollInverter.swift on every
@@ -21,8 +20,14 @@ enum LinearScrollTapTests {
     final class Target {
         static let shared = Target()
         var isOwn = false
+        var enabled = false
         let clickThroughWindowIDs = Set<CGWindowID>()
         func contains(_ point: CGPoint) -> Bool { isOwn }
+        func setEnabled(_ enabled: Bool) { self.enabled = enabled }
+    }
+    final class Permissions {
+        static let shared = Permissions()
+        var accessibility = false
     }
     final class Session {
         static let shared = Session()
@@ -45,6 +50,7 @@ enum LinearScrollTapTests {
     }
     final class Inverter {
         typealias UserDefaults = StandardDefaults
+        typealias Permissions = LinearScrollTapTests.Permissions
         typealias MouseAppExceptions = Exceptions
         typealias ScrollWheelTarget = Target
         typealias SessionActivity = Session
@@ -60,27 +66,14 @@ enum LinearScrollTapTests {
         var linearCarryHorizontal: Double = 0
         let pinchZoomLock = NSLock()
         var zoomState = ScrollZoomGestureState()
-        var zoomTarget: ScrollZoomTargetSnapshot?
-        var zoomFocusedTarget: WindowServerWindowCandidate?
-        var zoomStepLimiter = ScrollZoomStepLimiter()
         var pinchPosts = 0
         var pinchEvents: [(phase: Int64, point: CGPoint?)] = []
-        var keyboardPosts: [pid_t] = []
-        var zoomInKeyStroke: (keyCode: CGKeyCode, needsShift: Bool)? = (CGKeyCode(kVK_ANSI_Equal), true)
-        var zoomOutKeyStroke: (keyCode: CGKeyCode, needsShift: Bool)? = (CGKeyCode(kVK_ANSI_Minus), false)
-        var zoomEvents: [CGEvent] = []
-        var activationRequests = 0
-        func prepareZoomTargetLocked(for event: CGEvent) {}
-        func invalidateZoomTargetLocked() {
-            zoomTarget = nil
-            zoomFocusedTarget = nil
-        }
-        func requestZoomTargetLocked(at point: CGPoint, modifier: ScrollHorizontalModifier, activate: Bool = false) {
-            if activate { activationRequests += 1 }
-        }
-        func recordZoomEvent(_ event: CGEvent, to targetProcessID: pid_t) {
-            zoomEvents.append(event)
-            if event.type == .keyDown { keyboardPosts.append(targetProcessID) }
+        var isRunning = false
+        func start() { isRunning = true; zoomState.start() }
+        func stop() {
+            isRunning = false
+            Target.shared.setEnabled(false)
+            _ = zoomState.stop()
         }
         func postPinch(phase: Int64, magnification: Double, at point: CGPoint?) {
             pinchEvents.append((phase, point))
@@ -88,161 +81,25 @@ enum LinearScrollTapTests {
         }
     }
 
-    final class TargetResolver {
-        enum Reader {
-            static func onScreenWindowInfo() -> [[String: Any]] {
-                [[kCGWindowOwnerPID as String: 42, kCGWindowNumber as String: 7,
-                  kCGWindowLayer as String: 0, kCGWindowAlpha as String: 1,
-                  kCGWindowBounds as String: CGRect(x: 0, y: 0, width: 100, height: 100).dictionaryRepresentation]]
-            }
-        }
-        enum Focus {
-            static var lookup: (pid_t) -> CGWindowID? = { _ in 7 }
-            static func focusedWindowID(for pid: pid_t) -> CGWindowID? { lookup(pid) }
-        }
-        typealias WindowServerSupport = Reader
-        typealias WindowActivator = Focus
-        typealias ScrollWheelTarget = Target
-        let pinchZoomLock = NSLock()
-        let zoomTargetQueue = DispatchQueue(label: "vorssaint.tests.zoom-target-request")
-        var zoomTarget: ScrollZoomTargetSnapshot?
-        var zoomFocusedTarget: WindowServerWindowCandidate?
-        var zoomTargetPending: (modifier: ScrollHorizontalModifier, point: CGPoint, activate: Bool)?
-        var zoomTargetMiss: (modifier: ScrollHorizontalModifier, point: CGPoint, at: TimeInterval)?
-        var zoomTargetGeneration: UInt64 = 0
-        var zoomForegroundPID: pid_t? = 1
-        var zoomStepLimiter = ScrollZoomStepLimiter()
-        var activations: [ScrollHorizontalModifier] = []
-        func startZoomTargetTimerLocked() {}
-        func activateZoomTarget(_ window: WindowServerWindowCandidate, snapshot: ScrollZoomTargetSnapshot,
-                                point: CGPoint, generation: UInt64) {
-            activations.append(snapshot.modifier)
-        }
-    }
-
-    final class Refresher {
-        struct Pointer {
-            let location = CGPoint.zero
-            init?(source: Int?) {}
-        }
-        enum EventSource {
-            enum State { case combinedSessionState }
-            static var held: CGEventFlags = .maskAlternate
-            static func flagsState(_ state: State) -> CGEventFlags { held }
-        }
-        struct Direction {
-            var zoom: ScrollZoomPreferences {
-                .init(isAvailable: true, boolFor: { $0 == DefaultsKey.verticalZoomEnabled },
-                      stringFor: { _ in ScrollZoomModifier.option.rawValue })
-            }
-        }
-        typealias CGEvent = Pointer
-        typealias CGEventSource = EventSource
-        typealias ScrollDirectionPreferences = Direction
-        typealias AppSwitcher = Switcher
-        let pinchZoomLock = NSLock()
-        let zoomTargetQueue = DispatchQueue(label: "vorssaint.tests.zoom-refresh")
-        var zoomTargetTimer: DispatchSourceTimer?
-        var zoomState = ScrollZoomGestureState()
-        var refreshes = 0
-        var invalidations = 0
-        let didRefresh = DispatchSemaphore(value: 0)
-        let didInvalidate = DispatchSemaphore(value: 0)
-        func AXIsProcessTrusted() -> Bool { true }
-        func invalidateZoomTargetLocked() {
-            invalidations += 1
-            didInvalidate.signal()
-        }
-        func requestZoomTargetLocked(at point: CGPoint, modifier: ScrollHorizontalModifier, refresh: Bool) {
-            if refresh {
-                refreshes += 1
-                didRefresh.signal()
-            }
-        }
-    }
-
     static func run(_ suite: TestSuite) {
-        let resolver = TargetResolver()
-        defer { TargetResolver.Focus.lookup = { _ in 7 } }
-        let point = CGPoint(x: 10, y: 10)
-        for modifier in [ScrollHorizontalModifier.command, .option, .control, .command] {
-            let entered = DispatchSemaphore(value: 0)
-            let release = DispatchSemaphore(value: 0)
-            TargetResolver.Focus.lookup = { _ in
-                entered.signal()
-                _ = release.wait(timeout: .now() + 2)
-                return 7
-            }
-            resolver.pinchZoomLock.withLock {
-                resolver.invalidateZoomTargetLocked()
-                resolver.requestZoomTargetLocked(at: point, modifier: modifier)
-            }
-            suite.expect(entered.wait(timeout: .now() + 2) == .success,
-                         "modifier-change prefetch resolves focus on the background queue")
-            let previousCount = resolver.activations.count
-            resolver.pinchZoomLock.withLock {
-                resolver.requestZoomTargetLocked(at: point, modifier: modifier, activate: true)
-            }
-            release.signal()
-            resolver.zoomTargetQueue.sync {}
-            suite.expect(resolver.activations.count == previousCount + 1 && resolver.activations.last == modifier,
-                         "\(modifier.rawValue) Zoom preserves a wheel activation request during modifier-change prefetch")
-        }
-        let activationCount = resolver.activations.count
-        TargetResolver.Focus.lookup = { _ in 7 }
-        resolver.pinchZoomLock.withLock {
-            resolver.invalidateZoomTargetLocked()
-            resolver.requestZoomTargetLocked(at: point, modifier: .option)
-        }
-        resolver.zoomTargetQueue.sync {}
-        suite.expect(resolver.activations.count == activationCount && resolver.zoomFocusedTarget == nil,
-                     "prefetch after a modifier change does not activate an inactive hovered app without a wheel tick")
-
-        let cancelledEntered = DispatchSemaphore(value: 0)
-        let cancelledRelease = DispatchSemaphore(value: 0)
-        TargetResolver.Focus.lookup = { _ in
-            cancelledEntered.signal()
-            _ = cancelledRelease.wait(timeout: .now() + 2)
-            return 7
-        }
-        resolver.pinchZoomLock.withLock {
-            resolver.invalidateZoomTargetLocked()
-            resolver.requestZoomTargetLocked(at: point, modifier: .option, activate: true)
-        }
-        suite.expect(cancelledEntered.wait(timeout: .now() + 2) == .success,
-                     "the old modifier's lookup is pending when its assignment changes")
-        resolver.pinchZoomLock.withLock {
-            resolver.invalidateZoomTargetLocked()
-            resolver.requestZoomTargetLocked(at: point, modifier: .command)
-        }
-        cancelledRelease.signal()
-        cancelledRelease.signal()
-        resolver.zoomTargetQueue.sync {}
-        suite.expect(resolver.activations.count == activationCount && resolver.zoomTarget?.modifier == .command,
-                     "changing the modifier cancels obsolete activation without transferring it to the new prefetch")
-
-        TargetResolver.Focus.lookup = { _ in 7 }
-        resolver.pinchZoomLock.withLock {
-            resolver.zoomForegroundPID = 42
-            resolver.invalidateZoomTargetLocked()
-            resolver.requestZoomTargetLocked(at: point, modifier: .control)
-        }
-        resolver.zoomTargetQueue.sync {}
-        suite.expect(resolver.zoomFocusedTarget?.pid == 42 && resolver.activations.count == activationCount,
-                     "a newly assigned key becomes ready without activation when its hovered window is already active")
         let name = "com.vorssaint.tests.linear-scroll-tap.\(UUID().uuidString)"
         let defaults = Foundation.UserDefaults(suiteName: name)!
+        let previousDefaults = StandardDefaults.standard
         StandardDefaults.standard = defaults
         defer {
             defaults.removePersistentDomain(forName: name)
+            StandardDefaults.standard = previousDefaults
             Exceptions.shared.excepted = []
             HIDStage.shared.passes = true
             Switcher.shared.scrollNavigationActive = false
             Target.shared.isOwn = false
+            Target.shared.enabled = false
+            Permissions.shared.accessibility = false
         }
         func configure(linear: Bool = true, installed: Bool = true, lines: Int = 3,
                        invert: Bool = false, invertHorizontal: Bool = false, inverterInstalled: Bool = true,
-                       sidewaysKey: ScrollHorizontalModifier? = nil) {
+                       sidewaysKey: ScrollHorizontalModifier? = nil,
+                       speedKey: ScrollHorizontalModifier? = nil, speedFactor: Int = 3) {
             defaults.set(installed, forKey: AppFeature.linearScroll.availabilityKey)
             defaults.set(linear, forKey: DefaultsKey.linearScrollEnabled)
             defaults.set(lines, forKey: DefaultsKey.linearScrollLines)
@@ -252,6 +109,10 @@ enum LinearScrollTapTests {
             defaults.set(sidewaysKey != nil, forKey: AppFeature.scrollHorizontal.availabilityKey)
             defaults.set(sidewaysKey != nil, forKey: DefaultsKey.scrollHorizontalEnabled)
             defaults.set(sidewaysKey?.rawValue, forKey: DefaultsKey.scrollHorizontalModifier)
+            defaults.set(speedKey != nil, forKey: AppFeature.scrollSpeed.availabilityKey)
+            defaults.set(speedKey != nil, forKey: DefaultsKey.scrollSpeedEnabled)
+            defaults.set(speedKey?.rawValue, forKey: DefaultsKey.scrollSpeedModifier)
+            defaults.set(speedFactor, forKey: DefaultsKey.scrollSpeedMultiplier)
             Exceptions.shared.excepted = []
         }
         /// One event through the shipped handler; nil when it was held back.
@@ -329,17 +190,6 @@ enum LinearScrollTapTests {
         suite.expect(directionExcepted.map(verticalLine) == 3,
                      "an app excepted from the direction change is still capped by linear scrolling")
 
-        configure(invert: true)
-        defaults.set(true, forKey: AppFeature.scrollZoom.availabilityKey)
-        defaults.set(true, forKey: DefaultsKey.verticalZoomEnabled)
-        defaults.set(ScrollZoomModifier.option.rawValue, forKey: DefaultsKey.verticalZoomModifier)
-        let unresolvedZoom = deliver(wheel(line: 4, fixed: 4, point: 40, flags: .maskAlternate))
-        suite.expect(unresolvedZoom.map(verticalLine) == 4
-                        && unresolvedZoom.map(verticalFixed) == 4
-                        && unresolvedZoom?.getIntegerValueField(.scrollWheelEventPointDeltaAxis1) == 40,
-                     "an unresolved keyboard zoom target keeps the wheel raw instead of inverting or capping it")
-        defaults.set(false, forKey: AppFeature.scrollZoom.availabilityKey)
-
         configure(linear: false, invert: true)
         defaults.set(true, forKey: AppFeature.scrollZoom.availabilityKey)
         defaults.set(true, forKey: DefaultsKey.pinchZoomEnabled)
@@ -380,88 +230,8 @@ enum LinearScrollTapTests {
                      && gestures.pinchEvents.map(\.point) == [a, a, a, a, b, b, b],
                      "moving between views ends the old gesture at its original point before beginning the next")
 
-        defaults.set(false, forKey: DefaultsKey.pinchZoomEnabled)
-        let keyboardDirection = ScrollDirectionPreferences(defaults: defaults)
-        let keyboardInverter = Inverter()
-        _ = keyboardInverter.zoomState.update(keyboardDirection.zoom)
-        keyboardInverter.zoomState.start()
-        let keyboardWheel = wheel(line: 1, fixed: 1, point: 10, flags: .maskAlternate)
-        suite.expect(!keyboardInverter.consumeZoom(keyboardWheel, direction: keyboardDirection)
-                        && keyboardInverter.activationRequests == 1 && keyboardInverter.keyboardPosts.isEmpty,
-                     "an unresolved keyboard target requests activation without consuming or posting the tick")
-        let candidate = WindowServerWindowCandidate(pid: 42, windowID: 7,
-            frame: CGRect(x: -10_000, y: -10_000, width: 20_000, height: 20_000))
-        keyboardInverter.zoomTarget = ScrollZoomTargetSnapshot(
-            windows: [.init(frame: candidate.frame, isOwn: false, zoomTarget: candidate)],
-            modifier: .option, resolvedAt: ProcessInfo.processInfo.systemUptime)
-        suite.expect(!keyboardInverter.consumeZoom(keyboardWheel, direction: keyboardDirection)
-                        && keyboardInverter.keyboardPosts.isEmpty,
-                     "a resolved but unfocused keyboard target is not zoomed")
-        keyboardInverter.zoomFocusedTarget = candidate
-        suite.expect(keyboardInverter.consumeZoom(keyboardWheel, direction: keyboardDirection)
-                        && keyboardInverter.keyboardPosts == [42],
-                     "keyboard Zoom posts only after the hovered window is confirmed focused")
-        suite.expect(keyboardInverter.consumeZoom(keyboardWheel, direction: keyboardDirection)
-                        && keyboardInverter.keyboardPosts == [42],
-                     "a high-resolution burst is consumed without posting a second keyboard Zoom step")
-        suite.expect(keyboardInverter.consumeZoom(wheel(line: -1, fixed: -1, point: -10, flags: .maskAlternate),
-                                                  direction: keyboardDirection)
-                        && keyboardInverter.keyboardPosts == [42, 42],
-                     "reversing the keyboard Zoom direction posts a step immediately")
-        Target.shared.isOwn = true
-        suite.expect(!keyboardInverter.consumeZoom(keyboardWheel, direction: keyboardDirection)
-                        && keyboardInverter.keyboardPosts == [42, 42] && keyboardInverter.zoomTarget == nil,
-                     "an own panel appearing above a cached target stops keyboard Zoom")
-        Target.shared.isOwn = false
         defaults.set(false, forKey: AppFeature.scrollZoom.availabilityKey)
-
-        for modifier in ScrollZoomModifier.allCases.compactMap(\.modifier) {
-            let preferences = ScrollZoomPreferences(isAvailable: true,
-                boolFor: { $0 == DefaultsKey.verticalZoomEnabled }, stringFor: { _ in modifier.rawValue })
-            let poster = Inverter()
-            _ = poster.zoomState.update(preferences)
-            poster.zoomState.start()
-            let rightFlag = modifier == .option ? CGEventFlags(rawValue: UInt64(NX_DEVICERALTKEYMASK)) : []
-            let held = modifier.flag.union(rightFlag)
-            let event = wheel(line: 1, fixed: 1, point: 10, flags: held)
-            poster.zoomTarget = ScrollZoomTargetSnapshot(
-                windows: [.init(frame: candidate.frame, isOwn: false, zoomTarget: candidate)],
-                modifier: modifier, resolvedAt: ProcessInfo.processInfo.systemUptime)
-            poster.zoomFocusedTarget = candidate
-            let direction = ScrollDirectionPreferences(isAvailable: { $0 == .scrollZoom },
-                boolFor: { $0 == DefaultsKey.verticalZoomEnabled }, stringFor: { _ in modifier.rawValue })
-            suite.expect(poster.consumeZoom(event, direction: direction)
-                            && poster.zoomEvents.map(\.type) == [.keyDown, .keyUp, .flagsChanged]
-                            && poster.zoomEvents.prefix(2).allSatisfy { $0.flags == [.maskCommand, .maskShift] }
-                            && poster.zoomEvents.last?.flags == held,
-                         "\(modifier.rawValue) Zoom sends Command-plus and restores the held modifier")
-            suite.expect(poster.zoomEvents.allSatisfy {
-                $0.getIntegerValueField(.eventSourceStateID) != Int64(CGEventSourceStateID.hidSystemState.rawValue)
-                    && $0.getIntegerValueField(.eventSourceStateID) != Int64(CGEventSourceStateID.combinedSessionState.rawValue)
-            }, "keyboard Zoom uses a private modifier state instead of the held physical Option or Control")
-            if modifier == .option {
-                suite.expect(poster.zoomEvents.last?.getIntegerValueField(.keyboardEventKeycode) == Int64(kVK_RightOption),
-                             "restoring a held right Option uses the right Option key")
-            }
-            poster.zoomEvents = []
-            let reverse = wheel(line: -1, fixed: -1, point: -10, flags: held)
-            suite.expect(poster.consumeZoom(reverse, direction: direction)
-                            && poster.zoomEvents.prefix(2).allSatisfy { $0.flags == .maskCommand }
-                            && (modifier == .command || poster.zoomEvents.last?.flags == held),
-                         "\(modifier.rawValue) Zoom reverses without leaking Option or Control into Command-minus")
-        }
-
-        let refresher = Refresher()
-        _ = refresher.zoomState.update(Refresher.Direction().zoom)
-        refresher.zoomState.start()
-        refresher.pinchZoomLock.withLock { refresher.startZoomTargetTimerLocked() }
-        suite.expect(refresher.didRefresh.wait(timeout: .now() + 2) == .success,
-                     "holding a keyboard Zoom modifier refreshes targets without waiting for another wheel tick")
-        refresher.zoomTargetQueue.sync { Refresher.EventSource.held = [] }
-        _ = refresher.didInvalidate.wait(timeout: .now() + 2)
-        let stopped = refresher.pinchZoomLock.withLock { refresher.zoomTargetTimer == nil && refresher.invalidations > 0 }
-        suite.expect(stopped, "releasing the Zoom modifier stops background refresh and invalidates the target")
-        refresher.pinchZoomLock.withLock { refresher.stopZoomTargetTimerLocked() }
+        defaults.set(false, forKey: DefaultsKey.pinchZoomEnabled)
 
         configure(sidewaysKey: .option)
         let sideways = deliver(wheel(line: 4, fixed: 4, point: 40, flags: .maskAlternate))
@@ -541,6 +311,118 @@ enum LinearScrollTapTests {
         configure()
         suite.expect(SideWheel().sideWheelInput(for: push) == MouseButtonShortcutSupport.sideWheelLeftInput,
                      "a side-wheel push reads as pushed while horizontal Scroll Direction is off")
+
+        configure(linear: false, speedKey: .option, speedFactor: 4)
+        let sped = deliver(wheel(line: 2, fixed: 2, point: 20, flags: .maskAlternate))
+        suite.expect(sped.map(verticalLine) == 8 && sped?.flags.isEmpty == true,
+                     "Option-held speed multiplies the raw notch and consumes the modifier")
+        configure(speedKey: .option, speedFactor: 3)
+        let linearThenSpeed = deliver(wheel(line: 7, fixed: 7, point: 70, flags: .maskAlternate))
+        suite.expect(linearThenSpeed.map(verticalLine) == 9,
+                     "linear scrolling caps the notch before speed multiplies it")
+        configure(linear: false, sidewaysKey: .option, speedKey: .option, speedFactor: 4)
+        let horizontalWins = deliver(wheel(line: 2, fixed: 2, point: 20, flags: .maskAlternate))
+        suite.expect(horizontalWins.map(verticalLine) == 0
+                        && horizontalWins?.getIntegerValueField(.scrollWheelEventDeltaAxis2) == 2,
+                     "horizontal redirection with the same modifier wins over speed")
+        configure(linear: false, speedKey: .option, speedFactor: 4)
+        Exceptions.shared.excepted = [.scrollSpeed]
+        let speedExcepted = deliver(wheel(line: 2, fixed: 2, point: 20, flags: .maskAlternate))
+        suite.expect(speedExcepted.map(verticalLine) == 2
+                        && speedExcepted?.flags.contains(.maskAlternate) == true,
+                     "an app on scroll speed's own list keeps the unmodified wheel")
+        configure(linear: false, speedKey: .option, speedFactor: 4)
+        Target.shared.isOwn = true
+        let ownSpeed = deliver(wheel(line: 2, fixed: 2, point: 20, flags: .maskAlternate))
+        suite.expect(ownSpeed.map(verticalLine) == 2
+                        && ownSpeed?.flags.contains(.maskAlternate) == true,
+                     "own windows skip modifier-held speed")
+        Target.shared.isOwn = false
+        configure(linear: false, speedKey: .option, speedFactor: 4)
+        let trackpadSpeed = wheel(continuous: true, line: 0, fixed: 4, point: 40, flags: .maskAlternate)
+        trackpadSpeed.setIntegerValueField(.scrollWheelEventScrollPhase, value: 1)
+        let continuousMouseSpeed = deliver(wheel(continuous: true, line: 0, fixed: 4, point: 40,
+                                                 flags: .maskAlternate))
+        suite.expect(deliver(trackpadSpeed)?.getIntegerValueField(.scrollWheelEventPointDeltaAxis1) == 40,
+                     "trackpad gestures stay unscaled while the speed modifier is held")
+        suite.expect(continuousMouseSpeed?.getIntegerValueField(.scrollWheelEventPointDeltaAxis1) == 160,
+                     "continuous mouse wheels still multiply under the speed modifier")
+        let subline = deliver(wheel(line: 0, fixed: 0.125, point: 0, flags: .maskAlternate))
+        suite.expect(subline.map(verticalFixed) == 0.5 && subline.map(verticalLine) == 0
+                        && subline?.getIntegerValueField(.scrollWheelEventPointDeltaAxis1) == 0,
+                     "a fixed-point-only wheel tick keeps its scaled fraction without inventing pixels or lines")
+        for sign: Int64 in [-1, 1] {
+            let large = deliver(wheel(line: sign * 20_000, fixed: Double(sign), point: sign * 1_000_000_000,
+                                      flags: .maskAlternate))
+            suite.expect(large.map(verticalLine) == Int64(sign > 0 ? Int16.max : Int16.min)
+                            && large?.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)
+                                == Int64(sign > 0 ? Int32.max : Int32.min),
+                         "scaling a large input saturates the Quartz integer fields without reversing direction")
+        }
+
+        for continuous in [false, true] {
+            configure(linear: false, invertHorizontal: true, sidewaysKey: .option, speedKey: .option)
+            let diagonal = wheel(continuous: continuous, line: 1, fixed: 0.125, point: 1,
+                                 flags: [.maskAlternate, .maskAlphaShift])
+            diagonal.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: -2)
+            diagonal.setDoubleValueField(.scrollWheelEventFixedPtDeltaAxis2, value: -0.5)
+            diagonal.setIntegerValueField(.scrollWheelEventPointDeltaAxis2, value: -5)
+            let scaled = deliver(diagonal)
+            suite.expect(scaled.map { ScrollWheelAxisDelta($0, axis: .vertical) }
+                            == ScrollWheelAxisDelta(line: 3, point: 3, fixedPoint: 0.375)
+                            && scaled.map { ScrollWheelAxisDelta($0, axis: .horizontal) }
+                            == ScrollWheelAxisDelta(line: 6, point: 15, fixedPoint: 1.5)
+                            && scaled?.flags == .maskAlphaShift,
+                         "a diagonal wheel scales each precise field, inverts the selected axis and keeps other flags")
+        }
+
+        configure(linear: false, sidewaysKey: .control, speedKey: .control)
+        defaults.set(true, forKey: AppFeature.scrollZoom.availabilityKey)
+        defaults.set(true, forKey: DefaultsKey.pinchZoomEnabled)
+        defaults.set(ScrollZoomModifier.control.rawValue, forKey: DefaultsKey.pinchZoomModifier)
+        let pinching = Inverter()
+        _ = pinching.zoomState.update(ScrollDirectionPreferences(defaults: defaults).zoom)
+        pinching.zoomState.start()
+        suite.expect(deliver(wheel(line: 1, fixed: 1, point: 10, flags: .maskControl), through: pinching) == nil
+                        && pinching.pinchPosts == 1, "Pinch wins when all three actions share Control")
+        Exceptions.shared.excepted = [.scrollDirection]
+        let onlySpeed = deliver(wheel(line: 1, fixed: 0.125, point: 1, flags: .maskControl))
+        suite.expect(onlySpeed?.flags.isEmpty == true && onlySpeed?.getIntegerValueField(.scrollWheelEventPointDeltaAxis1) == 3,
+                     "a direction-only exception leaves Control speed available with both competing actions excepted")
+        Exceptions.shared.excepted.insert(.scrollSpeed)
+        let allExcepted = deliver(wheel(line: 1, fixed: 0.125, point: 1, flags: .maskControl))
+        suite.expect(allExcepted?.flags == .maskControl && allExcepted?.getIntegerValueField(.scrollWheelEventPointDeltaAxis1) == 1,
+                     "an exception for speed as well leaves the original Control-wheel available to the app")
+        defaults.set(false, forKey: AppFeature.scrollZoom.availabilityKey)
+        defaults.set(false, forKey: DefaultsKey.pinchZoomEnabled)
+
+        configure(lines: 1, speedKey: .option)
+        for boostFirst in [true, false] {
+            let inverter = Inverter()
+            let first = deliver(wheel(line: 0, fixed: 0.5, point: 5, flags: boostFirst ? .maskAlternate : []),
+                                through: inverter)
+            let second = deliver(wheel(line: 0, fixed: 0.5, point: 5, flags: boostFirst ? [] : .maskAlternate),
+                                 through: inverter)
+            suite.expect(first.map(verticalLine) == (boostFirst ? 1 : nil)
+                            && second.map(verticalLine) == (boostFirst ? 1 : 2)
+                            && inverter.linearCarryVertical == 0,
+                         "each half-notch carries the speed of its own tick through a modifier change")
+        }
+
+        configure(linear: false, installed: false, inverterInstalled: false, speedKey: .option)
+        let lifecycle = Inverter()
+        lifecycle.syncWithPreferences()
+        suite.expect(!lifecycle.isRunning && !Target.shared.enabled, "speed alone waits for Accessibility")
+        Permissions.shared.accessibility = true
+        lifecycle.syncWithPreferences()
+        suite.expect(lifecycle.isRunning && Target.shared.enabled, "the accessibility grant arms speed and protects own windows")
+        Permissions.shared.accessibility = false
+        lifecycle.syncWithPreferences()
+        suite.expect(!lifecycle.isRunning && !Target.shared.enabled, "revocation releases the speed-only wheel tap")
+        Permissions.shared.accessibility = true
+        defaults.set(false, forKey: AppFeature.scrollSpeed.availabilityKey)
+        lifecycle.syncWithPreferences()
+        suite.expect(!lifecycle.isRunning && !Target.shared.enabled, "an old enabled switch cannot rearm an uninstalled feature")
     }
 
     private static func verticalLine(_ event: CGEvent) -> Int64 {

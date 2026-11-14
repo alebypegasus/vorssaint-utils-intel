@@ -72,10 +72,11 @@ enum ReleaseChangeAliases {
         case .scrollInverter: return ["scroll inverter", "invert mouse scrolling", "inverted mouse scrolling",
             "invert scrolling", "inverted scrolling", "scroll inversion"]
         case .scrollHorizontal: return ["scroll sideways", "horizontal scrolling"]
-        case .scrollZoom: return ["scroll zoom", "vertical zoom", "pinch zoom"]
+        case .scrollZoom: return ["scroll zoom", "pinch zoom"]
         case .focusFollowsMouse: return ["focus follows mouse", "focus follows the mouse"]
         case .smoothScroll: return ["smooth scrolling", "smooth scroll"]
         case .linearScroll: return ["linear scrolling", "linear scroll"]
+        case .scrollSpeed: return ["scroll speed", "faster scrolling", "modifier scroll speed"]
         case .mouseAcceleration: return ["mouse acceleration", "pointer acceleration"]
         case .mouseNavigation: return ["mouse navigation", "side buttons", "side button", "side clicks",
             "back/forward mouse buttons"]
@@ -181,7 +182,7 @@ enum ReleaseChangeAliases {
     }
 
     private static let mousePage: [AppFeature] = [.scrollInverter, .scrollHorizontal, .focusFollowsMouse,
-        .smoothScroll, .linearScroll, .mouseAcceleration, .mouseNavigation, .mouseButtonShortcuts, .middleClick,
+        .smoothScroll, .linearScroll, .scrollSpeed, .mouseAcceleration, .mouseNavigation, .mouseButtonShortcuts, .middleClick,
         .mouseClickDebounce]
     private static let monitorMetrics: [AppFeature] = [.monitorCPU, .monitorGPU, .monitorMemory, .monitorNetwork,
         .monitorDisk, .monitorPower]

@@ -208,7 +208,9 @@ fi
 SDK_COMPAT_FLAGS=()
 VM_STATISTICS_COMPAT_FLAGS=(-I Sources/VMStatisticsCompat)
 HID_EVENT_SYSTEM_FLAGS=(-I Sources/HIDEventSystem)
-mkdir -p build/module-cache
+CORE_AUDIO_TAP_FLAGS=(-I Sources/CoreAudioTapCompat)
+GIF_CODEC_FLAGS=(-I Sources/RecorderGIFCodec)
+mkdir -p build/module-cache build/objects/recorder-gif-codec
 MODULE_CACHE_FLAGS=(-module-cache-path build/module-cache)
 
 if [[ -d "$SDK/usr/lib/swift" ]]; then
@@ -258,6 +260,16 @@ discard_test_preferences() {
 
 # Standalone automated tests: pure contracts plus isolated disk, subprocess,
 # keyboard-data and media fixtures. No application windows or device capture.
+if (( TEST || DEV )); then
+    GIF_CODEC_OBJECTS=(build/objects/recorder-gif-codec/RecorderGIFCodec.o
+                       build/objects/recorder-gif-codec/cgif_raw.o)
+    mkdir -p build/objects/recorder-gif-codec
+    xcrun clang -O3 -std=c99 -target "$TARGET" -isysroot "$SDK" \
+        -c Sources/RecorderGIFCodec/RecorderGIFCodec.c -o "$GIF_CODEC_OBJECTS[1]"
+    xcrun clang -O3 -std=c99 -target "$TARGET" -isysroot "$SDK" \
+        -c Sources/RecorderGIFCodec/vendor/cgif/cgif_raw.c -o "$GIF_CODEC_OBJECTS[2]"
+fi
+
 if (( TEST )); then
     python3 Tests/generate_sources.py
     TEST_OBJECT_DIR="build/objects/tests"
@@ -395,6 +407,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Recorder/RecorderWriter.swift
         Sources/Vorssaint/Services/Recorder/RecorderCaptureEngine.swift
         Sources/Vorssaint/Core/RecorderExportStrings.swift
+        Sources/Vorssaint/Core/RecorderExportFormatStrings.swift
         Sources/Vorssaint/Services/Recorder/RecorderComposer.swift
         Sources/Vorssaint/Services/Recorder/RecorderComposerPlan.swift
         Sources/Vorssaint/Services/Recorder/RecorderCursorSprite.swift
@@ -403,6 +416,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Recorder/RecorderExporter.swift
         Sources/Vorssaint/Services/Recorder/RecorderGIFClipboard.swift
         Sources/Vorssaint/Services/Recorder/RecorderGIFWriter.swift
+        Sources/Vorssaint/Services/Recorder/RecorderFastGIFWriter.swift
         Sources/Vorssaint/Services/Recorder/RecorderGIFWorkspace.swift
         Sources/Vorssaint/Services/Recorder/RecorderComposition.swift
         Sources/Vorssaint/Services/Recorder/RecordingSharingSupport.swift
@@ -450,6 +464,8 @@ if (( TEST )); then
         Sources/Vorssaint/Services/SpacesOrder/SpacesOrderHold.swift
         Sources/Vorssaint/Services/Homebrew/HomebrewSupport.swift
         Sources/Vorssaint/Services/Homebrew/HomebrewEnvironment.swift
+        Sources/Vorssaint/Services/Homebrew/HomebrewManager.swift
+        Sources/Vorssaint/UI/HomebrewOperationStatusView.swift
         Sources/Vorssaint/Services/AppUpdates/AppUpdatesSupport.swift
         Sources/Vorssaint/Services/AppUpdates/AppUpdateFeedSupport.swift
         Sources/Vorssaint/Core/AppUpdateStrings.swift
@@ -523,6 +539,9 @@ if (( TEST )); then
         Sources/Vorssaint/Services/QuickTools/ScreenshotCapturePolicy.swift
         Sources/Vorssaint/Services/QuickTools/ScreenshotSupport.swift
         Sources/Vorssaint/Services/QuickTools/ScreenshotCanvasSupport.swift
+        Sources/Vorssaint/Services/QuickTools/ScreenshotImageImport.swift
+        Sources/Vorssaint/Services/Media/MediaImageProcessing.swift
+        Sources/Vorssaint/Services/QuickTools/ScreenshotImageFile.swift
         Sources/Vorssaint/UI/Settings/ScreenCaptureToolPicker.swift
         Sources/Vorssaint/UI/Settings/MonitorToken.swift
         Sources/Vorssaint/Services/QuickTools/ScreenshotRenderer.swift
@@ -550,6 +569,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Switcher/SwitcherSupport.swift
         Sources/Vorssaint/Services/Switcher/SpaceHopSupport.swift
         Sources/Vorssaint/Services/Switcher/WindowUseOrder.swift
+        Sources/Vorssaint/Services/Switcher/WindowEnumeratorAccessibilityPrefetch.swift
         Sources/Vorssaint/Services/Metrics/MetricFormat.swift
         Sources/Vorssaint/Services/Metrics/VMStatisticsDecoder.swift
         Sources/Vorssaint/Services/KeepAwakeAutomationSupport.swift
@@ -576,6 +596,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/WindowLayout/WindowLayoutSupport.swift
         Sources/Vorssaint/Services/WindowLayout/WindowStageManagerSupport.swift
         Sources/Vorssaint/Core/WindowStageManagerStrings.swift
+        Sources/Vorssaint/Core/WindowEdgeSnapRestoreStrings.swift
         Sources/Vorssaint/Services/WindowLayout/WindowGestureSupport.swift
         Sources/Vorssaint/Core/WindowDirectionalStrings.swift
         Sources/Vorssaint/Core/PointerDisplayStrings.swift
@@ -585,6 +606,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/CleaningMode/CleaningMouseReleaseGate.swift
         Sources/Vorssaint/Services/Display/ExtraBrightnessSupport.swift
         Sources/Vorssaint/Services/Display/BrightnessSupport.swift
+        Sources/Vorssaint/Services/Display/MonitorVolumeKeySettings.swift
         Sources/Vorssaint/Services/Display/LidDimmingSupport.swift
         Sources/Vorssaint/Services/Cleaner/CleanerSupport.swift
         Sources/Vorssaint/Services/Cleaner/CleanerPolicy.swift
@@ -601,7 +623,8 @@ if (( TEST )); then
     swiftc -Onone -incremental -enable-batch-mode -j "$(sysctl -n hw.logicalcpu)" \
         -module-name VorssaintTests -output-file-map "$TEST_OUTPUT_FILE_MAP" \
         -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${MODULE_CACHE_FLAGS[@]}" \
-        "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${TEST_SOURCES[@]}" -o build/metrics-tests
+        "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${CORE_AUDIO_TAP_FLAGS[@]}" "${GIF_CODEC_FLAGS[@]}" \
+        "${TEST_SOURCES[@]}" "${GIF_CODEC_OBJECTS[@]}" -o build/metrics-tests
     test_status=0
     ./build/metrics-tests "${TEST_ARGS[@]}" || test_status=$?
     if (( ${#TEST_ARGS} == 0 )); then
@@ -622,7 +645,6 @@ if (( ! DEV )); then
     # changed since, and a fresh checkout has none.
     find build -mindepth 1 -maxdepth 1 ! -name objects -exec rm -rf {} + 2>/dev/null || true
 fi
-
 if (( DEV )); then
     APP_OBJECT_DIR="build/objects/$EXECUTABLE"
     mkdir -p build "$APP_OBJECT_DIR"
@@ -631,10 +653,20 @@ if (( DEV )); then
     swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -incremental -enable-batch-mode -j "$(sysctl -n hw.logicalcpu)" \
         -output-file-map "$APP_OUTPUT_FILE_MAP" \
         -target "$TARGET" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${MODULE_CACHE_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${HID_EVENT_SYSTEM_FLAGS[@]}" \
+        "${CORE_AUDIO_TAP_FLAGS[@]}" "${GIF_CODEC_FLAGS[@]}" \
         "${BUILD_VARIANT_FLAGS[@]}" \
-        "${APP_SOURCES[@]}" -o "build/$EXECUTABLE"
+        "${APP_SOURCES[@]}" "${GIF_CODEC_OBJECTS[@]}" -o "build/$EXECUTABLE"
+    xcrun dyld_info -imports "build/$EXECUTABLE" | awk -f Tests/AudioTapImports.awk
 else
     echo "▸ Compiling arm64 slice…"
+    mkdir -p build/objects/recorder-gif-codec
+    GIF_CODEC_OBJECTS_ARM64=(build/objects/recorder-gif-codec/RecorderGIFCodec_arm64.o
+                             build/objects/recorder-gif-codec/cgif_raw_arm64.o)
+    xcrun clang -O3 -std=c99 -target "arm64-apple-macosx14.0" -isysroot "$SDK" \
+        -c Sources/RecorderGIFCodec/RecorderGIFCodec.c -o "$GIF_CODEC_OBJECTS_ARM64[1]"
+    xcrun clang -O3 -std=c99 -target "arm64-apple-macosx14.0" -isysroot "$SDK" \
+        -c Sources/RecorderGIFCodec/vendor/cgif/cgif_raw.c -o "$GIF_CODEC_OBJECTS_ARM64[2]"
+
     APP_OBJECT_DIR_ARM64="build/objects/${EXECUTABLE}_arm64"
     mkdir -p build "$APP_OBJECT_DIR_ARM64"
     APP_OUTPUT_FILE_MAP_ARM64="$APP_OBJECT_DIR_ARM64/output-file-map.json"
@@ -642,10 +674,18 @@ else
     swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -incremental -enable-batch-mode -j "$(sysctl -n hw.logicalcpu)" \
         -output-file-map "$APP_OUTPUT_FILE_MAP_ARM64" \
         -target "arm64-apple-macosx14.0" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${MODULE_CACHE_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${HID_EVENT_SYSTEM_FLAGS[@]}" \
+        "${CORE_AUDIO_TAP_FLAGS[@]}" "${GIF_CODEC_FLAGS[@]}" \
         "${BUILD_VARIANT_FLAGS[@]}" \
-        "${APP_SOURCES[@]}" -o "build/${EXECUTABLE}_arm64"
+        "${APP_SOURCES[@]}" "${GIF_CODEC_OBJECTS_ARM64[@]}" -o "build/${EXECUTABLE}_arm64"
 
     echo "▸ Compiling x86_64 slice…"
+    GIF_CODEC_OBJECTS_X86=(build/objects/recorder-gif-codec/RecorderGIFCodec_x86_64.o
+                           build/objects/recorder-gif-codec/cgif_raw_x86_64.o)
+    xcrun clang -O3 -std=c99 -target "x86_64-apple-macosx14.0" -isysroot "$SDK" \
+        -c Sources/RecorderGIFCodec/RecorderGIFCodec.c -o "$GIF_CODEC_OBJECTS_X86[1]"
+    xcrun clang -O3 -std=c99 -target "x86_64-apple-macosx14.0" -isysroot "$SDK" \
+        -c Sources/RecorderGIFCodec/vendor/cgif/cgif_raw.c -o "$GIF_CODEC_OBJECTS_X86[2]"
+
     APP_OBJECT_DIR_X86="build/objects/${EXECUTABLE}_x86_64"
     mkdir -p build "$APP_OBJECT_DIR_X86"
     APP_OUTPUT_FILE_MAP_X86="$APP_OBJECT_DIR_X86/output-file-map.json"
@@ -653,12 +693,15 @@ else
     swiftc "${APP_OPTIMIZATION_FLAGS[@]}" -incremental -enable-batch-mode -j "$(sysctl -n hw.logicalcpu)" \
         -output-file-map "$APP_OUTPUT_FILE_MAP_X86" \
         -target "x86_64-apple-macosx14.0" -sdk "$SDK" "${SDK_COMPAT_FLAGS[@]}" "${MODULE_CACHE_FLAGS[@]}" "${VM_STATISTICS_COMPAT_FLAGS[@]}" "${HID_EVENT_SYSTEM_FLAGS[@]}" \
+        "${CORE_AUDIO_TAP_FLAGS[@]}" "${GIF_CODEC_FLAGS[@]}" \
         "${BUILD_VARIANT_FLAGS[@]}" \
-        "${APP_SOURCES[@]}" -o "build/${EXECUTABLE}_x86_64"
+        "${APP_SOURCES[@]}" "${GIF_CODEC_OBJECTS_X86[@]}" -o "build/${EXECUTABLE}_x86_64"
 
     echo "▸ Creating Universal 2 binary…"
     lipo -create -output "build/$EXECUTABLE" "build/${EXECUTABLE}_arm64" "build/${EXECUTABLE}_x86_64"
     echo "✓ Universal binary created: x86_64 + arm64"
+    xcrun dyld_info -imports "build/${EXECUTABLE}_arm64" | awk -f Tests/AudioTapImports.awk
+    xcrun dyld_info -imports "build/${EXECUTABLE}_x86_64" | awk -f Tests/AudioTapImports.awk
 fi
 
 echo "▸ Compiling protected fan helper…"
@@ -786,6 +829,7 @@ FAN_HELPER_VERSION="$(
     "$STAGE/Contents/Info.plist"
 printf 'APPL????' > "$STAGE/Contents/PkgInfo"
 cp build/AppIcon.icns "$STAGE/Contents/Resources/AppIcon.icns"
+cp Sources/RecorderGIFCodec/vendor/cgif/LICENSE "$STAGE/Contents/Resources/cgif-LICENSE.txt"
 cp build/MenuBarIcon.png build/MenuBarIcon@2x.png build/BrandMark.png "$STAGE/Contents/Resources/"
 if [[ -f build/Assets.car ]]; then
     cp build/Assets.car "$STAGE/Contents/Resources/Assets.car"
