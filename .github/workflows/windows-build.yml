@@ -1,0 +1,56 @@
+name: Windows Build & Verification (dev.win)
+
+on:
+  push:
+    branches: [dev.win]
+  pull_request:
+    branches: [dev.win]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build Windows App (Vite + Tauri Rust)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: windows/package-lock.json
+
+      - name: Setup Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry & build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            windows/src-tauri/target
+          key: windows-cargo-${{ hashFiles('windows/src-tauri/Cargo.toml') }}
+
+      - name: Install frontend dependencies & build UI
+        working-directory: windows
+        run: |
+          npm ci
+          npm run build
+
+      - name: Verify Rust / Tauri backend (cargo check)
+        working-directory: windows/src-tauri
+        run: cargo check
+
+      - name: Build Windows Tauri Bundle
+        working-directory: windows
+        run: npx --yes @tauri-apps/cli@2 build --bundles nsis
+
+      - name: Upload Windows Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Vorssaint-Windows-Installer
+          path: windows/src-tauri/target/release/bundle/nsis/*.exe

@@ -24,3 +24,8 @@ CLAUDE.md
 *.xcodeproj
 xcuserdata/
 .swiftpm/
+
+# Windows Edition build artifacts
+windows/node_modules/
+windows/dist/
+windows/src-tauri/target/

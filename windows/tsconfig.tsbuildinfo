@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/brandmark.tsx","./src/components/dynamicisland/dynamicisland.tsx","./src/components/menupanel/menupanel.tsx","./src/components/overlays/overlays.tsx","./src/components/settings/settingswindow.tsx","./src/data/catalog.ts","./src/lib/bridge.ts","./src/lib/urlcleaner.ts","./src/types/vorssaint.ts"],"version":"5.9.3"}

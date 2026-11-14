@@ -1,0 +1,44 @@
+[package]
+name = "vorssaint-utils-windows"
+version = "3.7.8"
+description = "Vorssaint Utils for Windows — Native system suite, telemetry, Dynamic Island, mixer & developer toolkit"
+authors = ["Vorssaint Contributors", "Alessandro Ramos de Oliveira"]
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[lib]
+name = "vorssaint_utils_windows_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sysinfo = "0.33"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_Media_Audio",
+  "Win32_Media_Audio_Endpoints",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant",
+  "Win32_UI_Shell_PropertiesSystem",
+  "Win32_System_Power",
+  "Win32_System_Registry",
+  "Win32_System_Threading",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
