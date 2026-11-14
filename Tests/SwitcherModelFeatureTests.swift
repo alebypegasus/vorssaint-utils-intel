@@ -2504,7 +2504,6 @@ enum SwitcherModelFeatureTests {
         let plistVersion = (releasePlist?["CFBundleShortVersionString"] as? String) ?? ""
         suite.expect(!plistVersion.isEmpty,
                "bumping the app version requires re-deciding the support prompt pin above")
-               "bumping the app version requires re-deciding the support prompt pin above")
         let plistBuild = (releasePlist?["CFBundleVersion"] as? String) ?? ""
         suite.expect(plistBuild == "106",
                "every app version needs its own incremented bundle build")
