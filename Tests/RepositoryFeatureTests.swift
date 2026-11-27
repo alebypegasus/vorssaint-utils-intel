@@ -850,7 +850,7 @@ enum RepositoryFeatureTests {
         suite.expect(HomebrewCommandBuilder.upgradePackages(brewPath: "/usr/local/bin/brew", names: []) == nil
                 && HomebrewCommandBuilder.upgradePackages(brewPath: "/usr/local/bin/brew", names: ["--all"]) == nil,
                "no valid package name gives no upgrade command")
-        let blockedSuiteName = "vorssaint.tests.homebrew-blocked.\(UUID().uuidString)"
+        let blockedSuiteName = "com.vorssaint.tests.homebrew-blocked.\(UUID().uuidString)"
         if let blockedDefaults = UserDefaults(suiteName: blockedSuiteName) {
             let ffmpegUpdate = HomebrewPackageUpdate(kind: .formula, name: "ffmpeg",
                                                      installedVersions: ["8.0.1_4"],

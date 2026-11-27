@@ -31,6 +31,7 @@ struct SettingsSearchState: Equatable {
             DefaultsKey.notchClipboardWindow, DefaultsKey.notchLowBatteryTint, DefaultsKey.notchLowBatteryEarly,
             DefaultsKey.notchHideInFullscreen, DefaultsKey.notchHoverInFullscreen, DefaultsKey.notchOpenOnHover,
             DefaultsKey.notchHideUntilHover, DefaultsKey.notchHoverExpands, DefaultsKey.notchAgentsClaude,
+            DefaultsKey.claudeLiveEnabled,
             DefaultsKey.notchAgentsLiveActivity, DefaultsKey.notchAgentsFinishAlert, DefaultsKey.notchAgentsLimitAlert,
             DefaultsKey.notchCommandBar, DefaultsKey.notchMascotVisits, DefaultsKey.monitorAlertCPU,
             DefaultsKey.monitorAlertCPUTemperature, DefaultsKey.monitorAlertDisk,
@@ -247,6 +248,7 @@ enum SettingsDirectory {
         let notchCalendar = FeatureStrings.notchCalendar(language)
         let notchAgents = FeatureStrings.notchAgents(language)
         let notchLowBattery = NotchLowBatteryStrings.localized(language)
+        let notchExtras = NotchExtrasStrings.localized(language)
         var liquidGlass: [String] = []
 #if compiler(>=6.2)
         if #available(macOS 26.0, *) {
@@ -290,8 +292,10 @@ enum SettingsDirectory {
             .init([notchAgents.readout], feature: .notchAgents, notch: .module(.agents), when: state.on(DefaultsKey.notchAgentsLiveActivity)),
             .init([notchAgents.finishAfter], feature: .notchAgents, notch: .module(.agents), when: state.on(DefaultsKey.notchAgentsFinishAlert)),
             .init([notchAgents.limitAt], feature: .notchAgents, notch: .module(.agents), when: state.on(DefaultsKey.notchAgentsLimitAlert)),
-            .init([FeatureStrings.claudeAccount(language).title], feature: .notchAgents,
-                  notch: .module(.agents), when: state.on(DefaultsKey.notchAgentsClaude)),
+            .init([FeatureStrings.claudeAccount(language).title, notchExtras.claudeLiveTitle],
+                  feature: .notchAgents, notch: .module(.agents), when: state.on(DefaultsKey.notchAgentsClaude)),
+            .init([notchExtras.claudeLiveAnswerInNotch], feature: .notchAgents, notch: .module(.agents),
+                  when: state.on(DefaultsKey.notchAgentsClaude) && state.on(DefaultsKey.claudeLiveEnabled)),
             .init([notchEditor.activity, notchEditor.resting, notch.coverMenus, notchEditor.feedback, notch.inputSource,
                    notch.newTrack, lockScreen.title, lockScreen.sounds, lockScreen.show], notch: .activity),
             .init([notchLowBattery.title], feature: .monitorPower, notch: .activity, when: batteryRest),
@@ -303,6 +307,7 @@ enum SettingsDirectory {
                    FeatureStrings.notchGestures(language).title, notch.hapticFeedback, notchEditor.reopening,
                    notchEditor.openActivity, notch.display, notch.hideInFullscreen, notchEditor.destinations,
                    notch.panel, notch.tools, notch.files, notch.captures, notchEditor.privacy, notch.showInCaptures,
+                   notchExtras.privacyDotsTitle, notchExtras.quietHoursTitle,
                    notchEditor.hideMenuBarIcon], notch: .behavior),
             .init([notchEditor.hiddenShowsActivity], notch: .behavior, when: hover && state.on(DefaultsKey.notchHideUntilHover)),
             .init([notchEditor.activationTime], notch: .behavior, when: hoverDelay),
@@ -317,7 +322,8 @@ enum SettingsDirectory {
                                        keywords: [s.launchAtLogin, s.languageLabel,
                                                   FeatureStrings.appearance(language).label,
                                                   FeatureStrings.appearance(language).dark,
-                                                  FeatureStrings.feedback(language).sectionTitle] + liquidGlass,
+                                                  FeatureStrings.feedback(language).sectionTitle,
+                                                  notchExtras.suppressSupportPopupTitle] + liquidGlass,
                                        // The first title of each feature places its sidebar row,
                                        // so these follow the sidebar's order.
                                        featureKeywords: [
