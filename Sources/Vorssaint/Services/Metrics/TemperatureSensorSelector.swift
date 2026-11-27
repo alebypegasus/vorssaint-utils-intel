@@ -25,6 +25,7 @@ struct CachedSensorReading {
 
 enum TemperatureSensorSelector {
     static let minimumChipTemperature = 10.0
+    static let modelIdentifier = sysctlString("hw.model")
 
     private static let intelCPUCoreKeys: Set<String> = [
         "TC0C", "TC1C", "TC2C", "TC3C", "TC4C", "TC5C", "TC6C", "TC7C",
@@ -106,7 +107,7 @@ enum TemperatureSensorSelector {
             return identified
         }
         return platform(brandString: brand,
-                        modelIdentifier: sysctlString("hw.model"),
+                        modelIdentifier: modelIdentifier,
                         performanceCoreCount: sysctlInteger("hw.perflevel0.physicalcpu"),
                         efficiencyCoreCount: sysctlInteger("hw.perflevel1.physicalcpu"))
     }
