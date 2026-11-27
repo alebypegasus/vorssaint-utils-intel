@@ -456,6 +456,7 @@ final class HomebrewManager: ObservableObject {
                     // No refresh here: `refreshInstalled` calls `clearUntrustedTap()`,
                     // which would drop the prompt and retry closure just installed.
                 } else {
+                    self.blockUnbuildableUpdate(package: package, output: output)
                     let message = HomebrewProgressParser.visibleError(from: output)
                     let reason = message.isEmpty ? output.trimmingCharacters(in: .whitespacesAndNewlines) : message
                     self.errorMessage = HomebrewOperationOutput.retainedText(reason)
@@ -492,6 +493,10 @@ final class HomebrewManager: ObservableObject {
             default: return HomebrewCommandBuilder.upgrade(brewPath: brewPath, package: package)
             }
         case .upgradeAll:
+            if !HomebrewBlockedUpdates.load().isEmpty {
+                return HomebrewCommandBuilder.upgradePackages(
+                    brewPath: brewPath, names: outdatedPackagesByID.values.map(\.name))
+            }
             return HomebrewCommandBuilder.upgradeAll(brewPath: brewPath)
         case .updateHomebrew:
             return HomebrewCommandBuilder.update(brewPath: brewPath)
@@ -616,10 +621,24 @@ final class HomebrewManager: ObservableObject {
                     self.applyOutdatedToCurrentPackages()
                     return
                 }
-                self.outdatedPackagesByID = updates
+                self.outdatedPackagesByID = HomebrewBlockedUpdates.visible(
+                    updates, blocked: HomebrewBlockedUpdates.load())
                 self.applyOutdatedToCurrentPackages()
             }
         }
+    }
+
+    /// An update that failed because this Mac's Xcode/CLT is too old to build
+    /// from source on Intel cannot succeed here: hide it until a newer version
+    /// is released and exclude it from "Upgrade all".
+    private func blockUnbuildableUpdate(package: HomebrewPackage?, output: String) {
+        guard HomebrewCommandBuilder.isToolchainTooOldFailure(output: output),
+              let name = package?.name ?? HomebrewCommandBuilder.packageBeingBuilt(fromOutput: output),
+              let update = outdatedPackagesByID.values.first(where: { $0.name == name }) else { return }
+        HomebrewBlockedUpdates.block(update)
+        outdatedPackagesByID = HomebrewBlockedUpdates.visible(
+            outdatedPackagesByID, blocked: HomebrewBlockedUpdates.load())
+        applyOutdatedToCurrentPackages()
     }
 
     private func applyOutdatedToCurrentPackages() {

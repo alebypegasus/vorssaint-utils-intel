@@ -55,6 +55,9 @@ struct NotchView: View {
             .onChange(of: contrast) {
                 DispatchQueue.main.async { service.refreshPresentation(animated: false) }
             }
+            .onChange(of: service.expanded) { _, isExpanded in
+                if !isExpanded, service.activeClaudeAsk != nil { service.clearClaudeLiveAsk() }
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .environment(\.colorScheme, .dark)
             .environment(\.notchPresentation, true)
@@ -326,7 +329,9 @@ struct NotchView: View {
     }
 
     @ViewBuilder private var page: some View {
-        if service.showingSections {
+        if let ask = service.activeClaudeAsk {
+            NotchClaudeAskOverlay(ask: ask) { service.dismissClaudeLiveAsk() }
+        } else if service.showingSections {
             NotchSectionsView(service: service)
         } else if scrollsVertically {
             ScrollView {
@@ -657,6 +662,7 @@ struct NotchRestingStrip: View {
     /// Another display's strip, when the island shows on every display.
     var displayGeometry: NotchGeometry? = nil
     @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var privacy = NotchPrivacyMonitor.shared
     @AppStorage(DefaultsKey.notchLowBatteryTint) private var lowBatteryTint = false
     @AppStorage(DefaultsKey.notchLowBatteryThreshold) private var lowBatteryThreshold = NotchSupport.defaultLowBatteryThreshold
     @AppStorage(DefaultsKey.notchLowBatteryEarly) private var earlyBatteryWarning = false
@@ -757,6 +763,25 @@ struct NotchRestingStrip: View {
                     .opacity(service.mascotBridging && displayGeometry == nil ? 0 : 1)
                     .animation(nil, value: service.mascotBridging)
                     .allowsHitTesting(false)
+            }
+            if privacy.anyActive {
+                HStack(spacing: 4) {
+                    if privacy.cameraInUse {
+                        Circle()
+                            .fill(Color(red: 0.25, green: 0.85, blue: 0.42))
+                            .frame(width: 6, height: 6)
+                            .shadow(color: Color(red: 0.25, green: 0.85, blue: 0.42).opacity(0.65), radius: 2)
+                    }
+                    if privacy.microphoneInUse {
+                        Circle()
+                            .fill(Color(red: 1.0, green: 0.62, blue: 0.15))
+                            .frame(width: 6, height: 6)
+                            .shadow(color: Color(red: 1.0, green: 0.62, blue: 0.15).opacity(0.65), radius: 2)
+                    }
+                }
+                .padding(.trailing, 10)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .allowsHitTesting(false)
             }
         }
         .foregroundStyle(.white.opacity(0.9))

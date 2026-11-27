@@ -78,6 +78,10 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchHiddenControls) private var hiddenControls = NotchControlItem.defaultHidden
     @AppStorage(DefaultsKey.notchControlOrder) private var controlOrder = ""
     @AppStorage(DefaultsKey.notchShowInCaptures) private var showInCaptures = true
+    @AppStorage(DefaultsKey.notchPrivacyDots) private var privacyDots = true
+    @AppStorage(DefaultsKey.notchQuietHours) private var quietHours = false
+    @AppStorage(DefaultsKey.notchQuietStart) private var quietStart = NotchQuiet.defaultStartHour
+    @AppStorage(DefaultsKey.notchQuietEnd) private var quietEnd = NotchQuiet.defaultEndHour
     @AppStorage(DefaultsKey.notchLockScreen) private var lockScreen = false
     @AppStorage(DefaultsKey.notchLockSounds) private var lockSounds = false
     @AppStorage(DefaultsKey.notchSize) private var size = NotchSize.spacious.rawValue
@@ -132,6 +136,7 @@ struct NotchSettings: View {
          String(brightness), String(keyboardLight),
          String(microphone), String(battery), String(clipboard), String(clipboardWindow), clipboardCardSize,
          String(capture), String(trackChange), captureAction, String(showInCaptures),
+         String(privacyDots), String(quietHours), String(quietStart), String(quietEnd),
          String(returnHome), homeModule, String(opensActivity), String(scratchpad),
          String(agentsEnabled), String(watchEnabled), String(keepAwakeActivity), String(shortcutEnabled)]
     }
@@ -738,7 +743,36 @@ struct NotchSettings: View {
                 destination(FeatureStrings.scratchpad(l10n.language).pageTitle, symbol: "note.text", value: $scratchpad, available: AppFeature.scratchpad.isAvailable)
             }
             SettingsCard(title: editor.privacy) {
+                let extras = NotchExtrasStrings.localized(l10n.language)
                 switchRow("camera.viewfinder", text.showInCaptures, isOn: $showInCaptures)
+                Divider()
+                switchRow("eye.trianglebadge.exclamationmark", extras.privacyDotsTitle,
+                          caption: extras.privacyDotsCaption, isOn: $privacyDots)
+                Divider()
+                switchRow("moon.zzz", extras.quietHoursTitle,
+                          caption: extras.quietHoursCaption, isOn: $quietHours)
+                if quietHours {
+                    HStack(spacing: 12) {
+                        Text(extras.quietFrom).foregroundStyle(.secondary)
+                        Picker(extras.quietFrom, selection: $quietStart) {
+                            ForEach(0..<24, id: \.self) { hour in
+                                Text(String(format: "%02d:00", hour)).tag(hour)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 84)
+                        Text(extras.quietTo).foregroundStyle(.secondary)
+                        Picker(extras.quietTo, selection: $quietEnd) {
+                            ForEach(0..<24, id: \.self) { hour in
+                                Text(String(format: "%02d:00", hour)).tag(hour)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 84)
+                        Spacer()
+                    }
+                    .padding(.leading, settingsRowTextInset)
+                }
             }
         }
     }

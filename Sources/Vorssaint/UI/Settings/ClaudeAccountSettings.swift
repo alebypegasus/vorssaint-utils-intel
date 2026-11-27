@@ -7,12 +7,17 @@ import SwiftUI
 /// Chooses an existing login. Claude Code remains responsible for signing in.
 struct ClaudeAccountSettings: View {
     @AppStorage(DefaultsKey.notchAgentsClaudeProfile) private var selected = ""
+    @AppStorage(DefaultsKey.claudeLiveEnabled) private var claudeLiveEnabled = false
+    @AppStorage(DefaultsKey.claudeLiveAnswerInNotch) private var claudeLiveAnswerInNotch = true
     @ObservedObject private var l10n = L10n.shared
     @ObservedObject private var usage = AgentUsageService.shared
+    @ObservedObject private var claudeLive = ClaudeLiveService.shared
     @State private var entries: [Entry] = []
     @State private var readID = UUID()
     @State private var invalidFolder = false
+    @State private var hooksRevision = 0
     private var text: ClaudeAccountStrings { FeatureStrings.claudeAccount(l10n.language) }
+    private var extras: NotchExtrasStrings { NotchExtrasStrings.localized(l10n.language) }
 
     private struct Entry: Identifiable {
         let profile: ClaudeAccountProfile
@@ -57,15 +62,62 @@ struct ClaudeAccountSettings: View {
                 .fixedSize(horizontal: false, vertical: true)
             Link(text.signInHelp, destination: URL(string: "https://code.claude.com/docs/en/authentication#log-in-with-multiple-accounts")!)
                 .font(.caption)
+            Divider()
+            claudeLiveControls
         }
         .onAppear { refresh() }
         .onChange(of: selected) { _, _ in refresh() }
+        .onChange(of: claudeLiveEnabled) { _, _ in ClaudeLiveService.shared.syncWithPreferences() }
         .onChange(of: usage.claudeAccountIdentity) { _, _ in refresh() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refresh() }
         .onDisappear { readID = UUID() }
         .alert(text.title, isPresented: $invalidFolder) {
             Button("OK", role: .cancel) {}
         } message: { Text(text.invalidFolder) }
+    }
+
+    private var claudeLiveControls: some View {
+        let activeProfile = ClaudeAccountProfile(directory: selected)
+        let connected = hooksRevision >= 0 && ClaudeLiveInstaller.isConnected(activeProfile)
+        return VStack(alignment: .leading, spacing: 8) {
+            SettingsRow(symbol: "bolt.horizontal.circle", title: extras.claudeLiveTitle,
+                        caption: extras.claudeLiveCaption) {
+                Toggle(extras.claudeLiveTitle, isOn: $claudeLiveEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+            if claudeLiveEnabled {
+                SettingsRow(symbol: "hand.raised", title: extras.claudeLiveAnswerInNotch) {
+                    Toggle(extras.claudeLiveAnswerInNotch, isOn: $claudeLiveAnswerInNotch)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .padding(.leading, settingsRowTextInset)
+            }
+            HStack(spacing: 10) {
+                Button(connected ? extras.claudeLiveDisconnect : extras.claudeLiveConnect) {
+                    let next = !connected
+                    if ClaudeLiveInstaller.connect(activeProfile, next) {
+                        hooksRevision += 1
+                        if next && !claudeLiveEnabled {
+                            claudeLiveEnabled = true
+                            ClaudeLiveService.shared.syncWithPreferences()
+                        }
+                    }
+                }
+                if connected {
+                    Label(extras.claudeLiveConnected, systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                }
+                if claudeLive.listening {
+                    Label(extras.claudeLiveListening, systemImage: "dot.radiowaves.left.and.right")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.leading, settingsRowTextInset)
+        }
     }
 
     private func refresh() {

@@ -140,6 +140,7 @@ final class NotchService: ObservableObject {
     @Published private(set) var selected: NotchModule = .controls
     @Published private(set) var showingAppPanel = false
     @Published private(set) var showingSections = false
+    @Published private(set) var activeClaudeAsk: ClaudeLiveAsk?
     @Published private(set) var sectionQuery = ""
     @Published var highlightedSection: NotchModule? { didSet { revealHighlightedSection() } }
     /// The gallery's first visible row; the rows above it have stepped away.
@@ -244,6 +245,7 @@ final class NotchService: ObservableObject {
     private var keepsWorkingSurface: Bool { keepsSurfaceOnClick || showsCapturePreview }
     private var keepsSurfaceOnClick: Bool {
         pinned || trackingMenu || NSApp.modalWindow != nil || panel?.attachedSheet != nil
+            || activeClaudeAsk != nil
             || NotchLyricsService.shared.isImporting
             // Like the lyrics chooser, these panels stand beside the island
             // instead of hanging from it; a click in them is not a click away.
@@ -1200,6 +1202,8 @@ final class NotchService: ObservableObject {
         NotchNotificationService.shared.syncWithPreferences()
         NotchAudioLevelService.shared.syncWithPreferences()
         AgentUsageService.shared.syncWithPreferences()
+        NotchPrivacyMonitor.shared.syncWithPreferences()
+        ClaudeLiveService.shared.syncWithPreferences()
         followsPointer = displayPreference == .pointer || displayPreference == .all
         showsOnAllDisplays = displayPreference == .all
         updateFullscreenDisplays()
@@ -1290,6 +1294,9 @@ final class NotchService: ObservableObject {
         NotchLyricsService.shared.stop()
         NotchFileToolsService.shared.stop()
         AgentUsageService.shared.stop()
+        NotchPrivacyMonitor.shared.stop()
+        ClaudeLiveService.shared.stop()
+        activeClaudeAsk = nil
         guard running else { return }
         running = false
         NotchTimerService.shared.stop()
@@ -2297,6 +2304,7 @@ final class NotchService: ObservableObject {
         // Leave file drags to the open media card as they cross the island's
         // edge. The Files page keeps its own Shelf / Optimize destination.
         acceptsUserInteraction && captureControls == nil && modules.contains(.files)
+            && !ShelfPasteboardSupport.isReorderDrag((pasteboard.types ?? []).map(\.rawValue))
             && !(directMediaDropWorkspace != nil && pasteboard.types?.contains(.fileURL) == true)
             && AppFeature.shelf.isAvailable
             && UserDefaults.standard.bool(forKey: DefaultsKey.shelfEnabled)
@@ -5377,6 +5385,39 @@ extension NotchService {
             self.commandBarHeight = measured
             self.refreshPresentation()
         }
+    }
+
+    func presentClaudeLiveAsk(_ ask: ClaudeLiveAsk) {
+        guard NotchSupport.isEnabled(), !suspended else { return }
+        activeClaudeAsk = ask
+        open(.agents, pinned: true, takeFocus: true)
+    }
+
+    func claudeLiveAskResolved(_ id: String, next: ClaudeLiveAsk?) {
+        guard activeClaudeAsk?.id == id else { return }
+        if let next {
+            activeClaudeAsk = next
+        } else {
+            activeClaudeAsk = nil
+            if expanded { collapse() }
+        }
+    }
+
+    func dismissClaudeLiveAsk() {
+        if let ask = activeClaudeAsk {
+            activeClaudeAsk = nil
+            ClaudeLiveService.shared.dismiss(ask.id)
+        }
+        if expanded { collapse() }
+    }
+
+    func clearClaudeLiveAsk() {
+        activeClaudeAsk = nil
+    }
+
+    func presentClaudeLiveFinished(project: String, summary: String) {
+        show(NotchNotice(event: .agents, title: project, detail: summary,
+                         symbol: "checkmark.circle.fill", agent: .claude))
     }
 }
 

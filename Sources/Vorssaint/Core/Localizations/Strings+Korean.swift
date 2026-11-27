@@ -447,6 +447,8 @@ extension Strings {
         homebrewNotInstalledBadge: "설치되지 않음",
         homebrewUpdates: "업데이트",
         homebrewUpdateAvailableBadge: "업데이트 가능",
+        homebrewUpdateRecommendedBadge: "권장",
+        homebrewUpdateOptionalBadge: "선택 사항",
         homebrewLatestVersion: "최신",
         homebrewConfirmInstallTitle: "Homebrew로 설치할까요?",
         homebrewConfirmInstallBodyFormat: "Homebrew가 %@을(를) 다운로드하고 설치합니다. 종속성도 설치될 수 있습니다.",

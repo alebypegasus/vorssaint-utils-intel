@@ -17,4 +17,23 @@ enum SudoersSupport {
     static func clamshellRule(uid: uid_t) -> String {
         "#\(uid) ALL=(root) NOPASSWD: /usr/bin/pmset disablesleep 1, /usr/bin/pmset disablesleep 0"
     }
+
+    /// True when `sudo -l` lists our NOPASSWD pmset rule before a later broad
+    /// rule such as `(ALL) ALL`, which overrides it under sudo's last-match-wins
+    /// evaluation (e.g. non-admin or institutional `/etc/sudoers` files that put
+    /// `(ALL) ALL` below `#includedir /private/etc/sudoers.d`, issue #63).
+    static func hasLaterSudoersOverride(inSudoListOutput output: String) -> Bool {
+        let lines = output.components(separatedBy: .newlines)
+        guard let ruleIndex = lines.firstIndex(where: {
+            $0.contains("NOPASSWD:") && $0.contains("/usr/bin/pmset disablesleep")
+        }) else {
+            return false
+        }
+        return lines[(ruleIndex + 1)...].contains { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return !trimmed.isEmpty
+                && !trimmed.contains("NOPASSWD:")
+                && trimmed.range(of: #"\((?:ALL|ALL\s*:\s*ALL)\)\s+ALL\b"#, options: .regularExpression) != nil
+        }
+    }
 }

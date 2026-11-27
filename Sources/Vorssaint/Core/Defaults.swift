@@ -348,6 +348,8 @@ enum DefaultsKey {
     static let panelUtilityCleaner = "panelUtilityCleaner"
     static let panelUtilityHomebrew = "panelUtilityHomebrew"
     static let homebrewGroupDependencies = "homebrewGroupDependencies"
+    /// Homebrew updates this Mac cannot build (Intel, outdated Xcode): package id -> version offered.
+    static let homebrewBlockedUpdates = "homebrewBlockedUpdates"
     static let panelUtilityAppUpdates = "panelUtilityAppUpdates"
     static let appUpdatesCheckFrequency = "appUpdatesCheckFrequency"  // off | daily | weekly
     static let appUpdatesIncludeHomebrewApps = "appUpdatesIncludeHomebrewApps"
@@ -999,6 +1001,14 @@ enum DefaultsKey {
     // Legacy backup key. Resting content is now selected explicitly by notchIdleContent.
     static let notchMusicActivity = "notchMusicActivity"
     static let notchShowInCaptures = "notchShowInCaptures"
+    static let notchPrivacyDots = "notchPrivacyDots" // green camera and orange mic dots in Dynamic Island
+    static let notchQuietHours = "notchQuietHours" // pause passive Dynamic Island notices during quiet hours
+    static let notchQuietStart = "notchQuietStart" // 0-23 start hour for quiet hours
+    static let notchQuietEnd = "notchQuietEnd" // 0-23 end hour for quiet hours
+    static let claudeLiveEnabled = "claudeLiveEnabled" // local 127.0.0.1:47615 Claude Code HTTP hook listener
+    static let claudeLiveAnswerInNotch = "claudeLiveAnswerInNotch" // allow approving Claude tool prompts in Dynamic Island
+    static let claudeLiveToken = "claudeLiveToken" // per-Mac random hook auth token; never backed up
+    static let suppressSupportUpdatePopup = "suppressSupportUpdatePopup" // opt out of automatic post-update support popup
     static let notchLockScreen = "notchLockScreen" // music and live activities over the lock screen
     static let notchLockSounds = "notchLockSounds" // padlock sounds as the Mac locks and unlocks
     // Companion: a small friend who rests in the closed island and is the Command Bar's face.
@@ -1575,6 +1585,13 @@ enum Defaults {
         DefaultsKey.notchWatchSound: true,
         DefaultsKey.notchWatchCondition: NotchWatchCondition.changes.rawValue,
         DefaultsKey.notchEnabled: false,
+        DefaultsKey.notchPrivacyDots: true,
+        DefaultsKey.notchQuietHours: false,
+        DefaultsKey.notchQuietStart: NotchQuiet.defaultStartHour,
+        DefaultsKey.notchQuietEnd: NotchQuiet.defaultEndHour,
+        DefaultsKey.claudeLiveEnabled: false,
+        DefaultsKey.claudeLiveAnswerInNotch: true,
+        DefaultsKey.suppressSupportUpdatePopup: false,
         DefaultsKey.notchDisplay: NotchDisplay.automatic.rawValue,
         DefaultsKey.notchSilhouette: NotchSilhouette.capsule.rawValue,
         DefaultsKey.notchCapsuleFitWidth: 0.0,
@@ -2558,8 +2575,16 @@ enum Defaults {
         allowedDurations.contains(minutes) ? minutes : 0
     }
 
+    /// 0 switches the limit off; otherwise any whole percent up to `maxBatteryLimit`.
+    static let maxBatteryLimit = 95
+
     static func sanitizedBatteryLimit(_ percent: Int) -> Int {
-        allowedBatteryLimits.contains(percent) ? percent : 10
+        (0...maxBatteryLimit).contains(percent) ? percent : 10
+    }
+
+    /// A typed value pulled into 1...`maxBatteryLimit` (the limit is on while editing it).
+    static func clampedBatteryLimit(_ percent: Int) -> Int {
+        min(maxBatteryLimit, max(1, percent))
     }
 
     static func sanitizedKeepAwakePowerDisconnectDelay(_ seconds: Int) -> Int {

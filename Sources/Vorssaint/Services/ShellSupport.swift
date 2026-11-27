@@ -4,6 +4,7 @@
 import AppKit
 import CoreServices
 import Darwin
+import OSLog
 
 enum Shell {
     /// A command that stops answering must not keep a thread forever. Nothing
@@ -162,6 +163,9 @@ enum Sudoers {
         ([rulePath] + legacyRulePaths).contains { FileManager.default.fileExists(atPath: $0) }
     }
 
+    private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "vorssaint",
+                                    category: "sudoers")
+
     static func install(completion: @escaping (Bool) -> Void) {
         // Granted by uid, not username: a short name is free-form text on
         // SSO-enrolled Macs (name@company.com, #915) and the old validation
@@ -172,7 +176,20 @@ enum Sudoers {
         let legacy = legacyRulePaths.joined(separator: " ")
         let command = "mkdir -p /etc/sudoers.d && chmod 0755 /etc/sudoers.d && rm -f \(legacy) && echo '\(rule)' > \(rulePath) && chmod 0440 \(rulePath) && /usr/sbin/visudo -c -f \(rulePath) || { rm -f \(rulePath); exit 1; }"
         AdminShell.run(command, prompt: L10n.shared.s.adminPromptSudoersInstall) { ok in
-            completion(ok && isConfigured())
+            guard ok else {
+                completion(false)
+                return
+            }
+            let configured = isConfigured()
+            if !configured {
+                let sudoList = Shell.run("/usr/bin/sudo", ["-n", "-l"]).output
+                if SudoersSupport.hasLaterSudoersOverride(inSudoListOutput: sudoList) {
+                    log.error("Installed \(rulePath, privacy: .public) for uid \(getuid()), but a later (ALL) ALL rule in /etc/sudoers overrides NOPASSWD (last-match-wins).")
+                } else {
+                    log.error("Installed \(rulePath, privacy: .public) for uid \(getuid()), but `sudo -n /usr/bin/pmset` still failed. Verify `#includedir /private/etc/sudoers.d` is active at the end of /etc/sudoers.")
+                }
+            }
+            completion(configured)
         }
     }
 

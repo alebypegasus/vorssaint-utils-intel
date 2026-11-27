@@ -446,6 +446,8 @@ extension Strings {
         homebrewNotInstalledBadge: "Nenainštalované",
         homebrewUpdates: "Aktualizácie",
         homebrewUpdateAvailableBadge: "Dostupná aktualizácia",
+        homebrewUpdateRecommendedBadge: "Odporúčané",
+        homebrewUpdateOptionalBadge: "Voliteľné",
         homebrewLatestVersion: "Najnovšia",
         homebrewConfirmInstallTitle: "Nainštalovať cez Homebrew?",
         homebrewConfirmInstallBodyFormat: "Homebrew stiahne a nainštaluje %@. Môžu sa nainštalovať aj závislosti.",

@@ -446,6 +446,8 @@ extension Strings {
         homebrewNotInstalledBadge: "Yüklü değil",
         homebrewUpdates: "Güncellemeler",
         homebrewUpdateAvailableBadge: "Güncelleme var",
+        homebrewUpdateRecommendedBadge: "Önerilir",
+        homebrewUpdateOptionalBadge: "İsteğe bağlı",
         homebrewLatestVersion: "En son",
         homebrewConfirmInstallTitle: "Homebrew ile yüklensin mi?",
         homebrewConfirmInstallBodyFormat: "Homebrew %@ paketini indirip yükleyecek. Bağımlılıklar da yüklenebilir.",

@@ -17,6 +17,7 @@ struct GeneralSettings: View {
     @State private var loginPending = false
     @State private var loginRefreshID = UUID()
     @AppStorage(DefaultsKey.hotkeyEnabled) private var hotkeyEnabled = true
+    @AppStorage(DefaultsKey.suppressSupportUpdatePopup) private var suppressSupportPopup = false
 
     private var text: GeneralSettingsStrings { FeatureStrings.generalSettings(l10n.language) }
     private var appearanceStrings: AppearanceStrings { FeatureStrings.appearance(l10n.language) }
@@ -146,12 +147,20 @@ struct GeneralSettings: View {
     }
 
     private var feedbackCard: some View {
-        SettingsCard {
+        let extras = NotchExtrasStrings.localized(l10n.language)
+        return SettingsCard {
             SettingsRow(symbol: "bubble.left.and.text.bubble.right", title: feedbackStrings.sectionTitle,
                         caption: feedbackStrings.sectionCaption) {
                 Button(feedbackStrings.openButton) {
                     appDelegate()?.openFeedbackWindow()
                 }
+            }
+            Divider()
+            SettingsRow(symbol: "bell.slash", title: extras.suppressSupportPopupTitle,
+                        caption: extras.suppressSupportPopupCaption) {
+                Toggle(extras.suppressSupportPopupTitle, isOn: $suppressSupportPopup)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
             }
         }
     }

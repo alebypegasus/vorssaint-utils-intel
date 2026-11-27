@@ -33,6 +33,52 @@ struct HomebrewPackage: Identifiable, Hashable {
     var versionText: String? { installedVersion ?? stableVersion }
 }
 
+/// Updates this Mac cannot finish (see `isToolchainTooOldFailure`). Remembered
+/// with the version offered so a newer release is offered again while broken
+/// Intel source builds stay out of the list and out of "Upgrade all".
+enum HomebrewBlockedUpdates {
+    static let defaultsKey = DefaultsKey.homebrewBlockedUpdates
+
+    static func load(defaults: UserDefaults = .standard) -> [String: String] {
+        defaults.dictionary(forKey: defaultsKey) as? [String: String] ?? [:]
+    }
+
+    static func block(_ update: HomebrewPackageUpdate, defaults: UserDefaults = .standard) {
+        var blocked = load(defaults: defaults)
+        blocked[update.id] = update.currentVersion
+        defaults.set(blocked, forKey: defaultsKey)
+    }
+
+    static func visible(_ updates: [String: HomebrewPackageUpdate],
+                        blocked: [String: String]) -> [String: HomebrewPackageUpdate] {
+        updates.filter { blocked[$0.value.id] != $0.value.currentVersion }
+    }
+}
+
+/// A hint on which updates are worth prioritising (TLS, certificates, network
+/// clients, git, SSH/GPG and browsers vs general libraries/apps).
+enum HomebrewUpdateAdvice {
+    private static let securityFormulae: Set<String> = [
+        "ca-certificates", "curl", "git", "gnupg", "openssh", "libssh2", "wget",
+        "nss", "gnutls", "libressl", "sudo",
+    ]
+    private static let securityCasks: Set<String> = [
+        "firefox", "google-chrome", "brave-browser", "chromium", "microsoft-edge",
+        "opera", "vivaldi", "tor-browser", "arc", "1password", "bitwarden",
+    ]
+
+    static func isRecommended(_ update: HomebrewPackageUpdate) -> Bool {
+        let name = update.name.lowercased()
+        switch update.kind {
+        case .formula:
+            return securityFormulae.contains(name)
+                || name == "openssl" || name.hasPrefix("openssl@")
+        case .cask:
+            return securityCasks.contains(name)
+        }
+    }
+}
+
 enum HomebrewSearchResults {
     static func reconciled(_ results: [HomebrewPackage],
                            installed: [HomebrewPackage]) -> [HomebrewPackage] {
@@ -473,6 +519,37 @@ enum HomebrewCommandBuilder {
             // The refusal ends the sentence right after the name.
             .trimmingCharacters(in: CharacterSet(charactersIn: "."))
         return isValidToken(name) ? name : nil
+    }
+
+    /// Homebrew stopped building bottles for Intel Macs, so a formula without a
+    /// bottle falls back to a source build that fails with "Your Xcode ... is too
+    /// outdated". Only the error itself counts (the unsupported-platform warning
+    /// appears on every run).
+    static func isToolchainTooOldFailure(output: String) -> Bool {
+        let lower = output.lowercased()
+        return lower.contains("is too outdated")
+            && (lower.contains("xcode") || lower.contains("command line tools"))
+    }
+
+    /// The package brew was upgrading or installing when it stopped: the last
+    /// `==> Upgrading name` / `==> Installing name` line.
+    static func packageBeingBuilt(fromOutput output: String) -> String? {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"^==> (?:Upgrading|Installing) ([A-Za-z0-9][A-Za-z0-9._+@/-]*)"#,
+            options: [.anchorsMatchLines]) else { return nil }
+        let range = NSRange(output.startIndex..<output.endIndex, in: output)
+        guard let match = regex.matches(in: output, range: range).last,
+              match.numberOfRanges > 1,
+              let nameRange = Range(match.range(at: 1), in: output) else { return nil }
+        let name = String(output[nameRange])
+        return isValidToken(name) ? name : nil
+    }
+
+    /// `brew upgrade` limited to exactly these packages (formulae or casks).
+    static func upgradePackages(brewPath: String, names: [String]) -> HomebrewCommand? {
+        let valid = names.filter(isValidToken)
+        guard !valid.isEmpty else { return nil }
+        return HomebrewCommand(executable: brewPath, arguments: ["upgrade"] + valid)
     }
 
     static func trustTap(brewPath: String, tap: String) -> HomebrewCommand {

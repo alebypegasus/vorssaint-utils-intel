@@ -258,15 +258,7 @@ struct EnergySettings: View {
                 Divider()
                 SettingsRow(symbol: "battery.25percent", title: l10n.s.batteryDisableBelow,
                             caption: l10n.s.batteryProtectionCaption) {
-                    Picker(l10n.s.batteryDisableBelow, selection: $batteryLimit) {
-                        Text(l10n.s.batteryNever).tag(0)
-                        Text("5%").tag(5)
-                        Text("10%").tag(10)
-                        Text("15%").tag(15)
-                        Text("20%").tag(20)
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
+                    BatteryLimitControl()
                 }
             }
             Divider()

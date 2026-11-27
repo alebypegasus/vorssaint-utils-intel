@@ -1371,6 +1371,13 @@ enum AppManagementFeatureTests {
         suite.expect(Defaults.sanitizedDefaultDuration(999) == 0, "invalid default duration falls back to indefinite")
         suite.expect(Defaults.sanitizedBatteryLimit(15) == 15, "valid battery limit is preserved")
         suite.expect(Defaults.sanitizedBatteryLimit(100) == 10, "invalid battery limit falls back to default")
+        suite.expect(Defaults.sanitizedBatteryLimit(37) == 37, "a typed battery limit between 1 and 95 is kept")
+        suite.expect(Defaults.sanitizedBatteryLimit(0) == 0, "zero keeps the battery limit off")
+        suite.expect(Defaults.sanitizedBatteryLimit(96) == 10 && Defaults.sanitizedBatteryLimit(-3) == 10,
+               "a battery limit out of range falls back to default")
+        suite.expect(Defaults.clampedBatteryLimit(0) == 1 && Defaults.clampedBatteryLimit(250) == 95
+                && Defaults.clampedBatteryLimit(42) == 42,
+               "an edited battery limit is pulled into 1...95")
         suite.expect(Defaults.sanitizedClipboardHistoryLimit(1_000) == 1_000,
                "larger clipboard history limits are preserved")
         suite.expect(Defaults.sanitizedClipboardHistoryLimit(999) == 50,

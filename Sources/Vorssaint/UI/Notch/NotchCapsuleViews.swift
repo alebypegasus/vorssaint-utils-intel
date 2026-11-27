@@ -173,6 +173,7 @@ private struct NotchCapsuleTrackArtwork: View {
 struct NotchCapsuleRestingView: View {
     @ObservedObject var service: NotchService
     @ObservedObject private var music = NotchMusicService.shared
+    @ObservedObject private var privacy = NotchPrivacyMonitor.shared
     @AppStorage(DefaultsKey.notchLowBatteryTint) private var lowBatteryTint = false
     @AppStorage(DefaultsKey.notchLowBatteryThreshold) private var lowBatteryThreshold = NotchSupport.defaultLowBatteryThreshold
     @AppStorage(DefaultsKey.notchLowBatteryEarly) private var earlyBatteryWarning = false
@@ -203,6 +204,23 @@ struct NotchCapsuleRestingView: View {
                                          yieldsToActivities: true)
                         .frame(width: size.width, height: geometry.stripHeight)
                         .allowsHitTesting(false)
+                }
+                if privacy.anyActive {
+                    HStack(spacing: 4) {
+                        if privacy.cameraInUse {
+                            Circle()
+                                .fill(Color(red: 0.25, green: 0.85, blue: 0.42))
+                                .frame(width: 6, height: 6)
+                        }
+                        if privacy.microphoneInUse {
+                            Circle()
+                                .fill(Color(red: 1.0, green: 0.62, blue: 0.15))
+                                .frame(width: 6, height: 6)
+                        }
+                    }
+                    .padding(.trailing, CapsuleLayout.side(geometry) + 6)
+                    .frame(width: size.width, height: geometry.stripHeight, alignment: .trailing)
+                    .allowsHitTesting(false)
                 }
             }
             .accessibilityHidden(true)

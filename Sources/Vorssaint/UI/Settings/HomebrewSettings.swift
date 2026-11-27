@@ -662,11 +662,19 @@ struct HomebrewSettings: View {
         }
     }
 
+    private func updateBadgeTitle(for package: HomebrewPackage) -> String {
+        guard let update = package.update else { return l10n.s.homebrewUpdateAvailableBadge }
+        let advice = HomebrewUpdateAdvice.isRecommended(update)
+            ? l10n.s.homebrewUpdateRecommendedBadge
+            : l10n.s.homebrewUpdateOptionalBadge
+        return "\(l10n.s.homebrewUpdateAvailableBadge) · \(advice)"
+    }
+
     private func statusBadge(_ package: HomebrewPackage) -> some View {
         let active = activeStatus(for: package)
         let title = active.map { activeActionTitle(for: $0) }
             ?? (package.update != nil
-                ? l10n.s.homebrewUpdateAvailableBadge
+                ? updateBadgeTitle(for: package)
                 : (package.isInstalled ? l10n.s.homebrewInstalledBadge : l10n.s.homebrewNotInstalledBadge))
         let color: Color = active != nil ? .accentColor : (package.update != nil ? .orange : (package.isInstalled ? .green : .secondary))
         return Text(title)

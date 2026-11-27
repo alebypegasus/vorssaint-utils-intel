@@ -38,11 +38,12 @@
 > While the upstream project is strictly compiled for Apple Silicon (`arm64`), **this fork brings full native Universal 2 architecture support (`arm64` + `x86_64`)**, ensuring it runs natively on both Apple Silicon Macs and Intel Macs (including Hackintosh computers).
 >
 > **Key Enhancements in this Fork:**
-> - **Universal 2 Binaries:** `Vorssaint`, `com.vorssaint.utils.fan-control` helper, and `libVorssaintNowPlaying.dylib` are all compiled with dual-slice (`arm64` and `x86_64`) fat architectures.
-> - **Intel SMC Sensors & Metrics:** Native sensor key support for Intel CPU Core/Die temperatures (`TC0C`-`TCFC`, `TC0D`-`TC3D`, `TC0P`), Intel CPU Package and System Power reading in Watts (`PCPC`, `PCPG`, `PCPT`, `PCPR`), and Intel/AMD integrated and discrete GPU monitoring (`TCGC`, `TG*`).
+> - **Universal 2 Binaries & Checksums:** `Vorssaint`, `com.vorssaint.utils.fan-control` helper, and `libVorssaintNowPlaying.dylib` are all compiled with dual-slice (`arm64` + `x86_64`) fat architectures, distributed with `.dmg.sha256` checksums.
+> - **Intel SMC Sensors & Hardware Reliability:** Native sensor discovery for Intel CPU Core/Die temperatures (`TC0C`–`TCFC`, `TC0D`–`TC3D`, `TC0P`), CPU Package & System Power in Watts (`PCPC`, `PCPG`, `PCPT`, `PCPR`), Intel/AMD GPU sensors (`TCGC`, `TG*`), Intel Lock Screen Dynamic Island fix, and improved non-admin Clamshell sudoers diagnostics.
+> - **Intel Homebrew Protection & Permission-Safe Installer:** Automatically skips Homebrew formulae blocked by outdated Intel macOS Xcode toolchains, shows Recommended/Optional update badges, and ships `Tools/install.sh --stable-signing` to preserve macOS Accessibility and Screen Recording grants across updates.
+> - **Dynamic Island & Community Polish:** Camera/microphone privacy dots, Quiet Hours for passive notices, local Claude Code live hooks (sessions, tool approvals, plan reviews & questions on `127.0.0.1:47615`), 1–95% typeable Keep Awake battery limit, smooth in-place Audio Priority drag reordering, Window Edge Snap cancellation hardening, and an opt-out toggle for post-update support popups.
 > - **HDR Headroom & Display Controls:** Support for external displays and Hackintosh video setups.
-> - **Automated In-App Updates:** The application's built-in self-updater checks this repository (`alebypegasus/vorssaint-utils-intel`) so Intel and Universal users receive automatic updates without risking ARM-only overwrites.
-> - **Continuous Upstream Sync CI/CD:** A scheduled GitHub Actions workflow checks the upstream repository every 6 hours, automatically merges updates, compiles Universal 2 binaries, verifies them via unit tests and selftest, packages the `.dmg`, and creates releases.
+> - **Automated In-App Updates & CI/CD:** The built-in updater points to `alebypegasus/vorssaint-utils-intel`, backed by dual-toolchain macOS CI (`macos-15` Swift 6.0.3 + `macos-26` Universal 2) and automated upstream sync releases.
 >
 > All credit for original product design and features goes to the upstream [Vorssaint](https://github.com/vorssaint/vorssaint-utils) team.
 
@@ -189,9 +190,15 @@ Reorder or hide panel sections, choose a compact layout, and export settings to 
 
 Grab the Universal DMG from the [Releases Page](https://github.com/alebypegasus/vorssaint-utils-intel/releases):
 
-1. Download `Vorssaint-<version>.dmg`.
+1. Download `Vorssaint-<version>.dmg` (and optionally verify with `shasum -a 256 -c Vorssaint-<version>.dmg.sha256`).
 2. Open the disk image and drag **Vorssaint** into your **Applications** folder.
 3. Launch Vorssaint. All future updates are checked and installed automatically directly through this fork's releases.
+
+### CLI installer with stable local signing (preserves macOS permissions across updates)
+
+```sh
+./Tools/install.sh --stable-signing
+```
 
 ## What you need
 
@@ -204,9 +211,7 @@ Grab the Universal DMG from the [Releases Page](https://github.com/alebypegasus/
 git clone https://github.com/alebypegasus/vorssaint-utils-intel.git
 cd vorssaint-utils-intel
 ./build.sh                  # builds Universal 2 (Apple Silicon & Intel)
-./build.sh --dev --install  # or build and launch developer variant
-```
-./build.sh --dev --install  # install and launch it
+./build.sh --dev --install  # or build, install and launch developer variant
 ```
 
 Xcode Command Line Tools are the only requirement. The [contributing guide](CONTRIBUTING.md) covers the layout and conventions. Official builds come only from the maintainer: the GPL covers the source, while the Vorssaint name, icon and look are covered by [TRADEMARKS.md](TRADEMARKS.md), so forks need their own identity.

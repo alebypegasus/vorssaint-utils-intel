@@ -325,9 +325,18 @@ struct MixedStateCheckbox: NSViewRepresentable {
         let button = NSButton(checkboxWithTitle: title, target: context.coordinator,
                               action: #selector(Coordinator.toggled(_:)))
         button.allowsMixedState = true
-        button.setContentHuggingPriority(.required, for: .horizontal)
-        button.setContentCompressionResistancePriority(.required, for: .horizontal)
+        // Both axes: a docked footer otherwise stretches the box vertically
+        // and grows into the list above it.
+        for axis in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+            button.setContentHuggingPriority(.required, for: axis)
+            button.setContentCompressionResistancePriority(.required, for: axis)
+        }
         return button
+    }
+
+    /// SwiftUI asks for a size it may then stretch; the box keeps its own.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView button: NSButton, context: Context) -> CGSize? {
+        button.intrinsicContentSize
     }
 
     func updateNSView(_ button: NSButton, context: Context) {

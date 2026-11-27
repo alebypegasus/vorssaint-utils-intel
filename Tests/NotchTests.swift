@@ -1843,6 +1843,48 @@ enum NotchTests {
 
     static func run(_ suite: TestSuite) {
         shortcutContracts(suite)
+        let overlaySpaceSource = (try? String(contentsOfFile: "Sources/Vorssaint/Services/Notch/NotchOverlaySpace.swift",
+                                              encoding: .utf8)) ?? ""
+        suite.expect(overlaySpaceSource.contains("LevelFunction = @convention(c) (ConnectionID, UInt64, Int32) -> Void")
+                     && overlaySpaceSource.contains("CGSSpaceGetAbsoluteLevel"),
+                     "CGSSpaceSetAbsoluteLevel returns Void so x86_64/Intel does not reject garbage eax return values (#52)")
+        suite.expect(NotchQuiet.isActive(hour: 23, start: 22, end: 8)
+                     && NotchQuiet.isActive(hour: 3, start: 22, end: 8)
+                     && !NotchQuiet.isActive(hour: 12, start: 22, end: 8)
+                     && NotchQuiet.isActive(hour: 14, start: 13, end: 17)
+                     && !NotchQuiet.isActive(hour: 18, start: 13, end: 17)
+                     && !NotchQuiet.isActive(hour: 10, start: 10, end: 10),
+                     "Dynamic Island quiet hours wrap overnight cleanly and ignore empty ranges")
+        let quietDomain = "com.vorssaint.tests.notch-quiet.\(UUID().uuidString)"
+        if let quietDefaults = UserDefaults(suiteName: quietDomain) {
+            defer { quietDefaults.removePersistentDomain(forName: quietDomain) }
+            quietDefaults.set(true, forKey: DefaultsKey.notchQuietHours)
+            quietDefaults.set(0, forKey: DefaultsKey.notchQuietStart)
+            quietDefaults.set(23, forKey: DefaultsKey.notchQuietEnd)
+            let noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: Date()) ?? Date()
+            suite.expect(NotchQuiet.suppresses(.systemNotification, in: quietDefaults, now: noon)
+                         && NotchQuiet.suppresses(.agents, in: quietDefaults, now: noon)
+                         && NotchQuiet.suppresses(.track, in: quietDefaults, now: noon)
+                         && !NotchQuiet.suppresses(.volume, in: quietDefaults, now: noon)
+                         && !NotchQuiet.suppresses(.brightness, in: quietDefaults, now: noon),
+                         "quiet hours silence passive notices while keeping volume and brightness HUDs responsive")
+        }
+        let hookBody = "{\"hook_event_name\":\"PreToolUse\"}"
+        let rawHTTP = "POST /vorssaint-hook HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Vorssaint-Token: abc\r\nContent-Length: \(hookBody.utf8.count)\r\n\r\n\(hookBody)"
+        let parsedHook = ClaudeLiveHTTPRequest(Data(rawHTTP.utf8))
+        let partialHook = ClaudeLiveHTTPRequest(Data(rawHTTP.dropLast(3).utf8))
+        suite.expect(parsedHook?.method == "POST"
+                     && parsedHook?.path == "/vorssaint-hook"
+                     && parsedHook?.headers["x-vorssaint-token"] == "abc"
+                     && String(data: parsedHook?.body ?? Data(), encoding: .utf8) == hookBody
+                     && partialHook == nil,
+                     "ClaudeLiveHTTPRequest parses complete hook frames and waits on truncated bodies")
+        suite.expect(ClaudeLiveFormatter.accountName("/Users/test/.claude") == "main"
+                     && ClaudeLiveFormatter.accountName("/Users/test/.claude-work") == "work"
+                     && ClaudeLiveFormatter.duration(125) == "2m 5s"
+                     && ClaudeLiveFormatter.describe(tool: "Bash", input: ["command": "swift build"]).1 == "terminal"
+                     && SettingsBackupSupport.machineStateKeys.contains(DefaultsKey.claudeLiveToken),
+                     "Claude Live formats accounts/tools cleanly and keeps its auth token out of settings backups")
         let previewStrip: CGFloat = 37
         suite.expect(NotchTranslucentTint.opacity(atDepth: previewStrip, stripHeight: previewStrip,
                                                   openness: 1, increasedContrast: false) == 1

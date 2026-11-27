@@ -200,6 +200,16 @@ enum UpdateIntroFlowTests {
         close(quittingReview.updateHighlightsWindow, in: quittingReview)
         suite.expect(quittingReview.shown == ["tour"], "quitting during review never opens another window")
 
+        let suppressed = reset("3.4.5")
+        UserDefaults.standard.set(UpdateHighlightsInfo.releaseVersion, forKey: DefaultsKey.updateHighlightsSeenVersion)
+        UserDefaults.standard.set(true, forKey: DefaultsKey.suppressSupportUpdatePopup)
+        suppressed.presentUpdateIntros()
+        suite.expect(suppressed.shown == ["finished"],
+                     "opting out skips the automatic post-update support popup")
+        suppressed.showSupportUpdateIntro(isReview: true)
+        suite.expect(suppressed.shown == ["finished", "support"],
+                     "manual support review still works when automatic popups are suppressed")
+
         runWindowReachability(suite, reset: reset, close: close)
         runWhatsNew(suite, domain: domain, reset: reset, close: close)
     }

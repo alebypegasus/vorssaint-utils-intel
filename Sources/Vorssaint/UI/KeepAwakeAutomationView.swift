@@ -131,6 +131,7 @@ struct KeepAwakeAutomationEditor: View {
                     .font(.system(size: compact ? 10 : 12, weight: .medium))
                     .foregroundStyle(.primary)
                     .lineLimit(2)
+                    .minimumScaleFactor(0.7)
                     .multilineTextAlignment(.leading)
             }
             .padding(compact ? 7 : 9)

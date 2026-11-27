@@ -146,5 +146,7 @@ mkdir -p dist
 rm -f "$OUT"
 hdiutil convert "$RW" -format UDZO -imagekey zlib-level=9 -o "$OUT" -quiet
 codesign -s - --force "$OUT" 2>/dev/null || true
+(cd dist && shasum -a 256 "$(basename "$OUT")" > "$(basename "$OUT").sha256")
 
 echo "✓ DMG ready: $OUT"
+echo "✓ SHA-256 ready: ${OUT}.sha256"

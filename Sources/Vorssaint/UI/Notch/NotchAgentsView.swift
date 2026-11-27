@@ -8,6 +8,7 @@ struct NotchAgentsView: View {
     let size: CGSize
     @ObservedObject private var usage = AgentUsageService.shared
     @ObservedObject private var accounts = CodexProfileLimitsService.shared
+    @ObservedObject private var claudeLive = ClaudeLiveService.shared
     @ObservedObject private var l10n = L10n.shared
     @Environment(\.notchSettingsPreview) private var preview
     @AppStorage(DefaultsKey.notchAgentsPeriod) private var period = AgentPeriod.today.rawValue
@@ -56,14 +57,17 @@ struct NotchAgentsView: View {
                     Text(text.loading).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if providers.isEmpty {
+            } else if providers.isEmpty && claudeLive.sessions.isEmpty {
                 NotchEmptyView(symbol: "sparkles", message: text.empty)
-            } else if rows.isEmpty {
+            } else if providers.isEmpty {
+                ScrollView { NotchClaudeLiveSection() }
+                    .scrollIndicators(.automatic)
+            } else if rows.isEmpty && claudeLive.sessions.isEmpty {
                 NotchEmptyView(symbol: "square.grid.2x2", message: text.noCards)
             } else {
                 let rows = rows
                 TimelineView(.periodic(from: .now, by: 15)) { context in
-                    if NotchAgentSupport.contentHeight(rows) > size.height + 0.5 {
+                    if NotchAgentSupport.contentHeight(rows) > size.height + 0.5 || !claudeLive.sessions.isEmpty {
                         ScrollView { grid(rows, now: context.date) }
                             .scrollIndicators(.automatic)
                     } else {
@@ -100,6 +104,9 @@ struct NotchAgentsView: View {
 
     private func grid(_ rows: [[NotchAgentTile]], now: Date) -> some View {
         VStack(spacing: NotchAgentSupport.spacing) {
+            if !claudeLive.sessions.isEmpty {
+                NotchClaudeLiveSection()
+            }
             ForEach(rows, id: \.first?.id) { row in
                 HStack(spacing: NotchAgentSupport.spacing) {
                     ForEach(row) { tile in card(tile, now: now) }

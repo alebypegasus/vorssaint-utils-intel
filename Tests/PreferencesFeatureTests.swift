@@ -407,5 +407,19 @@ enum PreferencesFeatureTests {
         suite.expect(SudoersSupport.clamshellRule(uid: uid_t.max)
                .range(of: #"^#[0-9]+ [A-Za-z0-9()=:,./ ]+$"#, options: .regularExpression) != nil,
                "the closed-lid sudoers rule never contains shell or sudoers metacharacters")
+        let overriddenSudoList = """
+        User alice may run the following commands on mac:
+            (root) NOPASSWD: /usr/bin/pmset disablesleep 1, /usr/bin/pmset disablesleep 0
+            (ALL) ALL
+        """
+        let orderedSudoList = """
+        User alice may run the following commands on mac:
+            (ALL) ALL
+            (root) NOPASSWD: /usr/bin/pmset disablesleep 1, /usr/bin/pmset disablesleep 0
+        """
+        suite.expect(SudoersSupport.hasLaterSudoersOverride(inSudoListOutput: overriddenSudoList),
+               "detects a later (ALL) ALL rule overriding the NOPASSWD pmset entry (#63)")
+        suite.expect(!SudoersSupport.hasLaterSudoersOverride(inSudoListOutput: orderedSudoList),
+               "does not flag a NOPASSWD pmset entry that already sits after (ALL) ALL (#63)")
     }
 }

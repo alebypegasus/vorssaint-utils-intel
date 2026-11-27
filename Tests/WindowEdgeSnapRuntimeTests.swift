@@ -293,6 +293,7 @@ enum WindowEdgeSnapRuntimeTests {
         var edgeSnapLastResolveAt: TimeInterval = 0
         var edgeSnapDrag: WindowEdgeSnapDrag?
         var edgeSnapSequenceGeneration = 0
+        var placementGeneration = 0
         var edgeSnapResolving = false
         var edgeSnapLastPointer: CGPoint?
         var edgeSnapTrail = WindowEdgeSnapPointerTrail()
@@ -738,9 +739,9 @@ enum WindowEdgeSnapRuntimeTests {
         let nativePosition = snappedFrame.origin.applying(CGAffineTransform(translationX: 60, y: 50))
         let positionConfirmed = CGRect(origin: nativePosition, size: restoreSize)
         suite.expect(currentFrame == positionConfirmed
-                && refusedPosition.edgeSnapDrag?.initialFrame == positionConfirmed
-                && refusedPosition.restoreFrames[restoreKey] == nil,
-                     "a refused position after a successful resize records the confirmed frame, not the requested anchor")
+                && refusedPosition.edgeSnapDrag?.restorePending == true
+                && refusedPosition.restoreFrames[restoreKey] != nil,
+                     "a refused position after a successful resize keeps restoration pending without consuming the saved baseline")
         send(refusedPosition, .leftMouseUp, edgePoint)
         suite.expect(refusedPosition.placements.last == WindowLayoutFrame(origin: nativePosition, size: restoreSize),
                      "snapping after a refused position preserves only the frame that actually existed")
@@ -758,6 +759,41 @@ enum WindowEdgeSnapRuntimeTests {
         suite.expect(currentFrame.size == restoreSize && delayed.restoreFrames[restoreKey] == nil
                 && positionWrites.count == 1 && sizeWrites.count == 1,
                      "release observes a late resize without repeating it and completes restoration away from edges")
+
+        reset()
+        let delayedSuperseded = Host()
+        prepareRestore(delayedSuperseded)
+        resizeResponse = .delayed
+        let delayedSupersededPoint = pullRestorable(delayedSuperseded)
+        releaseOnly(delayedSuperseded, at: delayedSupersededPoint)
+        currentFrame.size = pendingSize!
+        delayedSuperseded.placementGeneration += 1
+        DispatchQueue.main.drain()
+        suite.expect(positionWrites.isEmpty
+                && delayedSuperseded.restoreFrames[restoreKey] != nil
+                && delayedSuperseded.lastActions[restoreKey] == .leftHalf,
+                     "a placement made during the 40 ms delayed restore cancels the stale restore completion")
+
+        reset()
+        let midDragSuperseded = Host()
+        prepareRestore(midDragSuperseded)
+        resizeResponse = .delayed
+        _ = pullRestorable(midDragSuperseded)
+        let placedFrame = CGRect(x: 720, y: 24, width: 720, height: 876)
+        let placedLayout = WindowLayoutFrame(origin: placedFrame.origin, size: placedFrame.size)
+        let placedSettled = WindowLayoutSettledFrame(requested: placedLayout, actual: placedLayout)
+        currentFrame = placedFrame
+        midDragSuperseded.placementGeneration += 1
+        midDragSuperseded.lastActions[restoreKey] = .rightHalf
+        midDragSuperseded.settledFrames[restoreKey] = placedSettled
+        send(midDragSuperseded, .leftMouseUp, edgePoint)
+        suite.expect(positionWrites.isEmpty
+                && midDragSuperseded.placements.isEmpty
+                && currentFrame == placedFrame
+                && midDragSuperseded.lastActions[restoreKey] == .rightHalf
+                && midDragSuperseded.settledFrames[restoreKey] == placedSettled
+                && midDragSuperseded.restoreFrames[restoreKey] != nil,
+                     "a placement made mid-drag while restore is pending cancels both the stale restore and release-time edge snap")
 
         for disableSnapping in [false, true] {
             reset()

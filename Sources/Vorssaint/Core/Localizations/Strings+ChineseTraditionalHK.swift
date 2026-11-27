@@ -447,6 +447,8 @@ extension Strings {
         homebrewNotInstalledBadge: "未安裝",
         homebrewUpdates: "更新",
         homebrewUpdateAvailableBadge: "有可用更新",
+        homebrewUpdateRecommendedBadge: "建議",
+        homebrewUpdateOptionalBadge: "選用",
         homebrewLatestVersion: "最新",
         homebrewConfirmInstallTitle: "使用 Homebrew 安裝？",
         homebrewConfirmInstallBodyFormat: "Homebrew 會下載並安裝 %@。亦可能安裝相依套件。",

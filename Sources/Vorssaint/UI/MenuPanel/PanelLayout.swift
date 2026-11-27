@@ -394,7 +394,15 @@ struct PanelReorderableItem<Item: PanelOrderItem, Content: View>: View {
 
     private func itemProvider() -> NSItemProvider {
         dragging = item
-        return NSItemProvider(object: item.rawValue as NSString)
+        let provider = NSItemProvider(object: item.rawValue as NSString)
+        // Marks the drag as a reorder, so the Shelf and the island's drop
+        // area leave it alone instead of offering to keep the text.
+        provider.registerDataRepresentation(forTypeIdentifier: ShelfPasteboardSupport.reorderDragType,
+                                            visibility: .all) { completion in
+            completion(Data(), nil)
+            return nil
+        }
+        return provider
     }
 }
 

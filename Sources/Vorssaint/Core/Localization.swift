@@ -617,6 +617,8 @@ struct Strings {
     let homebrewNotInstalledBadge: String
     let homebrewUpdates: String
     let homebrewUpdateAvailableBadge: String
+    let homebrewUpdateRecommendedBadge: String
+    let homebrewUpdateOptionalBadge: String
     let homebrewLatestVersion: String
     let homebrewConfirmInstallTitle: String
     let homebrewConfirmInstallBodyFormat: String
@@ -1787,6 +1789,8 @@ extension Strings {
         homebrewNotInstalledBadge: "Não instalado",
         homebrewUpdates: "Atualizações",
         homebrewUpdateAvailableBadge: "Atualização disponível",
+        homebrewUpdateRecommendedBadge: "Recomendado",
+        homebrewUpdateOptionalBadge: "Opcional",
         homebrewLatestVersion: "Mais recente",
         homebrewConfirmInstallTitle: "Instalar pelo Homebrew?",
         homebrewConfirmInstallBodyFormat: "O Homebrew vai baixar e instalar %@. Dependências também podem ser instaladas.",
@@ -2923,6 +2927,8 @@ extension Strings {
         homebrewNotInstalledBadge: "Not installed",
         homebrewUpdates: "Updates",
         homebrewUpdateAvailableBadge: "Update available",
+        homebrewUpdateRecommendedBadge: "Recommended",
+        homebrewUpdateOptionalBadge: "Optional",
         homebrewLatestVersion: "Latest",
         homebrewConfirmInstallTitle: "Install with Homebrew?",
         homebrewConfirmInstallBodyFormat: "Homebrew will download and install %@. Dependencies may also be installed.",

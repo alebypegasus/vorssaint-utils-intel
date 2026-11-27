@@ -312,6 +312,7 @@ struct PanelUninstallerView: View {
                 ) {
                     uninstaller.setAllIncluded(uninstaller.bulkSelection.nextInclude)
                 }
+                .fixedSize()
                 Text(String(format: l10n.s.uninstallerSelectedFormat,
                             uninstaller.items.filter(\.include).count, uninstaller.items.count))
                     .font(.system(size: 11, weight: .medium))

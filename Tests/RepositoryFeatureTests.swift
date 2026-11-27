@@ -825,6 +825,60 @@ enum RepositoryFeatureTests {
         suite.expect(HomebrewCommandBuilder.untrustedTapName(fromOutput:
             "from untrusted tap ../evil") == nil,
                "a tap name that fails token validation is rejected")
+        let intelFailure = """
+            Warning: You are using macOS on Intel x86_64.
+            Homebrew no longer builds bottles for this configuration.
+            ==> Upgrading ca-certificates
+            ==> Upgrading ffmpeg
+              8.0.1_4 -> 9.0.2_1
+            Error: Your Xcode (15.2) at /Applications/Xcode.app is too outdated.
+            Please update to Xcode 26.3 (or delete it).
+            This is a Tier 3 configuration:
+            """
+        suite.expect(HomebrewCommandBuilder.isToolchainTooOldFailure(output: intelFailure),
+               "an outdated Xcode that stops a source build is recognised")
+        suite.expect(!HomebrewCommandBuilder.isToolchainTooOldFailure(output:
+            "Warning: You are using macOS on Intel x86_64.\nHomebrew no longer builds bottles for this configuration.\n==> Upgrading jq"),
+               "the unsupported-platform warning alone is not a failure")
+        suite.expect(HomebrewCommandBuilder.packageBeingBuilt(fromOutput: intelFailure) == "ffmpeg",
+               "the package brew stopped on is the last one it announced")
+        suite.expect(HomebrewCommandBuilder.packageBeingBuilt(fromOutput: "Error: nothing happened") == nil,
+               "no announced package gives no name")
+        suite.expect(HomebrewCommandBuilder.upgradePackages(brewPath: "/usr/local/bin/brew", names: ["jq", "firefox"])?.arguments
+                == ["upgrade", "jq", "firefox"],
+               "upgrade is limited to the packages named")
+        suite.expect(HomebrewCommandBuilder.upgradePackages(brewPath: "/usr/local/bin/brew", names: []) == nil
+                && HomebrewCommandBuilder.upgradePackages(brewPath: "/usr/local/bin/brew", names: ["--all"]) == nil,
+               "no valid package name gives no upgrade command")
+        let blockedSuiteName = "vorssaint.tests.homebrew-blocked.\(UUID().uuidString)"
+        if let blockedDefaults = UserDefaults(suiteName: blockedSuiteName) {
+            let ffmpegUpdate = HomebrewPackageUpdate(kind: .formula, name: "ffmpeg",
+                                                     installedVersions: ["8.0.1_4"],
+                                                     currentVersion: "9.0.2_1", isPinned: false)
+            let jqUpdate = HomebrewPackageUpdate(kind: .formula, name: "jq",
+                                                 installedVersions: ["1.7"], currentVersion: "1.8", isPinned: false)
+            HomebrewBlockedUpdates.block(ffmpegUpdate, defaults: blockedDefaults)
+            let blocked = HomebrewBlockedUpdates.load(defaults: blockedDefaults)
+            let visible = HomebrewBlockedUpdates.visible([ffmpegUpdate.id: ffmpegUpdate, jqUpdate.id: jqUpdate],
+                                                         blocked: blocked)
+            suite.expect(visible.keys.sorted() == [jqUpdate.id],
+                   "a blocked update disappears from the offered updates and the others stay")
+            let newerFfmpeg = HomebrewPackageUpdate(kind: .formula, name: "ffmpeg",
+                                                    installedVersions: ["8.0.1_4"],
+                                                    currentVersion: "9.1", isPinned: false)
+            suite.expect(HomebrewBlockedUpdates.visible([newerFfmpeg.id: newerFfmpeg], blocked: blocked).count == 1,
+                   "a newer release of a blocked package is offered again")
+            blockedDefaults.removePersistentDomain(forName: blockedSuiteName)
+        }
+        func advice(_ kind: HomebrewPackageKind, _ name: String) -> Bool {
+            HomebrewUpdateAdvice.isRecommended(HomebrewPackageUpdate(kind: kind, name: name,
+                installedVersions: ["1"], currentVersion: "2", isPinned: false))
+        }
+        suite.expect(advice(.formula, "openssl@4") && advice(.formula, "ca-certificates")
+                && advice(.formula, "curl") && advice(.cask, "firefox"),
+               "security-sensitive updates are recommended")
+        suite.expect(!advice(.formula, "ffmpeg") && !advice(.formula, "cmake") && !advice(.cask, "kdenlive"),
+               "libraries, codecs, build tools and ordinary apps are optional")
         let trustCommand = HomebrewCommandBuilder.trustTap(brewPath: "/opt/homebrew/bin/brew", tap: "someone/sometap")
         suite.expect(trustCommand.arguments == ["trust", "--tap", "someone/sometap"],
                "trust command targets the tap explicitly")

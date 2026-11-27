@@ -446,6 +446,8 @@ extension Strings {
         homebrewNotInstalledBadge: "未インストール",
         homebrewUpdates: "更新",
         homebrewUpdateAvailableBadge: "更新あり",
+        homebrewUpdateRecommendedBadge: "推奨",
+        homebrewUpdateOptionalBadge: "任意",
         homebrewLatestVersion: "最新",
         homebrewConfirmInstallTitle: "Homebrew でインストールしますか？",
         homebrewConfirmInstallBodyFormat: "Homebrew が %@ をダウンロードしてインストールします。依存関係もインストールされる場合があります。",

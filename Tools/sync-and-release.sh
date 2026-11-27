@@ -141,11 +141,11 @@ if [[ -n "$SYNC_REF" ]]; then
     echo "▸ Merging $SYNC_REF into current branch…"
     if ! git merge --no-edit -X patience "$SYNC_REF" -m "chore(sync): sync upstream $SYNC_REF with Universal 2 support" 2>/dev/null; then
         echo "⚠️ Merge notice: resolving conflicts in build/workflow/version files…"
-        # Always keep our custom build scripts, DMG packager, workflows, and fork README
-        git checkout --ours build.sh Tools/make-dmg.sh Tools/sync-and-release.sh .github/workflows/ README.md 2>/dev/null || true
+        # Always keep our custom build scripts, DMG packager, installer, workflows, and fork README
+        git checkout --ours build.sh Tools/make-dmg.sh Tools/sync-and-release.sh Tools/install.sh .github/workflows/ README.md 2>/dev/null || true
         # Take upstream CHANGELOG, Info.plist, and SwitcherModelFeatureTests before version alignment below
         git checkout --theirs CHANGELOG.md Resources/Info.plist Tests/SwitcherModelFeatureTests.swift 2>/dev/null || true
-        git add build.sh Tools/make-dmg.sh Tools/sync-and-release.sh .github/workflows/ README.md CHANGELOG.md Resources/Info.plist Tests/SwitcherModelFeatureTests.swift 2>/dev/null || true
+        git add build.sh Tools/make-dmg.sh Tools/sync-and-release.sh Tools/install.sh .github/workflows/ README.md CHANGELOG.md Resources/Info.plist Tests/SwitcherModelFeatureTests.swift 2>/dev/null || true
 
         UNRESOLVED=$(git diff --name-only --diff-filter=U || true)
         if [[ -n "$UNRESOLVED" ]]; then
@@ -153,9 +153,15 @@ if [[ -n "$SYNC_REF" ]]; then
             echo "$UNRESOLVED" >&2
             git merge --abort || true
             if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
-                gh issue create -R "$CURRENT_REPO" \
-                    --title "🚨 Upstream Sync Conflict for $TAG" \
-                    --body "Automated sync with upstream \`$SYNC_REF\` encountered merge conflicts in the following files:\n\`\`\`\n$UNRESOLVED\n\`\`\`\nPlease resolve manually." || true
+                EXISTING_CONFLICT_ISSUE=$(gh issue list -R "$CURRENT_REPO" --state open --search "Upstream Sync Conflict" --json number --jq '.[0].number // empty' 2>/dev/null || true)
+                CONFLICT_BODY=$(printf 'Automated sync with upstream `%s` (target `%s`) encountered merge conflicts in:\n```\n%s\n```\nPlease resolve manually.' "$SYNC_REF" "$TAG" "$UNRESOLVED")
+                if [[ -n "$EXISTING_CONFLICT_ISSUE" ]]; then
+                    gh issue comment "$EXISTING_CONFLICT_ISSUE" -R "$CURRENT_REPO" --body "$CONFLICT_BODY" || true
+                else
+                    gh issue create -R "$CURRENT_REPO" \
+                        --title "🚨 Upstream Sync Conflict for $TAG" \
+                        --body "$CONFLICT_BODY" || true
+                fi
             fi
             exit 1
         fi
@@ -245,30 +251,35 @@ if [[ "$UPSTREAM_BODY" == *"Not Found"* || "$UPSTREAM_BODY" == *"API rate limit"
 fi
 
 RELEASE_NOTES=$(cat <<EOF
-### 🚀 Vorssaint Utils $TAG — Universal Edition (Apple Silicon & Intel)
+### 🚀 Vorssaint Utils $TAG — Universal 2 Edition (Apple Silicon & Intel)
 
-Esta versão traz suporte nativo e universal para processadores **Apple Silicon** (\`arm64\`) e **Intel** (\`x86_64\`), sincronizada automaticamente com o projeto upstream [\`$UPSTREAM_REPO\`](https://github.com/$UPSTREAM_REPO).
+Native Universal 2 build for **Apple Silicon** (\`arm64\`) and **Intel** (\`x86_64\`) Macs, synced with upstream [\`$UPSTREAM_REPO\`](https://github.com/$UPSTREAM_REPO) (\`${LATEST_UPSTREAM_TAG:-latest}\`).
+*Versão nativa Universal 2 para Macs **Apple Silicon** (\`arm64\`) e **Intel** (\`x86_64\`), sincronizada com o projeto upstream.*
 
-#### Destaques
-- **Binário Universal 2**: compilação nativa para Apple Silicon (\`arm64\`) e Macs Intel (\`x86_64\`).
-- **Métricas e Sensores Intel**: suporte completo para leitura de temperatura por núcleo e pacote SMC Intel (\`TC0C\`-\`TCFC\`, \`TC0D\`-\`TC3D\`, \`TC0P\`, etc.).
-- **Potência em Watts no Intel**: chaves de consumo do pacote CPU e sistema (\`PCPC\`, \`PCPG\`, \`PCPT\`, \`PCPR\`).
-- **GPU Intel e AMD**: detecção de temperatura e uso para gráficos integrados e placas dedicadas.
-- **Monitores HDR / Hackintosh**: suporte a EDR headroom boost para displays externos.
+#### Highlights / Destaques
+- **Universal 2 Binaries:** Native dual-slice \`arm64\` + \`x86_64\` binaries for the app, Fan Control helper, and Now Playing adapter, shipped with SHA-256 checksum verification (\`Vorssaint-${VERSION}.dmg.sha256\`).
+- **Intel Hardware & Reliability Fixes:** Unified Intel CPU/GPU SMC temperature discovery (\`TC0C\`–\`TCFC\`, \`TC0D\`–\`TC3D\`, \`TC0P\`, \`TCGC\`, \`TG*\`), fixed x86_64 Lock Screen Dynamic Island space-level call, and improved non-admin Clamshell sudoers diagnostics.
+- **Intel Homebrew Protection & Stable Installer:** Automatically hides Intel updates blocked by outdated Xcode toolchains, adds Recommended/Optional update badges, and includes \`Tools/install.sh --stable-signing\` to preserve macOS permissions across upgrades.
+- **Dynamic Island & UX Enhancements:** Camera/microphone privacy dots, Quiet Hours for passive notices, local Claude Code live hooks (sessions, approvals, plans & questions on \`127.0.0.1:47615\`), 1–95% typeable Keep Awake battery limit, smooth in-place Audio Priority drag reordering, Uninstaller footer polish, Window Edge Snap race fix, and optional post-update support popup suppression.
 
 ---
 
-### Notas da Versão Upstream
-${UPSTREAM_BODY:-"Consulte o repositório original para o changelog detalhado das últimas atualizações."}
+### Upstream Release Notes / Notas do Upstream
+${UPSTREAM_BODY:-"See the upstream repository for detailed upstream release notes."}
 EOF
 )
 
+RELEASE_ASSETS=("$DMG_PATH")
+if [[ -f "${DMG_PATH}.sha256" ]]; then
+    RELEASE_ASSETS+=("${DMG_PATH}.sha256")
+fi
+
 if gh release view "$TAG" -R "$CURRENT_REPO" >/dev/null 2>&1; then
-    echo "▸ Release $TAG already exists on GitHub, updating DMG asset…"
-    gh release upload "$TAG" "$DMG_PATH" --clobber -R "$CURRENT_REPO"
+    echo "▸ Release $TAG already exists on GitHub, updating assets…"
+    gh release upload "$TAG" "${RELEASE_ASSETS[@]}" --clobber -R "$CURRENT_REPO"
 else
     echo "▸ Creating new GitHub Release $TAG…"
-    gh release create "$TAG" "$DMG_PATH" \
+    gh release create "$TAG" "${RELEASE_ASSETS[@]}" \
         --repo "$CURRENT_REPO" \
         --title "Vorssaint Utils $TAG (Universal Apple Silicon & Intel)" \
         --notes "$RELEASE_NOTES"

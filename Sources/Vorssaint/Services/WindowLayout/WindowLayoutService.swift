@@ -75,6 +75,9 @@ final class WindowLayoutService: ObservableObject {
     private var edgeSnapLastResolveAt: TimeInterval = 0
     private var edgeSnapDrag: WindowEdgeSnapDrag?
     private var edgeSnapSequenceGeneration = 0
+    /// Bumped on every placement entry point so a delayed post-drag size
+    /// restore cannot overwrite a keyboard or panel placement made in between.
+    private var placementGeneration = 0
     private var edgeSnapResolving = false
     private var edgeSnapLastPointer: CGPoint?
     private var edgeSnapTrail = WindowEdgeSnapPointerTrail()
@@ -266,6 +269,7 @@ final class WindowLayoutService: ObservableObject {
                                                           current: target.frame) else {
                 return finish(.failure(.noRestore))
             }
+            placementGeneration += 1
             if setFrame(previous, on: target.window, windowKey: target.key) {
                 lastActions.removeValue(forKey: target.key)
                 restoreFrames.removeValue(forKey: target.key)
@@ -276,6 +280,7 @@ final class WindowLayoutService: ObservableObject {
         }
 
         if action == .fullScreen {
+            placementGeneration += 1
             // A placement still settling must never write its old frame over
             // the native full-screen transition that replaces it.
             cancelSettle(for: target.windowID)
@@ -313,9 +318,12 @@ final class WindowLayoutService: ObservableObject {
                                                    movingForward: action == .nextDisplay) else {
                 return finish(.failure(.failed))
             }
+            placementGeneration += 1
             let rect = WindowLayoutGeometry.rectForDisplay(current: currentRect,
                                                            sourceVisibleFrame: screen.windowLayoutVisibleFrame,
                                                            destinationVisibleFrame: destination.windowLayoutVisibleFrame)
+            let previousRestoreFrame = restoreFrames[target.key]
+            let clearRestore = !isSnapped(target)
             frameHistory.record(target.frame, for: target.key)
             if setFrame(axFrame(fromAppKit: rect),
                         targetRect: rect,
@@ -323,10 +331,12 @@ final class WindowLayoutService: ObservableObject {
                         action: action,
                         on: target.window,
                         windowKey: target.key) {
+                if clearRestore { restoreFrames.removeValue(forKey: target.key) }
                 lastActions[target.key] = action
                 return finish(.success(restored: false))
             }
             frameHistory.discardLatest(for: target.key)
+            restoreFrames[target.key] = previousRestoreFrame
             return finish(.failure(.failed))
         }
         let sideRepeatCyclesThirds = WindowLayoutSideRepeat.cyclesThirds
@@ -372,6 +382,7 @@ final class WindowLayoutService: ObservableObject {
                                 historyFrame: WindowLayoutFrame? = nil,
                                 cyclesRepeatedAction: Bool = true,
                                 sideRepeatCyclesThirds: Bool = false) -> WindowLayoutResult {
+        placementGeneration += 1
         let currentRect = appKitFrame(fromAX: target.frame)
         let previousAction = cyclesRepeatedAction ? lastActions[target.key] : nil
         let cyclePress = WindowLayoutGeometry.sideCyclePress(for: action,
@@ -1804,14 +1815,18 @@ final class WindowLayoutService: ObservableObject {
     private func finishEdgeSnapRelease(_ drag: WindowEdgeSnapDrag,
                                        target: WindowEdgeSnapTarget?,
                                        pointer: CGPoint) {
-        guard drag.restorePending || target != nil else { return }
+        guard !drag.placementSuperseded, drag.restorePending || target != nil else { return }
         let generation = edgeSnapSequenceGeneration
+        let placement = placementGeneration
         let finish = { [weak self] in
-            guard let self, generation == self.edgeSnapSequenceGeneration else { return }
+            guard let self,
+                  generation == self.edgeSnapSequenceGeneration,
+                  placement == self.placementGeneration else { return }
             var completed = drag
             if completed.restorePending,
                (!self.edgeSnapCanTrack || !self.edgeSnapWindowIsEligible(completed)) { return }
             self.finishSnappedWindowRestore(&completed, pointer: pointer)
+            guard !completed.placementSuperseded else { return }
             if completed.restorePending,
                let actual = self.frame(of: completed.window) {
                 // A refusal must not consume the original size. Keep the
@@ -2021,6 +2036,7 @@ final class WindowLayoutService: ObservableObject {
             ?? EnhancedUserInterfaceSuspension.suspend(forAppOf: drag.window)
         defer { suspension?.resume() }
         drag.restorePending = true
+        drag.restorePlacementGeneration = placementGeneration
         // Move only after the app confirms a size. A refusal must not reposition
         // a still-large window using the width of the smaller requested frame.
         _ = setSize(restore.size, on: drag.window)
@@ -2046,7 +2062,13 @@ final class WindowLayoutService: ObservableObject {
     }
 
     private func finishSnappedWindowRestore(_ drag: inout WindowEdgeSnapDrag, pointer: CGPoint) {
-        guard drag.restorePending, canRestoreSnappedWindow(drag),
+        guard drag.restorePending else { return }
+        if drag.restorePlacementGeneration != placementGeneration {
+            drag.restorePending = false
+            drag.placementSuperseded = true
+            return
+        }
+        guard canRestoreSnappedWindow(drag),
               let actual = frame(of: drag.window),
               WindowEdgeSnapSupport.needsSizeRestore(from: drag.initialFrame.size, to: actual.size)
         else { return }
@@ -2055,8 +2077,8 @@ final class WindowLayoutService: ObservableObject {
                                                        pointerStart: drag.pointerStart,
                                                        pointerNow: pointer,
                                                        screenFrame: drag.quartzScreenFrames.first { $0.contains(pointer) })
-        _ = setPosition(rect.origin, on: drag.window)
-        guard let confirmed = frame(of: drag.window) else { return }
+        guard setPosition(rect.origin, on: drag.window),
+              let confirmed = frame(of: drag.window) else { return }
         lastActions.removeValue(forKey: drag.key)
         settledFrames.removeValue(forKey: drag.key)
         restoreFrames.removeValue(forKey: drag.key)
@@ -3251,6 +3273,11 @@ private struct WindowEdgeSnapDrag {
     var isMoving: Bool
     var target: WindowEdgeSnapTarget?
     var restorePending = false
+    /// The `placementGeneration` when `restorePending` was armed. If a layout
+    /// placement runs before restoration completes, both the restore and any
+    /// release-time snap for this drag are superseded.
+    var restorePlacementGeneration: Int?
+    var placementSuperseded = false
 }
 
 /// A press the tap is holding while it is still undecided. It keeps the

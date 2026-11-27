@@ -2545,6 +2545,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     private func showSupportUpdateIntroIfNeeded() -> Bool {
+        guard !UserDefaults.standard.bool(forKey: DefaultsKey.suppressSupportUpdatePopup) else { return false }
         // Stable patches share one invitation, even if the first installed
         // version in this release series is a hotfix.
         guard SupportUpdateIntroInfo.shouldShow(

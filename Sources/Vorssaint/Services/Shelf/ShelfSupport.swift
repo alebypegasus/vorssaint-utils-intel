@@ -263,6 +263,15 @@ enum ShelfInteractionSupport {
 
 /// Types accepted by the native shelf drop targets.
 enum ShelfPasteboardSupport {
+    /// Carried by this app's own reorder drags (menu panel sections), whose
+    /// plain text would otherwise read as a note to drop on the Shelf.
+    static let reorderDragType = "com.vorssaint.utils.reorder-drag"
+
+    /// A drag that only moves something within this app, not content.
+    static func isReorderDrag(_ types: [String]) -> Bool {
+        types.contains(reorderDragType)
+    }
+
     /// Orders a mixed drop by pasteboard position. Receivers follow the
     /// promised pasteboard items in order; a receiver without one goes last.
     static func mergedItemIndices(companionPositions: [Int], receiverIndices: [Int],

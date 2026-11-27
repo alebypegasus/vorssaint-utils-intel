@@ -2027,7 +2027,8 @@ enum NotchSupport {
     }
 
     static func routes(_ event: NotchEvent, in defaults: UserDefaults = .standard) -> Bool {
-        guard isEnabled(in: defaults), defaults.bool(forKey: event.preferenceKey) else { return false }
+        guard isEnabled(in: defaults), defaults.bool(forKey: event.preferenceKey),
+              !NotchQuiet.suppresses(event, in: defaults) else { return false }
         switch event {
         case .timer: return NotchTimerSupport.isEnabled(in: defaults)
         case .watch: return NotchWatchSupport.isEnabled(in: defaults)

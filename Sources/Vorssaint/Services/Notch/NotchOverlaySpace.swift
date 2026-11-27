@@ -26,7 +26,12 @@ final class NotchOverlaySpace {
     private typealias SpacesFunction = @convention(c) (ConnectionID, CFArray) -> Int32
     private typealias WindowsFunction = @convention(c) (ConnectionID, CFArray, CFArray) -> Void
     private typealias DestroyFunction = @convention(c) (ConnectionID, UInt64) -> Void
-    private typealias LevelFunction = @convention(c) (ConnectionID, UInt64, Int32) -> Int32
+    // CGSSpaceSetAbsoluteLevel returns void in SkyLight; typing it as Int32 reads
+    // arbitrary garbage from eax on x86_64 (Intel / Rosetta) and aborts lock-screen
+    // Space creation (#52). Verify the resulting level via CGSSpaceGetAbsoluteLevel
+    // when that symbol is exported.
+    private typealias LevelFunction = @convention(c) (ConnectionID, UInt64, Int32) -> Void
+    private typealias GetLevelFunction = @convention(c) (ConnectionID, UInt64) -> Int32
 
     private struct Bridge {
         let connection: ConnectionID
@@ -37,6 +42,7 @@ final class NotchOverlaySpace {
         let remove: WindowsFunction
         let destroy: DestroyFunction
         let setLevel: LevelFunction?
+        let getLevel: GetLevelFunction?
     }
 
     private static let bridge: Bridge? = {
@@ -56,7 +62,8 @@ final class NotchOverlaySpace {
                       add: unsafeBitCast(add, to: WindowsFunction.self),
                       remove: unsafeBitCast(remove, to: WindowsFunction.self),
                       destroy: unsafeBitCast(destroy, to: DestroyFunction.self),
-                      setLevel: symbol("CGSSpaceSetAbsoluteLevel").map { unsafeBitCast($0, to: LevelFunction.self) })
+                      setLevel: symbol("CGSSpaceSetAbsoluteLevel").map { unsafeBitCast($0, to: LevelFunction.self) },
+                      getLevel: symbol("CGSSpaceGetAbsoluteLevel").map { unsafeBitCast($0, to: GetLevelFunction.self) })
     }()
 
     private let bridge: Bridge
@@ -70,7 +77,13 @@ final class NotchOverlaySpace {
         let space = bridge.create(bridge.connection, 1, nil)
         guard space != 0 else { return nil }
         if let absoluteLevel {
-            guard let setLevel = bridge.setLevel, setLevel(bridge.connection, space, absoluteLevel) == 0 else {
+            guard let setLevel = bridge.setLevel else {
+                bridge.destroy(bridge.connection, space)
+                return nil
+            }
+            setLevel(bridge.connection, space, absoluteLevel)
+            if let getLevel = bridge.getLevel,
+               getLevel(bridge.connection, space) != absoluteLevel {
                 bridge.destroy(bridge.connection, space)
                 return nil
             }

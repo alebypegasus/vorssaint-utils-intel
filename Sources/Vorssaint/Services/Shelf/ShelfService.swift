@@ -591,9 +591,9 @@ final class ShelfService: ObservableObject {
     }
 
     private func pasteboardHasDroppableContent(_ pasteboard: NSPasteboard) -> Bool {
-        (pasteboard.types ?? []).contains {
-            ShelfPasteboardSupport.isDroppablePasteboardType($0.rawValue)
-        }
+        let types = (pasteboard.types ?? []).map(\.rawValue)
+        guard !ShelfPasteboardSupport.isReorderDrag(types) else { return false }
+        return types.contains(where: ShelfPasteboardSupport.isDroppablePasteboardType)
     }
 
     private func eventBelongsToDock(_ event: NSEvent) -> Bool {

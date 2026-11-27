@@ -2864,11 +2864,20 @@ struct KeepAwakeCard: View {
                         title: displaySleepStrings.allowDisplaySleep,
                         isOn: $keepAwakeAllowDisplaySleep
                     )
-                    compactOptionToggle(
-                        icon: "play.circle",
-                        title: l10n.s.keepAwakeAutoStart,
-                        isOn: $keepAwakeAutoStart
-                    )
+                    if PowerSampler.hasInternalBattery {
+                        HStack(spacing: 7) {
+                            Image(systemName: "battery.25percent")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 15)
+                            Text(l10n.s.batteryDisableBelow)
+                                .font(.system(size: 11, weight: .medium))
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 8)
+                            BatteryLimitControl(compact: true)
+                        }
+                    }
                     automationDisclosure
                     compactOptionToggle(
                         icon: "cursorarrow.motionlines",
@@ -2920,6 +2929,11 @@ struct KeepAwakeCard: View {
                 VStack(alignment: .leading, spacing: 8) {
                     KeepAwakeAutomationEditor(compact: true)
                     compactOptionToggle(
+                        icon: "play.circle",
+                        title: l10n.s.keepAwakeAutoStart,
+                        isOn: $keepAwakeAutoStart
+                    )
+                    compactOptionToggle(
                         icon: "lock.fill",
                         title: automationStrings.pauseWhenLockedToggle,
                         isOn: $keepAwakePauseWhenLocked
@@ -2935,6 +2949,7 @@ struct KeepAwakeCard: View {
         if !keepAwakeExternalDisplay,
            !keepAwakeConnectedToPower,
            !keepAwakeRunningApps,
+           !keepAwakeAutoStart,
            !keepAwakePauseWhenLocked {
             Text(automationStrings.automationOff)
                 .font(.system(size: 9.5, weight: .medium))
@@ -2949,6 +2964,9 @@ struct KeepAwakeCard: View {
                 }
                 if keepAwakeRunningApps {
                     automationSystemBadge("app.fill")
+                }
+                if keepAwakeAutoStart {
+                    automationSystemBadge("play.circle")
                 }
                 if keepAwakePauseWhenLocked {
                     automationSystemBadge("lock.fill")

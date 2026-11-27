@@ -219,6 +219,11 @@ enum ShelfFeatureTests {
         suite.expect(!ShelfPasteboardSupport.isDroppablePasteboardType(
             "com.vorssaint.tests.not-a-real-pasteboard-type"),
                "unrelated pasteboard types do not activate the shelf")
+        suite.expect(ShelfPasteboardSupport.isReorderDrag(
+            [NSPasteboard.PasteboardType.string.rawValue, ShelfPasteboardSupport.reorderDragType]),
+               "an in-app reorder drag is recognized even though it carries text")
+        suite.expect(!ShelfPasteboardSupport.isReorderDrag([NSPasteboard.PasteboardType.string.rawValue]),
+               "dragged text from elsewhere is not a reorder")
         ShelfFilePromiseTests.run(suite)
         ShelfDropRoutingTests.run(suite)
 

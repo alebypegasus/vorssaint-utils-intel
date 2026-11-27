@@ -332,6 +332,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/AgentUsage/AgentCLIConversation.swift
         Sources/Vorssaint/Services/AgentUsage/AgentClaudeServer.swift
         Sources/Vorssaint/Services/AgentUsage/ClaudeAccountProfile.swift
+        Sources/Vorssaint/Services/AgentUsage/ClaudeLiveSupport.swift
         Sources/Vorssaint/Services/AgentUsage/AgentCodexServer.swift
         Sources/Vorssaint/Services/AgentUsage/CodexAccountLimits.swift
         Sources/Vorssaint/Services/AgentUsage/CodexProfileLimitsService.swift
@@ -344,6 +345,7 @@ if (( TEST )); then
         Sources/Vorssaint/Services/Notch/NotchCalendarSupport.swift
         Sources/Vorssaint/Services/Notch/NotchKeepAwakeSupport.swift
         Sources/Vorssaint/Services/Notch/NotchSupport.swift
+        Sources/Vorssaint/Services/Notch/NotchQuietSupport.swift
         Sources/Vorssaint/Services/Notch/NotchMenuBarSpace.swift
         Sources/Vorssaint/Services/Notch/NotchAudioLevelSupport.swift
         Sources/Vorssaint/Services/Notch/NotchVolumeKeyGate.swift

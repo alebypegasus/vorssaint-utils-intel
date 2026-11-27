@@ -446,6 +446,8 @@ extension Strings {
         homebrewNotInstalledBadge: "Non installato",
         homebrewUpdates: "Aggiornamenti",
         homebrewUpdateAvailableBadge: "Aggiornamento disponibile",
+        homebrewUpdateRecommendedBadge: "Consigliato",
+        homebrewUpdateOptionalBadge: "Facoltativo",
         homebrewLatestVersion: "Più recente",
         homebrewConfirmInstallTitle: "Installare con Homebrew?",
         homebrewConfirmInstallBodyFormat: "Homebrew scaricherà e installerà %@. Potrebbero essere installate anche dipendenze.",
